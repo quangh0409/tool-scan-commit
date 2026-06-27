@@ -8,9 +8,9 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
-- **Giai đoạn:** Bước 0 — dựng VM + môi trường.
-- **Việc kế tiếp:** Bước 1 — skeleton + pipeline source-only (git enumerate → tool tầng rẻ qua Docker → normalize → consensus → SQLite), test ~50 commit train-ticket.
-- **Repo này đã là git repo?** Chưa (`git init` khi bắt đầu Bước 1).
+- **Giai đoạn:** Bước 1 — skeleton source-only ĐÃ DỰNG XONG + unit-test pass (chưa chạy Docker thật).
+- **Việc kế tiếp:** chạy pilot thật `scan` 50 commit train-ticket (clone repo + pull image gitleaks/semgrep). Rồi Bước 2 (tool tầng đắt).
+- **Repo này đã là git repo?** Rồi (`git init` + commit "init").
 
 ---
 
@@ -29,9 +29,17 @@
 ### Đang dở / lưu ý
 - ⚠️ Tiến trình Claude Code hiện tại vẫn giữ nhóm cũ (chưa có `docker` trong `id`) → tạm thời gọi docker qua `sg docker -c "..."`. Sửa triệt để: thoát claude → SSH login mới → chạy lại `claude`.
 
-### Kế tiếp (Bước 1)
-1. `git init` repo này + cấu trúc thư mục Python orchestrator.
-2. Module git enumerate (clone repo target → liệt kê commit, lọc thô merge/docs/non-Java).
-3. Wrapper Docker cho tool tầng rẻ (bắt đầu gitleaks + Semgrep) chạy trên diff.
-4. Normalize → SARIF → consensus đơn giản → ghi SQLite.
-5. Chạy thử ~50 commit đầu của train-ticket. Chứng minh end-to-end.
+### Đã xong (Bước 1 — skeleton)
+- `git init` + commit "init". Cấu trúc `src/orchestrator/` (stdlib-only, không cần pip).
+- `schema.py`: `RawFinding` + `DatasetRow`, hàm `validate()` ÉP `cwe` không rỗng + `s_line>0` (yêu cầu người dùng). `normalize_cwe()`.
+- `enumerate_commits.py` (Tầng ①): clone/update, list commit, `get_commit_info`, `coarse_filter` (bỏ merge/docs/non-code). Test trên repo local OK.
+- `tools/`: `base.ToolWrapper` + `docker_run` (tự bọc `sg docker -c` khi ORCH_DOCKER_SG=1); `gitleaks.py` (map cứng CWE-798), `semgrep.py` (p/security-audit + p/secrets, lấy CWE từ metadata).
+- `consensus/matcher.py` (Tầng ⑥): gộp cụm `(file, CWE giao nhau, |s_line|≤W)`, vote → confidence = n_agree/n_ran, silver_label. Test 2-tool-1-cụm OK.
+- `storage/sqlite_store.py`: ghi SQLite, cwe/agreeing_tools → JSON. Round-trip OK.
+- `cli.py`: lệnh `enumerate` (không cần Docker) + `scan` (full phễu). `README.md`.
+- **Unit test (không Docker) PASS:** normalize_cwe, validate ép cwe/s_line, consensus, enumerate local, storage.
+
+### Kế tiếp
+1. **Chạy pilot THẬT:** `ORCH_DOCKER_SG=1 python -m orchestrator.cli scan <train-ticket> --max 50` — sẽ clone train-ticket (nặng) + pull image gitleaks/semgrep lần đầu. Kiểm tra dataset SQLite ra đúng.
+2. Tinh chỉnh: per-commit checkout có thể chậm; cân nhắc quét trên diff thay vì cả cây.
+3. Bước 2: thêm tool tầng đắt (CodeQL/FindSecBugs/Sonar) + adapter SARIF.
