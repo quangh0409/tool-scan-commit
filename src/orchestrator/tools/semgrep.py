@@ -9,10 +9,11 @@ import json
 from pathlib import Path
 
 from ..schema import RawFinding, normalize_cwe
-from .base import ToolWrapper, docker_run
+from .base import ToolWrapper, canon_path, docker_run
 
 IMAGE = "semgrep/semgrep:latest"
-CONFIGS = ["p/security-audit", "p/secrets"]
+# p/default phủ rộng (đã verify bắt CWE-89, hỗ trợ Java/Python/JS); p/secrets cho secret
+CONFIGS = ["p/default", "p/secrets"]
 
 
 def _extract_cwe(meta: dict) -> list[str]:
@@ -26,14 +27,24 @@ def _extract_cwe(meta: dict) -> list[str]:
 class SemgrepWrapper(ToolWrapper):
     name = "semgrep"
     tier = "cheap"
+    image = IMAGE
 
-    def scan(self, repo_dir: Path, commit_id: str, repo: str) -> list[RawFinding]:
+    def version(self) -> str | None:
+        proc = docker_run(["run", "--rm", IMAGE, "semgrep", "--version"], timeout=60)
+        return (proc.stdout or "").strip().splitlines()[0] if proc.stdout.strip() else None
+
+    def scan(self, repo_dir: Path, commit_id: str, repo: str,
+             changed_files: list[str]) -> list[RawFinding]:
+        if not changed_files:
+            return []
         cfg_args = []
         for c in CONFIGS:
             cfg_args += ["--config", c]
+        # chỉ quét các file thay đổi (diff-scoped), không quét toàn cây
+        targets = [f"/src/{f}" for f in changed_files]
         proc = docker_run([
             "run", "--rm", "-v", f"{repo_dir}:/src", IMAGE,
-            "semgrep", "scan", *cfg_args, "--json", "--quiet", "/src",
+            "semgrep", "scan", *cfg_args, "--json", "--quiet", *targets,
         ], timeout=900)
         try:
             data = json.loads(proc.stdout or "{}")
@@ -52,7 +63,7 @@ class SemgrepWrapper(ToolWrapper):
                 continue
             findings.append(RawFinding(
                 repo=repo, commit_id=commit_id,
-                file_path=r.get("path", "").removeprefix("/src/"),
+                file_path=canon_path(r.get("path", "")),
                 s_line=int(start),
                 e_line=r.get("end", {}).get("line"),
                 cwe=cwe,

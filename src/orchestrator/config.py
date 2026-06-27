@@ -23,6 +23,8 @@ DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".png", ".jpg", ".gif", ".svg"
 
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)
+# ngưỡng số tool đồng thuận để gán nhãn "vuln"; 1..K-1 => "candidate"; 0 => "clean"
+VOTE_THRESHOLD = int(os.environ.get("ORCH_VOTE_THRESHOLD", "2"))
 
 # --- Ngữ cảnh file ---
 # Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).

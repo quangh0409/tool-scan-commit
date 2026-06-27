@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from ..schema import RawFinding
-from .base import ToolWrapper, docker_run
+from .base import ToolWrapper, canon_path, docker_run
 
 IMAGE = "zricethezav/gitleaks:latest"
 SECRET_CWE = ["CWE-798"]  # Use of Hard-coded Credentials
@@ -18,12 +18,20 @@ SECRET_CWE = ["CWE-798"]  # Use of Hard-coded Credentials
 class GitleaksWrapper(ToolWrapper):
     name = "gitleaks"
     tier = "cheap"
+    image = IMAGE
 
-    def scan(self, repo_dir: Path, commit_id: str, repo: str) -> list[RawFinding]:
-        # quét thư mục đã checkout, xuất JSON ra stdout
+    def version(self) -> str | None:
+        proc = docker_run(["run", "--rm", IMAGE, "version"], timeout=60)
+        return (proc.stdout or "").strip() or None
+
+    def scan(self, repo_dir: Path, commit_id: str, repo: str,
+             changed_files: list[str]) -> list[RawFinding]:
+        # git-mode: chỉ quét DIFF của đúng commit này (secret được THÊM vào),
+        # không quét lại toàn cây mỗi commit -> rẻ + đúng ngữ nghĩa.
         proc = docker_run([
             "run", "--rm", "-v", f"{repo_dir}:/repo", IMAGE,
-            "detect", "--source", "/repo", "--no-git",
+            "detect", "--source", "/repo",
+            "--log-opts", f"-1 --no-merges {commit_id}",
             "--report-format", "json", "--report-path", "/dev/stdout",
             "--exit-code", "0",
         ])
@@ -39,7 +47,7 @@ class GitleaksWrapper(ToolWrapper):
                 continue
             findings.append(RawFinding(
                 repo=repo, commit_id=commit_id,
-                file_path=item.get("File", ""),
+                file_path=canon_path(item.get("File", "")),
                 s_line=int(line),
                 e_line=item.get("EndLine"),
                 cwe=list(SECRET_CWE),

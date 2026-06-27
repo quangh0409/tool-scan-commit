@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS findings (
     s_line INTEGER NOT NULL,          -- BẮT BUỘC
     e_line INTEGER, function TEXT,
     s_detail_line TEXT NOT NULL,      -- JSON list các dòng cụ thể, BẮT BUỘC
+    finding_in_diff INTEGER,          -- 1=lỗi commit này tạo, 0=nợ cũ, NULL=?
     tool TEXT, rule_id TEXT, severity TEXT,
     cwe TEXT NOT NULL,                -- JSON list, BẮT BUỘC
     owasp TEXT, cve TEXT,
@@ -29,15 +30,36 @@ CREATE TABLE IF NOT EXISTS findings (
     code_before TEXT, code_after TEXT,
     n_tools_ran INTEGER, n_tools_agree INTEGER,
     agreeing_tools TEXT, agreement_ratio REAL,
-    confidence REAL, silver_label TEXT
+    confidence REAL, silver_label TEXT  -- vuln | candidate | clean
 );
 CREATE INDEX IF NOT EXISTS idx_commit ON findings(commit_id);
 CREATE INDEX IF NOT EXISTS idx_cwe ON findings(cwe);
+
+-- MẪU SỐ: mọi (commit, file) đã quét + số finding. n_findings=0 => negative/clean.
+-- Cần để dựng confusion matrix (benchmark) và có NEGATIVE thật cho train.
+CREATE TABLE IF NOT EXISTS scanned_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo TEXT, commit_id TEXT, parent_commit TEXT, author_date TEXT,
+    file_path TEXT NOT NULL,
+    n_findings INTEGER NOT NULL,
+    n_tools_ran INTEGER, tools TEXT,   -- JSON list tool đã chạy
+    label TEXT NOT NULL                -- clean (0 finding) | has_finding
+);
+CREATE INDEX IF NOT EXISTS idx_sf_commit ON scanned_files(commit_id);
+CREATE INDEX IF NOT EXISTS idx_sf_label ON scanned_files(label);
+
+-- TÁI LẬP: ghi 1 lần/run — version + digest tool, config, ngưỡng, thời điểm.
+CREATE TABLE IF NOT EXISTS run_meta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT, repo TEXT, max_commits INTEGER,
+    vote_threshold INTEGER, line_window INTEGER,
+    tools TEXT      -- JSON [{name,version,digest}]
+);
 """
 
 _COLS = [
     "repo", "commit_id", "parent_commit", "commit_message", "author_date",
-    "file_path", "s_line", "e_line", "function", "s_detail_line",
+    "file_path", "s_line", "e_line", "function", "s_detail_line", "finding_in_diff",
     "tool", "rule_id", "severity", "cwe", "owasp", "cve",
     "lines_added", "lines_deleted", "code_snippet",
     "diff_parsed", "code_before_url", "code_after_url", "code_before", "code_after",
@@ -71,8 +93,42 @@ class SQLiteStore:
         self.conn.commit()
         return len(payload)
 
+    def insert_scanned_files(self, records: list[dict]) -> int:
+        """records: {repo, commit_id, parent_commit, author_date, file_path,
+        n_findings, n_tools_ran, tools(list)} -> ghi bảng mẫu số."""
+        if not records:
+            return 0
+        cols = ["repo", "commit_id", "parent_commit", "author_date", "file_path",
+                "n_findings", "n_tools_ran", "tools", "label"]
+        sql = f"INSERT INTO scanned_files ({','.join(cols)}) VALUES ({','.join('?'*len(cols))})"
+        payload = []
+        for r in records:
+            payload.append([
+                r["repo"], r["commit_id"], r.get("parent_commit"), r.get("author_date"),
+                r["file_path"], r["n_findings"], r.get("n_tools_ran"),
+                json.dumps(r.get("tools", [])),
+                "clean" if r["n_findings"] == 0 else "has_finding",
+            ])
+        self.conn.executemany(sql, payload)
+        self.conn.commit()
+        return len(payload)
+
+    def insert_run_meta(self, meta: dict) -> None:
+        self.conn.execute(
+            "INSERT INTO run_meta (started_at,repo,max_commits,vote_threshold,"
+            "line_window,tools) VALUES (?,?,?,?,?,?)",
+            [meta.get("started_at"), meta.get("repo"), meta.get("max_commits"),
+             meta.get("vote_threshold"), meta.get("line_window"),
+             json.dumps(meta.get("tools", []))],
+        )
+        self.conn.commit()
+
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
+
+    def count_clean(self) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM scanned_files WHERE label='clean'").fetchone()[0]
 
     def close(self):
         self.conn.close()

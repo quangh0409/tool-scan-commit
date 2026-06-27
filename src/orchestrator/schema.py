@@ -82,6 +82,10 @@ class DatasetRow:
     function: Optional[str] = None
     s_detail_line: list[int] = field(default_factory=list)  # các dòng cụ thể gây lỗi
 
+    # finding có rơi vào dòng commit này THÊM/SỬA không (True = lỗi của commit này,
+    # False = nợ cũ có sẵn, None = không xác định/không phải finding)
+    finding_in_diff: Optional[bool] = None
+
     # ngữ cảnh diff + file
     diff_parsed: dict = field(default_factory=dict)  # {"added":[[ln,txt]],"deleted":[[ln,txt]]}
     code_before_url: Optional[str] = None            # permalink GitHub @ parent_commit

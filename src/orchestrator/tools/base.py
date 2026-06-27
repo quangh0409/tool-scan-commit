@@ -15,9 +15,30 @@ import os
 import shlex
 import subprocess
 from abc import ABC, abstractmethod
-from pathlib import Path
+from pathlib import PurePosixPath, Path
 
 from ..schema import RawFinding
+
+# tiền tố mount container thường gặp, cần bóc để khớp path git của diff
+_MOUNT_PREFIXES = ("/src/", "/repo/", "/code/", "/path/")
+
+
+def canon_path(p: str) -> str:
+    """Chuẩn hoá path từ output tool về path git (khớp key của get_file_diffs).
+
+    Bóc tiền tố mount (/src/, /repo/...), './' và '/' đầu. VD '/src/svc/A.java' -> 'svc/A.java'.
+    """
+    if not p:
+        return ""
+    p = p.replace("\\", "/")
+    for pref in _MOUNT_PREFIXES:
+        if p.startswith(pref):
+            p = p[len(pref):]
+            break
+    p = p.lstrip("/")
+    if p.startswith("./"):
+        p = p[2:]
+    return str(PurePosixPath(p))
 
 
 def docker_run(args: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
@@ -28,13 +49,35 @@ def docker_run(args: list[str], timeout: int = 600) -> subprocess.CompletedProce
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def image_digest(image: str) -> str | None:
+    """RepoDigest của image (để ghi run_meta tái lập). None nếu chưa pull."""
+    proc = docker_run(["image", "inspect", image,
+                       "--format", "{{index .RepoDigests 0}}"], timeout=60)
+    out = (proc.stdout or "").strip()
+    return out or None
+
+
 class ToolWrapper(ABC):
     name: str = "base"
     tier: str = "cheap"  # "cheap" (source-only) | "expensive" (cần build)
+    image: str = ""      # Docker image (để lấy digest + version cho run_meta)
+
+    def version(self) -> str | None:
+        """Phiên bản tool (ghi run_meta). Mặc định None; wrapper override nếu lấy được."""
+        return None
+
+    def digest(self) -> str | None:
+        return image_digest(self.image) if self.image else None
 
     @abstractmethod
-    def scan(self, repo_dir: Path, commit_id: str, repo: str) -> list[RawFinding]:
-        """Quét 1 commit (đã checkout) -> findings đã validate."""
+    def scan(self, repo_dir: Path, commit_id: str, repo: str,
+             changed_files: list[str]) -> list[RawFinding]:
+        """Quét DIFF/các file thay đổi của 1 commit (đã checkout) -> findings đã validate.
+
+        changed_files: đường dẫn (theo git) các file code đã đổi & còn tồn tại trên đĩa.
+        Quét trên diff thay vì toàn cây: vừa rẻ (phễu), vừa đúng ngữ nghĩa
+        (lỗi gắn với commit này, không phải nợ cũ).
+        """
         ...
 
     def _finalize(self, findings: list[RawFinding]) -> list[RawFinding]:

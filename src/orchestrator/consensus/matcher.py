@@ -51,6 +51,13 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
     rep = cluster[0]  # đại diện
     n_agree = len(tools)
     ratio = (n_agree / n_tools_ran) if n_tools_ran else 0.0
+    # nhãn 3 lớp: >=K tool "vuln", 1..K-1 "candidate" (1 tool = FP cao, KHÔNG coi là vuln)
+    if n_agree >= config.VOTE_THRESHOLD:
+        label = "vuln"
+    elif n_agree >= 1:
+        label = "candidate"
+    else:
+        label = "clean"
 
     return DatasetRow(
         repo=rep.repo,
@@ -77,7 +84,7 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
         agreeing_tools=tools,
         agreement_ratio=round(ratio, 3),
         confidence=round(ratio, 3),
-        silver_label="VULN" if n_agree >= 1 else "CLEAN",
+        silver_label=label,
     ).validate()
 
 
