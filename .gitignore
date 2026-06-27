@@ -1,0 +1,15 @@
+# Output dataset & working dirs (lưu thẳng trên Persistent Disk VM, không commit)
+/data/
+/work/
+*.sqlite
+*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Tool temp
+*.sarif
+*.log
