@@ -8,9 +8,10 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
-- **Giai đoạn:** Bước 1 — skeleton source-only ĐÃ DỰNG XONG + unit-test pass (chưa chạy Docker thật).
-- **Việc kế tiếp:** chạy pilot thật `scan` 50 commit train-ticket (clone repo + pull image gitleaks/semgrep). Rồi Bước 2 (tool tầng đắt).
-- **Repo này đã là git repo?** Rồi (`git init` + commit "init").
+- **Giai đoạn:** Bước 1 — tầng rẻ ĐỦ 5 TOOL, đã red-team + sửa 3 fix + smoke-test Java PASS (vuln 3-tool). Đang chạy pilot 50 commit train-ticket.
+- **Việc kế tiếp:** soi kết quả pilot (phân bố nhãn, kappa thủ công), rồi Bước 2 (tool tầng đắt: CodeQL/FindSecBugs/Sonar).
+- **Repo này đã là git repo?** Rồi.
+- **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
 
 ---
 
@@ -47,7 +48,23 @@
 - Đã thêm cột tương ứng vào SQLite + test pass (diff parser, s_detail_line, urls, round-trip).
 - ⚠️ Schema SQLite đổi → xoá `data/dataset.sqlite` cũ trước khi chạy lại (CREATE IF NOT EXISTS không tự migrate).
 
+### Red-team + hướng A (cùng phiên) — ĐÃ XONG
+- Red-team output: nêu các lỗ hổng (gán nợ cũ cho commit, thiếu negative, quét toàn cây, leakage commit_message, overclaim "ground truth", thiếu version pin, correlated errors, CWE-intersection làm vỡ consensus, dedup...).
+- **Hướng A (3 fix):** (1) quét diff-scoped (semgrep file đổi, gitleaks git-mode); (2) `finding_in_diff`; (3) nhãn `vuln/candidate/clean` theo `VOTE_THRESHOLD` + bảng `scanned_files` (mẫu số/negative).
+
+### Hoàn thiện tầng rẻ 5 tool (theo plan đã duyệt) — ĐÃ XONG
+- Semgrep `p/default`+`p/secrets` (p/security-audit bỏ sót CWE-89).
+- Wrapper mới: `trufflehog` (git-mode `--since-commit`, JSONL, CWE-798), `bearer` (quét từng file đổi, lấy cwe_ids; Bearer trả filename='.' nên gán path đã truyền), `horusec` (`-D` chỉ HorusecEngine → độc lập semgrep/gitleaks; map CWE thận trọng theo language=Leaks→798 + từ khoá; bóc path tạm `.horusec/<uuid>/`; copy file đổi vào temp để diff-scope).
+- `canon_path` (base.py) khớp path tool ↔ key diff. `image_digest()`+`version()` → bảng `run_meta` (tái lập).
+- **Smoke-test Java PASS:** SQLi→vuln 3-tool (bearer/horusec/semgrep), secret→vuln 3-tool (horusec/semgrep/trufflehog), Hello.java→clean, docs lọc thô. `finding_in_diff=1`.
+- Commit `bc7148e`.
+
+### Đang chạy
+- **Pilot train-ticket --max 50** chạy nền, log `data/pilot.log`, DB `data/dataset.sqlite`. (clone ~repo lớn + 5 tool/commit).
+
 ### Kế tiếp
-1. **Chạy pilot THẬT:** `ORCH_DOCKER_SG=1 python -m orchestrator.cli scan <train-ticket> --max 50` — sẽ clone train-ticket (nặng) + pull image gitleaks/semgrep lần đầu. Kiểm tra dataset SQLite ra đúng.
+1. Soi pilot: phân bố nhãn vuln/candidate/clean, top CWE, vài mẫu kiểm tay, đo Fleiss' kappa.
+2. **Backlog red-team chưa làm:** commit_role (fixing/introducing), vuln_side, selection_reason, finding_uid+dedup, gold_verified, CWE-hierarchy normalize, redact secret trong dataset.
+3. Bước 2: tool tầng đắt (CodeQL/FindSecBugs/Sonar) cần build Maven.
 2. Tinh chỉnh: per-commit checkout có thể chậm; cân nhắc quét trên diff thay vì cả cây.
 3. Bước 2: thêm tool tầng đắt (CodeQL/FindSecBugs/Sonar) + adapter SARIF.
