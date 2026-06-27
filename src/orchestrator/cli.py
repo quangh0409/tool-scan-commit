@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from . import config, enumerate_commits as enm
 from .consensus.matcher import consensus
@@ -85,12 +86,20 @@ def cmd_scan(args):
         # chỉ các file code đã đổi & còn tồn tại trên đĩa (diff-scoped)
         changed = [f for f in ci.code_files if (repo_dir / f).exists()]
 
+        # chạy 5 tool SONG SONG (độc lập nhau); join hết trước khi checkout commit kế.
+        # subprocess/docker chờ I/O -> GIL nhả -> threads đủ.
         all_findings = []
-        for t in tools:
+
+        def _run(t):
             try:
-                all_findings += t.scan(repo_dir, ci.commit_id, args.repo, changed)
-            except Exception as e:  # noqa: BLE001 — 1 tool lỗi không nên dừng cả phễu
+                return t.scan(repo_dir, ci.commit_id, args.repo, changed)
+            except Exception as e:  # noqa: BLE001 — 1 tool lỗi không dừng cả phễu
                 print(f"[{t.name}] lỗi @ {ci.commit_id[:8]}: {e}")
+                return []
+
+        with ThreadPoolExecutor(max_workers=len(tools)) as ex:
+            for res in ex.map(_run, tools):
+                all_findings += res
 
         meta = {
             "parent_commit": ci.parent_commit,

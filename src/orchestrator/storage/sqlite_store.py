@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS findings (
     finding_in_diff INTEGER,          -- 1=lỗi commit này tạo, 0=nợ cũ, NULL=?
     tool TEXT, rule_id TEXT, severity TEXT,
     cwe TEXT NOT NULL,                -- JSON list, BẮT BUỘC
+    cwe_group TEXT, category TEXT,    -- nhóm đồng thuận + secret/code/infra/crypto/info/other
+    verified INTEGER,                 -- secret verified? (1/0/NULL)
     owasp TEXT, cve TEXT,
     lines_added INTEGER, lines_deleted INTEGER,
     code_snippet TEXT,
@@ -34,6 +36,8 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 CREATE INDEX IF NOT EXISTS idx_commit ON findings(commit_id);
 CREATE INDEX IF NOT EXISTS idx_cwe ON findings(cwe);
+CREATE INDEX IF NOT EXISTS idx_cat ON findings(category);
+CREATE INDEX IF NOT EXISTS idx_label ON findings(silver_label);
 
 -- MẪU SỐ: mọi (commit, file) đã quét + số finding. n_findings=0 => negative/clean.
 -- Cần để dựng confusion matrix (benchmark) và có NEGATIVE thật cho train.
@@ -60,7 +64,8 @@ CREATE TABLE IF NOT EXISTS run_meta (
 _COLS = [
     "repo", "commit_id", "parent_commit", "commit_message", "author_date",
     "file_path", "s_line", "e_line", "function", "s_detail_line", "finding_in_diff",
-    "tool", "rule_id", "severity", "cwe", "owasp", "cve",
+    "tool", "rule_id", "severity", "cwe", "cwe_group", "category", "verified",
+    "owasp", "cve",
     "lines_added", "lines_deleted", "code_snippet",
     "diff_parsed", "code_before_url", "code_after_url", "code_before", "code_after",
     "n_tools_ran", "n_tools_agree", "agreeing_tools", "agreement_ratio",

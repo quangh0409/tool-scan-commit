@@ -58,7 +58,8 @@ class TrufflehogWrapper(ToolWrapper):
                 cwe=list(SECRET_CWE),
                 tool=self.name,
                 rule_id=d.get("DetectorName", "secret"),
-                severity="HIGH",
+                severity="HIGH" if d.get("Verified") else "MEDIUM",
+                verified=bool(d.get("Verified")),
                 message=f"{d.get('DetectorName')} (verified={d.get('Verified')})",
                 code_snippet=d.get("Raw"),
             ))

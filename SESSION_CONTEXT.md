@@ -59,12 +59,30 @@
 - **Smoke-test Java PASS:** SQLi→vuln 3-tool (bearer/horusec/semgrep), secret→vuln 3-tool (horusec/semgrep/trufflehog), Hello.java→clean, docs lọc thô. `finding_in_diff=1`.
 - Commit `bc7148e`.
 
-### Đang chạy
-- **Pilot train-ticket --max 50** chạy nền, log `data/pilot.log`, DB `data/dataset.sqlite`. (clone ~repo lớn + 5 tool/commit).
+### Tối ưu Bearer (perf) — ĐÃ XONG
+- Pilot lần 1 chậm: Bearer chạy mỗi-file-một-container (commit 14 file = 14 container, ~10 phút/commit).
+- Sửa: Bearer copy file đổi vào 1 temp dir + chmod 0755 (container non-root) → quét cả thư mục 1 lần/commit. ~35s/commit. Commit perf fix.
 
-### Kế tiếp
-1. Soi pilot: phân bố nhãn vuln/candidate/clean, top CWE, vài mẫu kiểm tay, đo Fleiss' kappa.
-2. **Backlog red-team chưa làm:** commit_role (fixing/introducing), vuln_side, selection_reason, finding_uid+dedup, gold_verified, CWE-hierarchy normalize, redact secret trong dataset.
-3. Bước 2: tool tầng đắt (CodeQL/FindSecBugs/Sonar) cần build Maven.
+### KẾT QUẢ PILOT train-ticket --max 50 (DB `data/dataset.sqlite`)
+- 50 yêu cầu → **29 commit thực quét** (còn lại merge thật/docs bị lọc; lưu ý: squash-merge "(#xxx)" có 1 parent nên KHÔNG bị lọc, vẫn quét).
+- **2951 findings(cụm) | clean files 1452.**
+- **Nhãn: candidate 2948 / vuln 3** (n_tools_agree: 1→2948, 2→3). Consensus ~0.1%.
+- finding_in_diff: 0→2591 (88% là nợ cũ, không trên dòng commit sửa), 1→360 (12%).
+- Đóng góp tool: semgrep 2590 (88%), bearer 179, trufflehog 145, horusec 40, **gitleaks 0**.
+- Top CWE: CWE-732 (1692) + CWE-250 (865) = **86% là CWE hạ tầng** (Dockerfile/k8s perm) từ semgrep p/default. CWE-798 161, CWE-89 chỉ 9, CWE-79 12.
+- Secret CWE-798: trufflehog 145 (đứng MỘT MÌNH hết), horusec 14 (một mình), bearer+horusec 1. → các tool secret KHÔNG chồng nhau.
+- 3 vuln đều in_diff=0, giá trị thấp (1 JS asset, 2 CWE-330 trong old-docs).
+
+### CHẨN ĐOÁN (vì sao consensus ~0)
+1. Coverage gần như rời nhau: semgrep ngập CWE hạ-tầng (732/250) không tool nào khác sinh; trufflehog ngập secret chưa-verify không ai chứng thực.
+2. gitleaks=0 KHÔNG phải bug — quét OK ("no leaks found"), chỉ chặt hơn trufflehog (loại noise/test-cred). Tức consensus filter ĐANG làm đúng việc (không tin mù 145 hit của trufflehog).
+3. → **Khẳng định triết lý PHỄU: tầng rẻ là BỘ SINH CANDIDATE (recall cao, precision thấp), KHÔNG phải bộ gán nhãn cuối.** `vuln` thật phải đến từ tầng đắt (CodeQL/FindSecBugs dataflow) chứng thực semgrep/bearer.
+
+### Kế tiếp (đề xuất — chờ user chốt ưu tiên)
+1. **Giảm noise để candidate set dùng được:** trufflehog gắn cờ `verified` (lọc unverified); semgrep gắn `category` (infra/code/secret) để SQLi/XSS không bị 732/250 nhấn chìm.
+2. **Chuẩn hoá CWE theo cây MITRE** trước khi cluster (gộp CWE anh-em) — tăng đồng thuận ít ỏi đang có.
+3. **Song song hoá intra-commit** (ThreadPoolExecutor 5 tool) — user đề xuất; tối ưu throughput, đặc biệt cho tầng đắt.
+4. **Bước 2 — tầng đắt** (CodeQL/FindSecBugs/Sonar, build Maven): nguồn consensus thật cho code-vuln.
+5. Backlog red-team: commit_role, selection_reason, finding_uid+dedup, gold_verified, redact secret, lọc finding_in_diff=1 cho dataset "commit introduced".
 2. Tinh chỉnh: per-commit checkout có thể chậm; cân nhắc quét trên diff thay vì cả cây.
 3. Bước 2: thêm tool tầng đắt (CodeQL/FindSecBugs/Sonar) + adapter SARIF.

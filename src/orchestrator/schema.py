@@ -40,6 +40,7 @@ class RawFinding:
     owasp: Optional[str] = None
     message: Optional[str] = None
     code_snippet: Optional[str] = None
+    verified: Optional[bool] = None   # secret đã verify? (trufflehog); None nếu N/A
 
     def validate(self) -> "RawFinding":
         if not self.cwe:
@@ -98,8 +99,11 @@ class DatasetRow:
     rule_id: Optional[str] = None
     severity: Optional[str] = None
     cwe: list[str] = field(default_factory=list)
+    cwe_group: Optional[str] = None     # nhóm đồng thuận (gộp CWE anh-em)
+    category: Optional[str] = None      # secret | code | infra | crypto | info | other
     owasp: Optional[str] = None
     cve: Optional[str] = None           # enrichment, gần như luôn null
+    verified: Optional[bool] = None     # secret verified? (any-tool trong cụm)
 
     # diff metadata
     lines_added: Optional[int] = None

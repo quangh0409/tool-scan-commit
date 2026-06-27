@@ -3,7 +3,7 @@ Tầng ⑥ — gộp cụm + bỏ phiếu.
 
 Gộp 2 finding vào CÙNG cụm nếu:
   - cùng file (đã chuẩn hoá path), VÀ
-  - giao nhau ít nhất 1 CWE, VÀ
+  - cùng NHÓM CWE (gộp anh-em, vd CWE-89/943 -> sql_injection), VÀ
   - |s_line_a - s_line_b| <= LINE_WINDOW.
 
 Mỗi cụm -> 1 DatasetRow: đếm số tool đồng thuận, agreement_ratio, confidence,
@@ -16,16 +16,21 @@ from pathlib import PurePosixPath
 
 from .. import config
 from ..schema import RawFinding, DatasetRow
+from .cwe_groups import primary_group
 
 
 def _norm_path(p: str) -> str:
     return str(PurePosixPath(p)).lstrip("/")
 
 
+def _group(f: RawFinding) -> str:
+    return primary_group(f.cwe)[0]
+
+
 def _same_cluster(a: RawFinding, b: RawFinding, window: int) -> bool:
     if _norm_path(a.file_path) != _norm_path(b.file_path):
         return False
-    if not (set(a.cwe) & set(b.cwe)):
+    if _group(a) != _group(b):           # gộp theo NHÓM CWE (không phải CWE thô)
         return False
     return abs(a.s_line - b.s_line) <= window
 
@@ -49,6 +54,10 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
     tools = sorted({f.tool for f in cluster})
     cwes = sorted({c for f in cluster for c in f.cwe})
     rep = cluster[0]  # đại diện
+    grp, cat = primary_group(rep.cwe)
+    # verified = True nếu BẤT KỲ tool nào trong cụm xác nhận (cho secret)
+    vts = [f.verified for f in cluster if f.verified is not None]
+    verified = (True in vts) if vts else None
     n_agree = len(tools)
     ratio = (n_agree / n_tools_ran) if n_tools_ran else 0.0
     # nhãn 3 lớp: >=K tool "vuln", 1..K-1 "candidate" (1 tool = FP cao, KHÔNG coi là vuln)
@@ -74,8 +83,11 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
         rule_id=rep.rule_id,
         severity=rep.severity,
         cwe=cwes,
+        cwe_group=grp,
+        category=cat,
         owasp=rep.owasp,
         cve=None,
+        verified=verified,
         lines_added=commit_meta.get("lines_added"),
         lines_deleted=commit_meta.get("lines_deleted"),
         code_snippet=rep.code_snippet,
