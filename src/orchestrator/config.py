@@ -24,6 +24,10 @@ DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".png", ".jpg", ".gif", ".svg"
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)
 
+# --- Ngữ cảnh file ---
+# Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).
+STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
+
 # --- Repo pilot ---
 PILOT_REPO = "https://github.com/FudanSELab/train-ticket"
 PILOT_MAX_COMMITS = 50

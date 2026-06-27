@@ -39,6 +39,14 @@
 - `cli.py`: lệnh `enumerate` (không cần Docker) + `scan` (full phễu). `README.md`.
 - **Unit test (không Docker) PASS:** normalize_cwe, validate ép cwe/s_line, consensus, enumerate local, storage.
 
+### Bổ sung schema (yêu cầu người dùng — cùng phiên)
+- `s_detail_line: list[int]` — các dòng cụ thể gây lỗi (BẮT BUỘC; default = dải s_line..e_line; consensus gộp union các tool).
+- `diff_parsed: {"added":[[ln,txt]],"deleted":[[ln,txt]]}` — parser `git show --unified=0` trong `enumerate_commits.get_file_diffs()`.
+- `code_before_url`/`code_after_url` — permalink GitHub theo SHA (`blob_url()`), luôn lưu (rẻ).
+- `code_before`/`code_after` — toàn văn file, TUỲ CHỌN (mặc định TẮT; bật `ORCH_STORE_FULL_FILE=1`) để khỏi nặng DB.
+- Đã thêm cột tương ứng vào SQLite + test pass (diff parser, s_detail_line, urls, round-trip).
+- ⚠️ Schema SQLite đổi → xoá `data/dataset.sqlite` cũ trước khi chạy lại (CREATE IF NOT EXISTS không tự migrate).
+
 ### Kế tiếp
 1. **Chạy pilot THẬT:** `ORCH_DOCKER_SG=1 python -m orchestrator.cli scan <train-ticket> --max 50` — sẽ clone train-ticket (nặng) + pull image gitleaks/semgrep lần đầu. Kiểm tra dataset SQLite ra đúng.
 2. Tinh chỉnh: per-commit checkout có thể chậm; cân nhắc quét trên diff thay vì cả cây.

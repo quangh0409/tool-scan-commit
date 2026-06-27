@@ -7,11 +7,14 @@ Chỉ dùng `git` qua subprocess (stdlib).
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import config
+
+_HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
 @dataclass
@@ -87,6 +90,65 @@ def get_commit_info(repo_dir: Path, commit_id: str) -> CommitInfo:
         lines_added=add,
         lines_deleted=dele,
     )
+
+
+@dataclass
+class ParsedDiff:
+    """Diff của 1 file trong 1 commit: mỗi mục = [số_dòng, nội_dung]."""
+    added: list[list] = field(default_factory=list)    # đánh số theo file MỚI
+    deleted: list[list] = field(default_factory=list)  # đánh số theo file CŨ
+
+    def as_dict(self) -> dict:
+        return {"added": self.added, "deleted": self.deleted}
+
+
+def get_file_diffs(repo_dir: Path, commit_id: str) -> dict[str, ParsedDiff]:
+    """Parse `git show --unified=0` -> {file_path: ParsedDiff}. Bỏ qua file binary."""
+    raw = _git(repo_dir, "show", "--unified=0", "--no-color",
+               "--pretty=format:", commit_id)
+    diffs: dict[str, ParsedDiff] = {}
+    cur: ParsedDiff | None = None
+    old_ln = new_ln = 0
+    old_path = ""
+    for line in raw.splitlines():
+        if line.startswith("diff --git"):
+            cur = None
+        elif line.startswith("--- "):
+            p = line[4:]
+            old_path = p[2:] if p.startswith("a/") else p
+        elif line.startswith("+++ "):
+            p = line[4:]
+            path = old_path if p == "/dev/null" else (p[2:] if p.startswith("b/") else p)
+            cur = ParsedDiff()
+            diffs[path] = cur
+        elif line.startswith("@@"):
+            m = _HUNK_RE.search(line)
+            if m:
+                old_ln, new_ln = int(m.group(1)), int(m.group(2))
+        elif cur is not None:
+            if line.startswith("+"):
+                cur.added.append([new_ln, line[1:]]); new_ln += 1
+            elif line.startswith("-"):
+                cur.deleted.append([old_ln, line[1:]]); old_ln += 1
+    return diffs
+
+
+def blob_url(repo: str, sha: str | None, path: str) -> str | None:
+    """Permalink GitHub: https://github.com/owner/repo/blob/<sha>/<path>."""
+    if not sha:
+        return None
+    base = repo.rstrip("/").removesuffix(".git")
+    return f"{base}/blob/{sha}/{path}"
+
+
+def file_content_at(repo_dir: Path, sha: str | None, path: str) -> str | None:
+    """Toàn văn file tại 1 commit (None nếu không tồn tại — file mới/đã xoá)."""
+    if not sha:
+        return None
+    try:
+        return _git(repo_dir, "show", f"{sha}:{path}")
+    except subprocess.CalledProcessError:
+        return None
 
 
 def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:

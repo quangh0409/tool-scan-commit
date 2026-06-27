@@ -62,6 +62,16 @@ def cmd_scan(args):
             "lines_deleted": ci.lines_deleted,
         }
         rows = consensus(all_findings, n_tools, meta)
+        # enrich: diff_parsed của file + permalink + (tuỳ chọn) toàn văn file
+        file_diffs = enm.get_file_diffs(repo_dir, ci.commit_id)
+        for r in rows:
+            pd = file_diffs.get(r.file_path)
+            r.diff_parsed = pd.as_dict() if pd else {"added": [], "deleted": []}
+            r.code_after_url = enm.blob_url(args.repo, r.commit_id, r.file_path)
+            r.code_before_url = enm.blob_url(args.repo, r.parent_commit, r.file_path)
+            if config.STORE_FULL_FILE:
+                r.code_after = enm.file_content_at(repo_dir, r.commit_id, r.file_path)
+                r.code_before = enm.file_content_at(repo_dir, r.parent_commit, r.file_path)
         wrote += store.insert_rows(rows)
         scanned += 1
         print(f"[{ci.commit_id[:8]}] {len(all_findings)} findings -> {len(rows)} cụm")

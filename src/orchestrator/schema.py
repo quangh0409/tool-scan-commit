@@ -30,6 +30,8 @@ class RawFinding:
     cwe: list[str]            # CWE-class — BẮT BUỘC không rỗng
     e_line: Optional[int] = None
     function: Optional[str] = None
+    # các dòng cụ thể gây lỗi/rủi ro (BẮT BUỘC không rỗng; default = dải s_line..e_line)
+    s_detail_line: list[int] = field(default_factory=list)
 
     # --- nhãn của tool ---
     tool: str = ""            # "gitleaks" | "semgrep" | ...
@@ -52,6 +54,10 @@ class RawFinding:
             )
         # chuẩn hoá CWE về dạng 'CWE-89'
         self.cwe = [normalize_cwe(c) for c in self.cwe]
+        # s_detail_line: nếu tool không cung cấp -> suy ra dải s_line..e_line
+        if not self.s_detail_line:
+            end = self.e_line if (self.e_line and self.e_line >= self.s_line) else self.s_line
+            self.s_detail_line = list(range(self.s_line, end + 1))
         return self
 
     def as_dict(self) -> dict:
@@ -74,6 +80,14 @@ class DatasetRow:
     s_line: int = 0
     e_line: Optional[int] = None
     function: Optional[str] = None
+    s_detail_line: list[int] = field(default_factory=list)  # các dòng cụ thể gây lỗi
+
+    # ngữ cảnh diff + file
+    diff_parsed: dict = field(default_factory=dict)  # {"added":[[ln,txt]],"deleted":[[ln,txt]]}
+    code_before_url: Optional[str] = None            # permalink GitHub @ parent_commit
+    code_after_url: Optional[str] = None             # permalink GitHub @ commit_id
+    code_before: Optional[str] = None                # toàn văn file trước (tuỳ chọn, có thể nặng)
+    code_after: Optional[str] = None                 # toàn văn file sau (tuỳ chọn, có thể nặng)
 
     # nhãn cụm
     tool: Optional[str] = None          # tool đại diện (hoặc gộp)
