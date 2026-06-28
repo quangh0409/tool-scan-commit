@@ -136,7 +136,11 @@ horusec start -p /src -D -o json -O /out/h.json      # -D: CHỈ HorusecEngine
 
 ## 4. Ngưỡng BỎ QUA commit (đánh đổi phủ-sóng ↔ chi phí)
 
-Xét theo **MỨC THAY ĐỔI của commit lên từng file** (add/del trong diff), KHÔNG phải kích thước file —
+**Công tắc `FLAG_LIMIT` (0/1) — mặc định 0 = TẮT toàn bộ ngưỡng (quét mọi commit hợp lệ).** Đặt
+`FLAG_LIMIT=1` (env `ORCH_FLAG_LIMIT` hoặc CLI `--flag-limit 1`) để áp các ngưỡng dưới đây; các tham số
+ngưỡng vẫn giữ nguyên dù bật/tắt. Lọc merge/docs/no-code KHÔNG phụ thuộc cờ này (luôn áp dụng).
+
+Khi BẬT, xét theo **MỨC THAY ĐỔI của commit lên từng file** (add/del trong diff), KHÔNG phải kích thước file —
 vì một sửa 2 dòng trong file 2000 dòng vẫn rẻ & đáng quét, còn một diff +1500 dòng vào 1 file mới là
 bulk/generated, tốn & loãng. Tất cả tính từ `git show --numstat` (đã có sẵn trong `get_commit_info`,
 HEAD-independent) nên check nằm ở **`coarse_filter` (lúc enumerate)** — không cần checkout/đọc nội dung:

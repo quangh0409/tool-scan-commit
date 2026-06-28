@@ -171,16 +171,18 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
         return False, "không có file thay đổi"
     if not ci.code_files:
         return False, "chỉ đụng docs/non-code"
-    # commit "khổng lồ" theo SỐ FILE -> bỏ
-    if len(ci.changed_files) > config.MAX_FILES_PER_COMMIT:
-        return False, f">{config.MAX_FILES_PER_COMMIT} file ({len(ci.changed_files)})"
-    # commit "khổng lồ" theo MỨC THAY ĐỔI 1 file (diff): add/del/churn
-    # (numstat đã tính sẵn ở get_commit_info -> không tốn thêm; HEAD-independent, không cần checkout)
-    if (ci.max_file_add > config.MAX_FILE_ADD_LINES
-            or ci.max_file_del > config.MAX_FILE_DEL_LINES
-            or ci.max_file_churn > config.MAX_FILE_CHURN_LINES):
-        return False, (f"diff file lớn (+{ci.max_file_add}/-{ci.max_file_del}, "
-                       f"churn {ci.max_file_churn})")
+    # Ngưỡng commit "khổng lồ" — CHỈ áp dụng khi FLAG_LIMIT=1 (mặc định 0 = bỏ qua ngưỡng)
+    if config.FLAG_LIMIT:
+        # theo SỐ FILE
+        if len(ci.changed_files) > config.MAX_FILES_PER_COMMIT:
+            return False, f">{config.MAX_FILES_PER_COMMIT} file ({len(ci.changed_files)})"
+        # theo MỨC THAY ĐỔI 1 file (diff): add/del/churn
+        # (numstat tính sẵn ở get_commit_info -> không tốn thêm; HEAD-independent, không checkout)
+        if (ci.max_file_add > config.MAX_FILE_ADD_LINES
+                or ci.max_file_del > config.MAX_FILE_DEL_LINES
+                or ci.max_file_churn > config.MAX_FILE_CHURN_LINES):
+            return False, (f"diff file lớn (+{ci.max_file_add}/-{ci.max_file_del}, "
+                           f"churn {ci.max_file_churn})")
     return True, "ok"
 
 

@@ -35,6 +35,7 @@ CHEAP_TOOLS = [GitleaksWrapper, TrufflehogWrapper, SemgrepWrapper,
 
 
 def cmd_enumerate(args):
+    config.FLAG_LIMIT = args.flag_limit
     kept = total = 0
     for ci, keep, reason in enm.enumerate_repo(args.repo, args.max):
         total += 1
@@ -103,6 +104,7 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
 
 
 def cmd_scan(args):
+    config.FLAG_LIMIT = args.flag_limit
     repo_dir = enm.clone_or_update(args.repo)
     tools = [T() for T in CHEAP_TOOLS]
     tool_names = [t.name for t in tools]
@@ -168,6 +170,8 @@ def main(argv=None):
     pe = sub.add_parser("enumerate", help="liệt kê + lọc thô commit")
     pe.add_argument("repo")
     pe.add_argument("--max", type=int, default=config.PILOT_MAX_COMMITS)
+    pe.add_argument("--flag-limit", type=int, choices=(0, 1), default=config.FLAG_LIMIT,
+                    help="1=áp ngưỡng bỏ commit khổng lồ; 0=không (mặc định 0)")
     pe.set_defaults(func=cmd_enumerate)
 
     ps = sub.add_parser("scan", help="chạy tool tầng rẻ -> consensus -> SQLite")
@@ -175,6 +179,8 @@ def main(argv=None):
     ps.add_argument("--max", type=int, default=config.PILOT_MAX_COMMITS)
     ps.add_argument("--no-meta", action="store_true",
                     help="bỏ qua thu version/digest tool (chạy nhanh khi debug)")
+    ps.add_argument("--flag-limit", type=int, choices=(0, 1), default=config.FLAG_LIMIT,
+                    help="1=áp ngưỡng bỏ commit khổng lồ; 0=không (mặc định 0)")
     ps.set_defaults(func=cmd_scan)
 
     args = p.parse_args(argv)

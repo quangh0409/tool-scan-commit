@@ -30,6 +30,10 @@ MAX_FILES_PER_COMMIT = int(os.environ.get("ORCH_MAX_FILES_PER_COMMIT", "100"))
 MAX_FILE_ADD_LINES = int(os.environ.get("ORCH_MAX_FILE_ADD_LINES", "1000"))
 MAX_FILE_DEL_LINES = int(os.environ.get("ORCH_MAX_FILE_DEL_LINES", "1000"))
 MAX_FILE_CHURN_LINES = int(os.environ.get("ORCH_MAX_FILE_CHURN_LINES", "2000"))
+# Công tắc BẬT/TẮT toàn bộ ngưỡng skip ở trên (các tham số vẫn giữ nguyên):
+#   0 = KHÔNG dùng ngưỡng (quét MỌI commit hợp lệ), 1 = áp dụng ngưỡng số-file/add/del/churn.
+# Tạm thời mặc định 0. Override: env ORCH_FLAG_LIMIT hoặc CLI --flag-limit.
+FLAG_LIMIT = int(os.environ.get("ORCH_FLAG_LIMIT", "0"))
 
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)
