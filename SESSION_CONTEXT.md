@@ -8,10 +8,36 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
-- **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song. **Pilot train-ticket đã chạy xong** (29 commit giữ/50, 2951 cụm, ~9 phút).
-- **Việc kế tiếp:** Bước 2 (tool tầng đắt: CodeQL/FindSecBugs/Sonar) — đây mới là nguồn consensus code-vuln thật. Tầng rẻ đã xác nhận chỉ là candidate-generator.
+- **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song clone-pool + fix trufflehog + skip theo churn. **Pilot mới chạy xong** (26 commit/50, 1370 cụm, ~3–4 phút).
+- **Việc kế tiếp:** loại node_modules/vendored trước khi quét; cân nhắc lại ngưỡng skip (đừng mất lỗi thật); Bước 2 tầng đắt (CodeQL/FindSecBugs/Sonar).
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-06-28 (c) — Pilot LẠI sau fix trufflehog + skip-churn (DỮ LIỆU SẠCH HƠN NHIỀU)
+
+`train-ticket --max 50`, 4 worker. **26 commit quét, 3 bỏ (>100 file), 1370 cụm, ~3–4 phút** (vs ~9' tuần tự). DB cũ giữ ở `data/dataset_prev.sqlite`.
+
+| Chỉ số | CŨ (over-scan) | MỚI (đã fix) | Ý nghĩa |
+|---|---|---|---|
+| findings(cụm) | 2951 | 1370 | giảm do bỏ 3 commit khổng lồ + hết over-scan |
+| commit có finding | 29 | 14 | nhiều commit nhỏ thực ra 0 finding |
+| vuln | 3 | **0** | cả 3 vuln cũ NẰM TRONG commit khổng lồ bị skip (xem dưới) |
+| secret total | 161 | **1** | **145/161 là node_modules `.d.ts` bị trufflehog over-scan gán nhầm** (url.d.ts 87×!) → fix xoá sạch |
+| đóng góp trufflehog | 145 | **0** | 0 vì secret thật đều ở commit khổng lồ (skip); commit thường không thêm secret |
+| infra noise | 2558 (86%) | 1334 (**97%**) | semgrep p/default vẫn spam CWE-732/250 ở Dockerfile/yml |
+| finding_in_diff=1 | 360 | 29 | lỗi commit-này-tạo rất ít; còn lại là nợ cũ |
+
+### Kết luận
+- **Fix trufflehog đã được CHỨNG MINH bằng dữ liệu:** 161→1 secret; 145 "secret" cũ là cùng vài file node_modules nhân bản (url.d.ts 87×, http/https.d.ts 29× mỗi) — đúng dấu hiệu over-scan gán nhầm. Số liệu trufflehog cũ là rác.
+- **3 vuln cũ mất là do skip commit khổng lồ** (KHÔNG phải do fix): index.js CWE-798 @ `fa8d9efb`; 2× weak_random CWE-330 @ `7009be65` (268 file). ⚠️ 2 weak_random có thể là lỗi THẬT (bearer+semgrep đồng thuận) → đánh đổi của ngưỡng skip: bulk-commit bị loại cả lỗi thật. Cân nhắc sau.
+- **Tầng rẻ vẫn 0 vuln** trên commit thường → tái khẳng định cần TẦNG ĐẮT. 97% còn lại là infra noise.
+
+### Kế tiếp
+- **Loại node_modules/vendored/generated** trước khi quét (giảm cả nhiễu lẫn chi phí).
+- Cân nhắc lại ngưỡng skip (đừng mất lỗi thật trong bulk-commit) — vd chỉ skip file vendored thay vì cả commit.
+- Bước 2: tầng đắt (CodeQL/FindSecBugs/Sonar).
 
 ---
 
