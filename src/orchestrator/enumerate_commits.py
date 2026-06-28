@@ -27,6 +27,10 @@ class CommitInfo:
     changed_files: list[str] = field(default_factory=list)
     lines_added: int = 0
     lines_deleted: int = 0
+    # MỨC THAY ĐỔI LỚN NHẤT trên 1 file (để lọc commit "khổng lồ" theo diff)
+    max_file_add: int = 0     # add nhiều nhất trên 1 file
+    max_file_del: int = 0     # del nhiều nhất trên 1 file
+    max_file_churn: int = 0   # (add+del) lớn nhất trên 1 file
 
     @property
     def code_files(self) -> list[str]:
@@ -72,13 +76,18 @@ def get_commit_info(repo_dir: Path, commit_id: str) -> CommitInfo:
     files = _git(repo_dir, "show", "--name-only", "--pretty=format:", commit_id)
     changed = [f for f in files.splitlines() if f.strip()]
 
-    # numstat -> tổng add/del
+    # numstat -> tổng add/del + mức thay đổi lớn nhất trên 1 file
     add = dele = 0
+    max_add = max_del = max_churn = 0
     numstat = _git(repo_dir, "show", "--numstat", "--pretty=format:", commit_id)
     for ln in numstat.splitlines():
         cols = ln.split("\t")
         if len(cols) == 3 and cols[0].isdigit() and cols[1].isdigit():
-            add += int(cols[0]); dele += int(cols[1])
+            a, d = int(cols[0]), int(cols[1])
+            add += a; dele += d
+            max_add = max(max_add, a)
+            max_del = max(max_del, d)
+            max_churn = max(max_churn, a + d)
 
     return CommitInfo(
         commit_id=commit_id,
@@ -89,6 +98,9 @@ def get_commit_info(repo_dir: Path, commit_id: str) -> CommitInfo:
         changed_files=changed,
         lines_added=add,
         lines_deleted=dele,
+        max_file_add=max_add,
+        max_file_del=max_del,
+        max_file_churn=max_churn,
     )
 
 
@@ -159,26 +171,17 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
         return False, "không có file thay đổi"
     if not ci.code_files:
         return False, "chỉ đụng docs/non-code"
-    # commit "khổng lồ" theo SỐ FILE -> bỏ (quét tốn, ít giá trị; chỉ cần CommitInfo)
+    # commit "khổng lồ" theo SỐ FILE -> bỏ
     if len(ci.changed_files) > config.MAX_FILES_PER_COMMIT:
         return False, f">{config.MAX_FILES_PER_COMMIT} file ({len(ci.changed_files)})"
+    # commit "khổng lồ" theo MỨC THAY ĐỔI 1 file (diff): add/del/churn
+    # (numstat đã tính sẵn ở get_commit_info -> không tốn thêm; HEAD-independent, không cần checkout)
+    if (ci.max_file_add > config.MAX_FILE_ADD_LINES
+            or ci.max_file_del > config.MAX_FILE_DEL_LINES
+            or ci.max_file_churn > config.MAX_FILE_CHURN_LINES):
+        return False, (f"diff file lớn (+{ci.max_file_add}/-{ci.max_file_del}, "
+                       f"churn {ci.max_file_churn})")
     return True, "ok"
-
-
-def oversized_file(repo_dir: Path, ci: CommitInfo) -> tuple[bool, str]:
-    """True = commit có file code > MAX_FILE_LINES dòng (tại commit này) -> BỎ.
-
-    Cần đọc nội dung (git show) nên tách khỏi coarse_filter (vốn chỉ có CommitInfo).
-    Short-circuit ở file đầu vượt ngưỡng. Chỉ xét code_files (cái sẽ quét).
-    """
-    for f in ci.code_files:
-        content = file_content_at(repo_dir, ci.commit_id, f)
-        if content is None:
-            continue  # file bị xoá ở commit này -> không quét, bỏ qua
-        n_lines = content.count("\n") + 1
-        if n_lines > config.MAX_FILE_LINES:
-            return True, f"file >{config.MAX_FILE_LINES} dòng ({n_lines}): {f}"
-    return False, ""
 
 
 def enumerate_repo(repo_url: str, max_count: int | None = None):

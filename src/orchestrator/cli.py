@@ -53,14 +53,8 @@ def _added_lines(pd) -> set[int]:
 def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     """Quét TRỌN 1 commit trên 1 clone đã checkout sẵn. Trả (status_line, n_scanned,
     n_wrote, n_clean). Chạy trong 1 worker — 5 tool TUẦN TỰ ở đây; song song nằm ở
-    CẤP COMMIT (nhiều worker)."""
+    CẤP COMMIT (nhiều worker). (Commit khổng lồ đã bị lọc ở coarse_filter trước khi tới đây.)"""
     n_tools = len(tools)
-
-    # ngưỡng file khổng lồ (cần đọc nội dung -> sau checkout)
-    over, why = enm.oversized_file(clone, ci)
-    if over:
-        return f"[{ci.commit_id[:8]}] BỎ QUA: {why}", 0, 0, 0
-
     changed = [f for f in ci.code_files if (clone / f).exists()]
 
     all_findings = []
@@ -113,7 +107,7 @@ def cmd_scan(args):
     tools = [T() for T in CHEAP_TOOLS]
     tool_names = [t.name for t in tools]
     store = SQLiteStore()
-    scanned = wrote = clean = skipped = 0
+    scanned = wrote = clean = 0
 
     # run_meta: version + digest tool + config (tái lập). Lấy version 1 lần/run.
     if not args.no_meta:
@@ -126,12 +120,20 @@ def cmd_scan(args):
                       for t in tools],
         })
 
-    # commit cần quét (đã lọc thô: bỏ merge/docs/>MAX_FILES file)
-    todo = [ci for ci, keep, _ in enm.enumerate_repo(args.repo, args.max) if keep]
+    # lọc thô: bỏ merge/docs; bỏ commit khổng lồ (>MAX_FILES file hoặc diff 1-file quá lớn)
+    todo, skipped_big = [], []
+    for ci, keep, reason in enm.enumerate_repo(args.repo, args.max):
+        if keep:
+            todo.append(ci)
+        elif reason.startswith((">", "diff file lớn")):  # khổng lồ (số file / churn)
+            skipped_big.append((ci.commit_id, reason))
+    for sha, reason in skipped_big:
+        print(f"[{sha[:8]}] BỎ QUA: {reason}")
 
     workers = max(1, min(config.SCAN_WORKERS, len(todo) or 1))
     pool = RepoPool(repo_dir, workers)
-    print(f"Song song CẤP COMMIT: {workers} worker (clone pool) | {len(todo)} commit cần quét")
+    print(f"Song song CẤP COMMIT: {workers} worker (clone pool) | {len(todo)} commit cần quét "
+          f"| bỏ qua khổng lồ: {len(skipped_big)}")
 
     def _process(ci):
         clone = pool.acquire()
@@ -150,12 +152,10 @@ def cmd_scan(args):
                 scanned += ns
                 wrote += nw
                 clean += nc
-                if ns == 0 and "BỎ QUA" in status:
-                    skipped += 1
     finally:
         pool.cleanup()
 
-    print(f"\nĐã quét {scanned} commit | bỏ qua(khổng lồ) {skipped} | "
+    print(f"\nĐã quét {scanned} commit | bỏ qua khổng lồ {len(skipped_big)} | "
           f"findings(cụm): {wrote} | file clean(negative): {clean}")
     print(f"DB: {store.count()} findings, {store.count_clean()} clean files")
     store.close()

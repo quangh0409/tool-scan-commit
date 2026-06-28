@@ -21,11 +21,15 @@ CODE_EXTENSIONS = {".java", ".xml", ".properties", ".yml", ".yaml", ".py", ".ts"
 # coi là docs/non-code -> bỏ qua khi xét commit
 DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".png", ".jpg", ".gif", ".svg", ".pdf"}
 
-# Ngưỡng BỎ QUA commit "khổng lồ" (quét rất tốn, ít giá trị tín hiệu):
+# Ngưỡng BỎ QUA commit "khổng lồ" (diff quá lớn = bulk/generated, quét tốn & loãng tín hiệu).
+# Xét theo MỨC THAY ĐỔI của commit LÊN TỪNG FILE (add/del trong diff), KHÔNG phải kích thước file:
 #   - commit đụng > MAX_FILES_PER_COMMIT file (mọi loại) -> bỏ.
-#   - commit có BẤT KỲ file code nào > MAX_FILE_LINES dòng -> bỏ.
+#   - BẤT KỲ file nào có add > MAX_FILE_ADD_LINES, HOẶC del > MAX_FILE_DEL_LINES,
+#     HOẶC (add + del) > MAX_FILE_CHURN_LINES -> bỏ.
 MAX_FILES_PER_COMMIT = int(os.environ.get("ORCH_MAX_FILES_PER_COMMIT", "100"))
-MAX_FILE_LINES = int(os.environ.get("ORCH_MAX_FILE_LINES", "1000"))
+MAX_FILE_ADD_LINES = int(os.environ.get("ORCH_MAX_FILE_ADD_LINES", "1000"))
+MAX_FILE_DEL_LINES = int(os.environ.get("ORCH_MAX_FILE_DEL_LINES", "1000"))
+MAX_FILE_CHURN_LINES = int(os.environ.get("ORCH_MAX_FILE_CHURN_LINES", "2000"))
 
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)

@@ -23,10 +23,11 @@
 - **`repo_pool.py` (RepoPool):** pool K clone độc lập qua `git clone --local --no-checkout` (object hardlink → ~0 đĩa/0.3s/clone). KHÔNG dùng `git worktree` vì worktree để `.git` là *file* `gitdir:` → mount thư mục lẻ vào container thì tool git-mode (gitleaks/trufflehog) gãy; clone cho `.git` *thư mục thật* → mọi wrapper chạy y nguyên. Mỗi clone tái sử dụng qua nhiều commit (`checkout --detach`).
 - **`cli.py` cmd_scan viết lại:** `ThreadPoolExecutor(SCAN_WORKERS)` xử commit SONG SONG; mỗi worker chiếm 1 clone, checkout, chạy **5 tool TUẦN TỰ** bên trong → tối đa SCAN_WORKERS container cùng lúc (bounded, không thrash). Bỏ checkout/khôi-phục HEAD trên main repo (không còn đụng main).
 - **`sqlite_store.py` thread-safe:** `check_same_thread=False` + `threading.Lock` bọc mọi ghi.
-- **Ngưỡng bỏ commit khổng lồ (yêu cầu người dùng):**
-  - `> MAX_FILES_PER_COMMIT` (mặc định 100) file → bỏ ở `coarse_filter` (rẻ, chỉ cần CommitInfo).
-  - file code `> MAX_FILE_LINES` (mặc định 1000) dòng → bỏ ở `oversized_file()` (đọc `git show` sau checkout, short-circuit).
-  - Env override: `ORCH_MAX_FILES_PER_COMMIT`, `ORCH_MAX_FILE_LINES`, `ORCH_SCAN_WORKERS`.
+- **Ngưỡng bỏ commit khổng lồ (yêu cầu người dùng — theo DIFF, không theo kích thước file):**
+  - `> MAX_FILES_PER_COMMIT` (mặc định 100) file → bỏ.
+  - BẤT KỲ file nào có add>1000 HOẶC del>1000 HOẶC (add+del)>2000 → bỏ.
+  - Cả 2 check ở `coarse_filter` (lúc enumerate, dùng numstat có sẵn — HEAD-independent, không checkout).
+  - Env: `ORCH_MAX_FILES_PER_COMMIT`, `ORCH_MAX_FILE_ADD_LINES`, `ORCH_MAX_FILE_DEL_LINES`, `ORCH_MAX_FILE_CHURN_LINES`, `ORCH_SCAN_WORKERS`.
 
 ### Smoke-test (train-ticket --max 12, 4 worker) — PASS
 - 8 commit giữ (commit 983-file `fa8d9efb` bị lọc do >100 file), **3 BỎ QUA** vì đụng file k8s yml >1000 dòng (2248/2012), 5 commit quét thật.

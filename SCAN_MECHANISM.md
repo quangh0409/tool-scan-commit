@@ -136,12 +136,20 @@ horusec start -p /src -D -o json -O /out/h.json      # -D: CHỈ HorusecEngine
 
 ## 4. Ngưỡng BỎ QUA commit (đánh đổi phủ-sóng ↔ chi phí)
 
-- `coarse_filter`: bỏ commit > `MAX_FILES_PER_COMMIT` (mặc định 100) file — chỉ cần metadata, rẻ.
-- `oversized_file`: sau checkout, nếu **bất kỳ** file code > `MAX_FILE_LINES` (mặc định 1000) dòng → bỏ
-  (đọc `git show <SHA>:<path>`, đếm `\n`+1, short-circuit).
-- Env: `ORCH_MAX_FILES_PER_COMMIT`, `ORCH_MAX_FILE_LINES`, `ORCH_SCAN_WORKERS`.
-- **Trung thực:** đây là đánh đổi — một vuln nằm trong commit-khổng-lồ hoặc file >1000 dòng sẽ **không** vào
-  dataset. Chấp nhận trong kiến trúc phễu (commit lớn = squash/reconstruction, tín hiệu loãng, quét rất tốn).
+Xét theo **MỨC THAY ĐỔI của commit lên từng file** (add/del trong diff), KHÔNG phải kích thước file —
+vì một sửa 2 dòng trong file 2000 dòng vẫn rẻ & đáng quét, còn một diff +1500 dòng vào 1 file mới là
+bulk/generated, tốn & loãng. Tất cả tính từ `git show --numstat` (đã có sẵn trong `get_commit_info`,
+HEAD-independent) nên check nằm ở **`coarse_filter` (lúc enumerate)** — không cần checkout/đọc nội dung:
+
+- `> MAX_FILES_PER_COMMIT` (mặc định **100**) file → bỏ.
+- BẤT KỲ file nào trong commit có **add > MAX_FILE_ADD_LINES** (1000), **HOẶC del > MAX_FILE_DEL_LINES**
+  (1000), **HOẶC (add+del) > MAX_FILE_CHURN_LINES** (2000) → bỏ.
+- Env: `ORCH_MAX_FILES_PER_COMMIT`, `ORCH_MAX_FILE_ADD_LINES`, `ORCH_MAX_FILE_DEL_LINES`,
+  `ORCH_MAX_FILE_CHURN_LINES`, `ORCH_SCAN_WORKERS`.
+- **Kiểm thực nghiệm:** trên train-ticket, commit sửa 2 dòng của file k8s yml 2248 dòng → **KEEP**
+  (đúng, không bỏ oan); commit `570a522e (+1962/-0)`, `c01a86cc (-1343)` → **bỏ** đúng theo luật.
+- **Trung thực:** vuln nằm trong commit-khổng-lồ/diff-khổng-lồ sẽ **không** vào dataset — đánh đổi chấp nhận
+  trong kiến trúc phễu.
 
 ---
 
