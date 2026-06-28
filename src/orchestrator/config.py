@@ -20,6 +20,14 @@ SKIP_MERGE_COMMITS = True
 CODE_EXTENSIONS = {".java", ".xml", ".properties", ".yml", ".yaml", ".py", ".ts", ".js", ".sql"}
 # coi là docs/non-code -> bỏ qua khi xét commit
 DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".png", ".jpg", ".gif", ".svg", ".pdf"}
+# File NHỊ PHÂN: secret scanner bỏ qua được. Commit CHỈ đụng các đuôi này -> không đáng quét.
+# (Mọi file TEXT khác — kể cả docs/config .md/.json/.env/Dockerfile — VẪN quét: secret có thể
+#  nằm trong đó; gitleaks/trufflehog quét toàn diff bất kể đuôi.)
+BINARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".bmp", ".webp",
+                     ".pdf", ".zip", ".gz", ".tar", ".tgz", ".rar", ".7z",
+                     ".jar", ".war", ".ear", ".class", ".so", ".dll", ".exe", ".bin",
+                     ".woff", ".woff2", ".ttf", ".eot", ".otf",
+                     ".mp4", ".mp3", ".avi", ".mov", ".wav", ".ogg"}
 
 # Ngưỡng BỎ QUA commit "khổng lồ" (diff quá lớn = bulk/generated, quét tốn & loãng tín hiệu).
 # Xét theo MỨC THAY ĐỔI của commit LÊN TỪNG FILE (add/del trong diff), KHÔNG phải kích thước file:

@@ -10,6 +10,7 @@
 
 - **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song clone-pool + fix trufflehog + skip theo churn. **Pilot mới chạy xong** (26 commit/50, 1370 cụm, ~3–4 phút).
 - **Việc kế tiếp:** cắm tool đắt THẬT (CodeQL trước) trên build đã PoC; loại node_modules/vendored.
+- **Fix recall secret (yêu cầu user "doc có key cũng là lỗi"):** `coarse_filter` KHÔNG còn bỏ commit "chỉ docs/non-code"; chỉ bỏ khi **toàn file nhị phân** (`BINARY_EXTENSIONS`). Commit text-only (README/.env/.sh/Dockerfile) giờ giữ → gitleaks/trufflehog (quét toàn diff, bất kể đuôi) bắt được key. Verify: 34/150 commit text-only được giữ; commit README chạy secret tool OK.
 - **A vs B (tầng rẻ, đo sạch 29 commit/4 worker):** A (tool tuần tự) 264s; B (tool song song trong commit) **227s (~14% nhanh hơn)**, findings 2828≈2827. Toggle `INTRA_PARALLEL` (0=A mặc định, 1=B) cho cả 2 tầng. B lợi khiêm tốn vì commit vốn đã song song (8 vCPU gần bão hoà). Tầng đắt B chưa đo được (tool còn skeleton).
 - **Fix hạ tầng:** RepoPool base riêng theo PID (2 tiến trình không clobber); maven build chạy as-uid (`-u`, HOME=/tmp, repo.local trong cache) → không sinh file root kẹt clone-pool.
 - **PoC build XONG ✅:** train-ticket Spring Boot 2.3.12/JDK8/43 module; image `maven:3.9-eclipse-temurin-8`. Build **chỉ module bị đụng** (`-pl <mods> -am`, auto-detect) → service+dep ~13s, commit 11-module ~32s (cache ấm). `build.changed_modules()` + `build_commit()` đã chạy thật ra 183 .class. → build KHÔNG phải nút thắt.

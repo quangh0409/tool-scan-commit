@@ -37,6 +37,12 @@ class CommitInfo:
         return [f for f in self.changed_files
                 if Path(f).suffix.lower() in config.CODE_EXTENSIONS]
 
+    @property
+    def scannable_files(self) -> list[str]:
+        """File đáng quét secret = mọi file KHÔNG nhị phân (gồm docs/config text)."""
+        return [f for f in self.changed_files
+                if Path(f).suffix.lower() not in config.BINARY_EXTENSIONS]
+
 
 def _git(repo_dir: Path, *args: str) -> str:
     out = subprocess.run(
@@ -169,8 +175,10 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
         return False, "merge commit"
     if not ci.changed_files:
         return False, "không có file thay đổi"
-    if not ci.code_files:
-        return False, "chỉ đụng docs/non-code"
+    # Bỏ commit CHỈ khi toàn file nhị phân. Docs/config text VẪN giữ: secret (key/token) có thể
+    # nằm trong .md/.json/.env/Dockerfile -> gitleaks/trufflehog quét toàn diff bắt được.
+    if not ci.scannable_files:
+        return False, "chỉ đụng file nhị phân"
     # Ngưỡng commit "khổng lồ" — CHỈ áp dụng khi FLAG_LIMIT=1 (mặc định 0 = bỏ qua ngưỡng)
     if config.FLAG_LIMIT:
         # theo SỐ FILE
