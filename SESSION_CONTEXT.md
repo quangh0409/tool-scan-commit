@@ -8,10 +8,54 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
-- **Giai đoạn:** Bước 1 — tầng rẻ ĐỦ 5 TOOL, đã red-team + sửa 3 fix + smoke-test Java PASS (vuln 3-tool). Đang chạy pilot 50 commit train-ticket.
-- **Việc kế tiếp:** soi kết quả pilot (phân bố nhãn, kappa thủ công), rồi Bước 2 (tool tầng đắt: CodeQL/FindSecBugs/Sonar).
+- **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song. **Pilot train-ticket đã chạy xong** (29 commit giữ/50, 2951 cụm, ~9 phút).
+- **Việc kế tiếp:** Bước 2 (tool tầng đắt: CodeQL/FindSecBugs/Sonar) — đây mới là nguồn consensus code-vuln thật. Tầng rẻ đã xác nhận chỉ là candidate-generator.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-06-28 (b) — Song song CẤP COMMIT + ngưỡng bỏ commit khổng lồ
+
+**Vì sao:** quét tuần tự từng commit là nút thắt khi scale nghìn commit. (Đã bàn & loại phương án Java virtual-thread: workload CPU/container-bound, chặn ở số core chứ không số thread — vthread vô ích. Mô hình đúng = worker-pool *bounded* ≈ vCPU, song song ở CẤP COMMIT.)
+
+### Đã làm
+- **`repo_pool.py` (RepoPool):** pool K clone độc lập qua `git clone --local --no-checkout` (object hardlink → ~0 đĩa/0.3s/clone). KHÔNG dùng `git worktree` vì worktree để `.git` là *file* `gitdir:` → mount thư mục lẻ vào container thì tool git-mode (gitleaks/trufflehog) gãy; clone cho `.git` *thư mục thật* → mọi wrapper chạy y nguyên. Mỗi clone tái sử dụng qua nhiều commit (`checkout --detach`).
+- **`cli.py` cmd_scan viết lại:** `ThreadPoolExecutor(SCAN_WORKERS)` xử commit SONG SONG; mỗi worker chiếm 1 clone, checkout, chạy **5 tool TUẦN TỰ** bên trong → tối đa SCAN_WORKERS container cùng lúc (bounded, không thrash). Bỏ checkout/khôi-phục HEAD trên main repo (không còn đụng main).
+- **`sqlite_store.py` thread-safe:** `check_same_thread=False` + `threading.Lock` bọc mọi ghi.
+- **Ngưỡng bỏ commit khổng lồ (yêu cầu người dùng):**
+  - `> MAX_FILES_PER_COMMIT` (mặc định 100) file → bỏ ở `coarse_filter` (rẻ, chỉ cần CommitInfo).
+  - file code `> MAX_FILE_LINES` (mặc định 1000) dòng → bỏ ở `oversized_file()` (đọc `git show` sau checkout, short-circuit).
+  - Env override: `ORCH_MAX_FILES_PER_COMMIT`, `ORCH_MAX_FILE_LINES`, `ORCH_SCAN_WORKERS`.
+
+### Smoke-test (train-ticket --max 12, 4 worker) — PASS
+- 8 commit giữ (commit 983-file `fa8d9efb` bị lọc do >100 file), **3 BỎ QUA** vì đụng file k8s yml >1000 dòng (2248/2012), 5 commit quét thật.
+- 161 finding đều hợp lệ (s_line>0, cwe đủ). trufflehog git-mode chạy OK trên clone ⇒ rủi ro `.git`-trong-container đã xử lý. Không lỗi giữa chừng.
+
+### Kế tiếp (chưa làm)
+- Chạy lại pilot đầy đủ đo throughput vs lần trước (~9' tuần tự).
+- Đòn bẩy tiếp theo (đã đề xuất, chưa làm): **container ấm** (docker exec) + **cache theo blob-sha** để cắt khởi động container & quét trùng.
+
+---
+
+## Phiên 2026-06-28 — Kết quả pilot tầng rẻ (sau CWE-grouping + category + song song)
+
+**Pilot:** `train-ticket --max 50` → 29 commit giữ lại, 2951 cụm, chạy ~9 phút (19:20→19:29). Song song hoá 5 tool/commit OK, không lỗi giữa chừng, HEAD khôi phục đúng.
+
+### Số liệu chính
+- **Nhãn:** vuln=3, candidate=2948, clean(negative file)=1452 (trên 1626 file quét).
+- **3 vuln (≥2 tool đồng thuận):**
+  - `ts-ui-dashboard/.../index.js:18` — CWE-798 hardcoded_secret — **bearer+horusec**.
+  - 2× `old-docs/.../*.java` — CWE-330 weak_random — **bearer+semgrep** ← *thắng nhờ CWE-grouping* (bearer+semgrep cùng quy về nhóm `weak_random`).
+- **Category (tách nhiễu infra):** infra=2558 (**86.7%** — toàn permissions CWE-732 + privilege CWE-250 từ Dockerfile/k8s), secret=161, info=130, code=36, crypto=36, other=30.
+  - → **Bỏ infra-noise** thì chỉ còn **233** candidate code/secret/crypto đáng xét. code thật: sql_injection=11, xss=12, csrf=6, code_injection=3, path_traversal=2.
+- **finding_in_diff:** chỉ 360/2951 (12%) là do commit này tạo; 2591 là nợ cũ. Lọc `finding_in_diff=1` cắt còn 360.
+- **secret verified:** **0/145 verified** (toàn unverified — train-ticket dùng cred test/example, tín hiệu secret yếu).
+- **Đóng góp tool:** semgrep=2590, bearer=179, trufflehog=145, horusec=40, **gitleaks=0** (đúng kỳ vọng: gitleaks chặt hơn, loại key example).
+
+### Kết luận
+- 3 cải tiến hoạt động: **song song** (~9'), **CWE-grouping** (tạo ra 2 vuln weak_random bearer+semgrep), **category** (tách sạch 86.7% infra noise → còn 233 candidate thật).
+- **Tầng rẻ vẫn chỉ ra 3 vuln** → RE-XÁC NHẬN thiết kế phễu: cheap-tier = candidate generator, consensus code-vuln thật phải nhờ **tầng đắt**. Giá trị tầng rẻ là khả năng *cắt nhiễu* (category + finding_in_diff + verified) trước khi thả tool đắt.
 
 ---
 

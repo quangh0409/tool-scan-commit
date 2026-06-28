@@ -21,6 +21,12 @@ CODE_EXTENSIONS = {".java", ".xml", ".properties", ".yml", ".yaml", ".py", ".ts"
 # coi là docs/non-code -> bỏ qua khi xét commit
 DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".png", ".jpg", ".gif", ".svg", ".pdf"}
 
+# Ngưỡng BỎ QUA commit "khổng lồ" (quét rất tốn, ít giá trị tín hiệu):
+#   - commit đụng > MAX_FILES_PER_COMMIT file (mọi loại) -> bỏ.
+#   - commit có BẤT KỲ file code nào > MAX_FILE_LINES dòng -> bỏ.
+MAX_FILES_PER_COMMIT = int(os.environ.get("ORCH_MAX_FILES_PER_COMMIT", "100"))
+MAX_FILE_LINES = int(os.environ.get("ORCH_MAX_FILE_LINES", "1000"))
+
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)
 # ngưỡng số tool đồng thuận để gán nhãn "vuln"; 1..K-1 => "candidate"; 0 => "clean"
@@ -29,6 +35,11 @@ VOTE_THRESHOLD = int(os.environ.get("ORCH_VOTE_THRESHOLD", "2"))
 # --- Ngữ cảnh file ---
 # Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).
 STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
+
+# --- Song song CẤP COMMIT (Tầng ②) ---
+# Số clone-pool xử lý commit ĐỒNG THỜI. Mỗi worker xử trọn 1 commit (5 tool tuần tự
+# bên trong) -> tối đa SCAN_WORKERS container chạy cùng lúc. Đặt ~ số vCPU, chừa RAM.
+SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
 
 # --- Repo pilot ---
 PILOT_REPO = "https://github.com/FudanSELab/train-ticket"

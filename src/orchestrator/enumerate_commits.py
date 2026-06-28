@@ -159,7 +159,26 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
         return False, "không có file thay đổi"
     if not ci.code_files:
         return False, "chỉ đụng docs/non-code"
+    # commit "khổng lồ" theo SỐ FILE -> bỏ (quét tốn, ít giá trị; chỉ cần CommitInfo)
+    if len(ci.changed_files) > config.MAX_FILES_PER_COMMIT:
+        return False, f">{config.MAX_FILES_PER_COMMIT} file ({len(ci.changed_files)})"
     return True, "ok"
+
+
+def oversized_file(repo_dir: Path, ci: CommitInfo) -> tuple[bool, str]:
+    """True = commit có file code > MAX_FILE_LINES dòng (tại commit này) -> BỎ.
+
+    Cần đọc nội dung (git show) nên tách khỏi coarse_filter (vốn chỉ có CommitInfo).
+    Short-circuit ở file đầu vượt ngưỡng. Chỉ xét code_files (cái sẽ quét).
+    """
+    for f in ci.code_files:
+        content = file_content_at(repo_dir, ci.commit_id, f)
+        if content is None:
+            continue  # file bị xoá ở commit này -> không quét, bỏ qua
+        n_lines = content.count("\n") + 1
+        if n_lines > config.MAX_FILE_LINES:
+            return True, f"file >{config.MAX_FILE_LINES} dòng ({n_lines}): {f}"
+    return False, ""
 
 
 def enumerate_repo(repo_url: str, max_count: int | None = None):

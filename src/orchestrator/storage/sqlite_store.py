@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 from .. import config
@@ -78,7 +79,10 @@ class SQLiteStore:
     def __init__(self, path: Path | None = None):
         config.ensure_dirs()
         self.path = path or config.SQLITE_PATH
-        self.conn = sqlite3.connect(self.path)
+        # check_same_thread=False: worker song song (cấp commit) cùng ghi 1 connection;
+        # mọi ghi được bọc trong self._lock -> SQLite tự serialize, an toàn.
+        self.conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._lock = threading.Lock()
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
 
@@ -94,8 +98,9 @@ class SQLiteStore:
                 json.dumps(d[c]) if c in _JSON_COLS else d[c]
                 for c in _COLS
             ])
-        self.conn.executemany(sql, payload)
-        self.conn.commit()
+        with self._lock:
+            self.conn.executemany(sql, payload)
+            self.conn.commit()
         return len(payload)
 
     def insert_scanned_files(self, records: list[dict]) -> int:
@@ -114,19 +119,21 @@ class SQLiteStore:
                 json.dumps(r.get("tools", [])),
                 "clean" if r["n_findings"] == 0 else "has_finding",
             ])
-        self.conn.executemany(sql, payload)
-        self.conn.commit()
+        with self._lock:
+            self.conn.executemany(sql, payload)
+            self.conn.commit()
         return len(payload)
 
     def insert_run_meta(self, meta: dict) -> None:
-        self.conn.execute(
-            "INSERT INTO run_meta (started_at,repo,max_commits,vote_threshold,"
-            "line_window,tools) VALUES (?,?,?,?,?,?)",
-            [meta.get("started_at"), meta.get("repo"), meta.get("max_commits"),
-             meta.get("vote_threshold"), meta.get("line_window"),
-             json.dumps(meta.get("tools", []))],
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO run_meta (started_at,repo,max_commits,vote_threshold,"
+                "line_window,tools) VALUES (?,?,?,?,?,?)",
+                [meta.get("started_at"), meta.get("repo"), meta.get("max_commits"),
+                 meta.get("vote_threshold"), meta.get("line_window"),
+                 json.dumps(meta.get("tools", []))],
+            )
+            self.conn.commit()
 
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
