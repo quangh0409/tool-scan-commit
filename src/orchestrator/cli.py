@@ -188,6 +188,8 @@ def cmd_select(args):
 
 
 def cmd_analyze(args):
+    if args.codeql is not None:
+        config.USE_CODEQL = args.codeql
     tools = [t.strip() for t in args.tools.split(",")] if args.tools else None
     res = expensive_runner.analyze(args.repo, workers=args.workers,
                                    dry_run=bool(args.dry_run), tools=tools)
@@ -231,6 +233,8 @@ def main(argv=None):
                     help="danh sách tool (vd codeql,findsecbugs); mặc định theo config")
     pa.add_argument("--dry-run", action="store_true",
                     help="đi hết vòng đời hàng đợi mà KHÔNG build/scan (kiểm khung)")
+    pa.add_argument("--codeql", type=int, choices=(0, 1), default=None,
+                    help="1=bật CodeQL (mặc định), 0=TẮT (chỉ FindSecBugs+Sonar, nhanh)")
     pa.set_defaults(func=cmd_analyze)
 
     args = p.parse_args(argv)

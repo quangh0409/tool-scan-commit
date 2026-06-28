@@ -75,6 +75,9 @@ EXPENSIVE_WORKERS = int(os.environ.get("ORCH_EXPENSIVE_WORKERS", "2"))
 EXPENSIVE_TOOLS = [t.strip() for t in
                    os.environ.get("ORCH_EXPENSIVE_TOOLS", "codeql,findsecbugs,sonar").split(",")
                    if t.strip()]
+# Công tắc RIÊNG cho CodeQL (nút thắt ~95% thời gian tầng đắt): 1=bật, 0=TẮT.
+# Tắt -> tầng đắt chỉ FindSecBugs+Sonar (~30s/commit, hợp cho GOLD-negative / chạy nhanh).
+USE_CODEQL = int(os.environ.get("ORCH_USE_CODEQL", "1"))
 # Build dùng chung cho 3 tool. Image Maven + JDK đúng thời kỳ (train-ticket: Java 8, Spring Boot 2.3).
 # PoC xác nhận: maven:3.9-eclipse-temurin-8 build OK; service+dep ~13s cache ấm.
 MAVEN_IMAGE = os.environ.get("ORCH_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-8")

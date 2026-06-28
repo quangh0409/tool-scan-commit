@@ -109,6 +109,8 @@ def analyze(repo: str, workers: int | None = None, dry_run: bool = False,
             tools: list[str] | None = None) -> dict:
     workers = workers or config.EXPENSIVE_WORKERS
     names = tools if tools else config.EXPENSIVE_TOOLS
+    if not config.USE_CODEQL:                       # công tắc riêng tắt CodeQL (nút thắt)
+        names = [n for n in names if n != "codeql"]
     repo_dir = enm.clone_or_update(repo)
     store = SQLiteStore()
 
