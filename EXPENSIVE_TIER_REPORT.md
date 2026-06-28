@@ -249,7 +249,18 @@ Sonar scanner đẩy lên server; có thể nhanh hơn CodeQL nhiều), thì **c
 
 **Điều kiện:** chỉ làm nếu FindSecBugs+Sonar rẻ về thời gian (KHÔNG dùng CodeQL cho clean — quá chậm).
 **Ghi dataset:** cột nhãn negative phân biệt `cheap-clean` (chỉ tool rẻ) vs `verified-clean` (rẻ + FindSecBugs + Sonar).
-→ TODO: đo thời gian FindSecBugs/Sonar lúc cắm thật, rồi quyết.
+→ ĐÃ ĐO (xong): FindSecBugs **7s**, Sonar **22s**/commit → đủ rẻ để quét clean. Công tắc `USE_CODEQL=0`
+  (CLI `--codeql 0`) cho phép tầng đắt chạy CHỈ FindSecBugs+Sonar (~30s/commit).
+
+### GOLD KHÔNG bắt buộc CodeQL — định nghĩa theo SỐ TOOL xác nhận (chốt với người dùng)
+CodeQL ~20'/commit quá đắt → **tùy người dùng/ngân sách có chạy CodeQL hay không**. "GOLD" định nghĩa
+theo **mức đồng thuận đa-tool**, KHÔNG bắt buộc CodeQL:
+- **GOLD positive**: finding được xác nhận bởi ≥2 tool đắt (FindSecBugs + Sonar) [+ tầng rẻ] — CodeQL là *bonus*.
+- **GOLD negative**: clean qua FindSecBugs + Sonar vẫn 0 finding (verified-clean).
+- Chạy được CodeQL → nâng độ tin (3 tool đắt), nhưng **2 tool đắt đã đủ coi là GOLD**.
+- Dataset PHẢI ghi rõ **tool nào xác nhận** (agreeing_tools + tier) để minh bạch mức GOLD đạt được.
+→ Hệ quả: pipeline tầng đắt **mặc định nên chạy được cả khi `USE_CODEQL=0`**; nhãn gold suy từ tổ hợp
+  tool thực tế đã chạy (xem cross-tier consensus §6).
 
 ---
 

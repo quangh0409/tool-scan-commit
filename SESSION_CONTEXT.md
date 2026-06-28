@@ -17,7 +17,9 @@
   - **SonarQube** scan **~22s** — server singleton headless (đổi pw+token QUA API, KHÔNG web); 11 finding; CWE-352+CORS. ⚠️ BẮT BUỘC `sonar.java.libraries=/m2 jar` (thiếu→0 finding).
   - **CWE-352 CSRF @ SecurityConfig** cả 3 tool cùng bắt (line 65/_/67, ≤window) → consensus 3-tool thật.
   - Gotcha đã xử: vm.max_map_count=262144 (user sudo); SonarQube admin/admin chỉ dùng lần đầu→đổi pw qua API (config SONAR_ADMIN_PW).
-- **Việc kế tiếp:** chạy `analyze` thật (positive); cho FindSecBugs+Sonar quét clean→verified-clean GOLD (nay khả thi vì 2 tool rẻ-thời-gian); cross-tier consensus rẻ+đắt; loại node_modules/vendored.
+- **Công tắc `USE_CODEQL`** (CLI `--codeql 0/1`, mặc định 1): tắt → tầng đắt chỉ FindSecBugs+Sonar (~30s/commit).
+- **GOLD không bắt buộc CodeQL (chốt):** GOLD = đồng thuận ĐA-TOOL; 2 tool đắt (FindSecBugs+Sonar) [+rẻ] đủ GOLD cho CẢ positive lẫn negative; CodeQL là bonus tùy ngân sách. Dataset ghi rõ tool nào xác nhận (agreeing_tools+tier). Xem `EXPENSIVE_TIER_REPORT.md` §5d.
+- **Việc kế tiếp:** chạy `analyze` thật (positive); cross-tier consensus rẻ+đắt (suy nhãn gold từ tổ hợp tool đã chạy); loại node_modules/vendored.
 - **Mô hình dataset (chốt):** buggy (có CWE/CVE tool rẻ) → tầng đắt → POSITIVE; clean (0 CWE/CVE) → NEGATIVE lấy hết, KHÔNG quét đắt. Negative = "cheap-clean" (silver).
 - **BACKLOG (ý tưởng user):** nếu FindSecBugs/Sonar đo ra NHANH lúc cắm → cho 2 tool đó quét luôn clean commit; clean vẫn-sạch → **verified-clean = GOLD negative**; clean mà ra finding → FN tool rẻ → đẩy sang positive. (KHÔNG dùng CodeQL cho clean — quá chậm ~phút/commit.) Cột nhãn phân biệt cheap-clean vs verified-clean. Xem `EXPENSIVE_TIER_REPORT.md` §5d.
 - **Fix recall secret (yêu cầu user "doc có key cũng là lỗi"):** `coarse_filter` KHÔNG còn bỏ commit "chỉ docs/non-code"; chỉ bỏ khi **toàn file nhị phân** (`BINARY_EXTENSIONS`). Commit text-only (README/.env/.sh/Dockerfile) giờ giữ → gitleaks/trufflehog (quét toàn diff, bất kể đuôi) bắt được key. Verify: 34/150 commit text-only được giữ; commit README chạy secret tool OK.
