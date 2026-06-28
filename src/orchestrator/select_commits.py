@@ -1,22 +1,22 @@
 """
 Tầng ⑤ (cầu nối rẻ→đắt): chọn commit cho TẦNG ĐẮT quét.
 
-Quy tắc (yêu cầu người dùng):
-  - 5 tool rẻ ĐÁNH DẤU commit "đáng nghi" (buggy) = có BẤT KỲ finding nào mang **mã CWE/CVE**
-    (chỉ cần 1 tool/1 finding). MỌI buggy -> tầng đắt quét.
-    (Lưu ý: schema ép mọi finding phải có CWE ở validate() -> thực chất buggy = commit có ≥1 finding.)
-  - Commit "clean" = 0 finding (negative thật) -> lấy MẪU ngẫu nhiên theo tỉ lệ
-    1 buggy : CLEAN_PER_BUGGY clean (mặc định 1:20). Mẫu có seed -> tái lập.
+Quy tắc (yêu cầu người dùng — mô hình positive/negative):
+  - Commit "buggy" = có BẤT KỲ finding nào mang **mã CWE/CVE** (chỉ cần 1 tool/1 finding)
+    -> CHỈ những commit này vào hàng đợi TẦNG ĐẮT (selected_commits) -> dataset POSITIVE.
+  - Commit "clean" = 0 finding CWE/CVE từ tool rẻ -> **KHÔNG quét tầng đắt** -> dataset NEGATIVE
+    lấy thẳng từ dữ liệu tầng rẻ (scanned_files/findings). TẤT CẢ clean commit đều là negative.
   - Commit "xám" = có finding nhưng KHÔNG suy ra được CWE/CVE -> BỎ (hiếm; thường rỗng).
 
-Phân loại đọc từ DB tầng rẻ (findings + scanned_files); ghi ra bảng selected_commits
-= hàng đợi cho Bước 2.
+LƯU Ý: negative = "cheap-clean" (silver), KHÔNG phải verified-clean — tool rẻ recall thấp nên
+một commit clean vẫn có thể có vuln mà chỉ CodeQL bắt được. Đánh đổi cost↔độ-sạch (người dùng chốt).
+
+Phân loại đọc từ DB tầng rẻ (findings + scanned_files); ghi buggy ra bảng selected_commits.
 """
 from __future__ import annotations
 
 import datetime
 import json
-import random
 
 from . import config
 from .storage.sqlite_store import SQLiteStore
@@ -55,15 +55,9 @@ def classify(store: SQLiteStore):
     return universe, buggy, clean, gray
 
 
-def select(store: SQLiteStore, ratio: int | None = None, seed: int | None = None) -> dict:
-    ratio = config.CLEAN_PER_BUGGY if ratio is None else ratio
-    seed = config.SELECT_SEED if seed is None else seed
+def select(store: SQLiteStore) -> dict:
+    """Đẩy CHỈ commit buggy (có CWE/CVE) vào hàng đợi tầng đắt. Clean = negative (không quét đắt)."""
     universe, buggy, clean, gray = classify(store)
-
-    # số clean lấy = ratio * #buggy (chặn theo pool sẵn có). Nếu 0 buggy -> lấy 'ratio' làm nền.
-    want = ratio * len(buggy) if buggy else ratio
-    n_take = min(len(clean), want)
-    clean_sample = random.Random(seed).sample(sorted(clean), n_take) if n_take else []
 
     now = datetime.datetime.now().isoformat(timespec="seconds")
     rows: list[dict] = []
@@ -76,17 +70,9 @@ def select(store: SQLiteStore, ratio: int | None = None, seed: int | None = None
             "suspect_categories": signal, "n_suspect_findings": b["n"],
             "created_at": now,
         })
-    for cid in clean_sample:
-        rows.append({
-            "commit_id": cid, "role": "clean",
-            "selection_reason": f"negative-sample(1:{ratio})",
-            "suspect_categories": [], "n_suspect_findings": 0,
-            "created_at": now,
-        })
     store.replace_selected(rows)
     return {
         "universe": len(universe), "buggy": len(buggy),
-        "clean_pool": len(clean), "clean_taken": len(clean_sample),
-        "gray_excluded": len(gray), "ratio": ratio,
+        "negative_clean": len(clean), "gray_excluded": len(gray),
         "total_selected": len(rows),
     }

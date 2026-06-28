@@ -65,11 +65,8 @@ EXPENSIVE_INTRA_PARALLEL = int(os.environ.get("ORCH_EXPENSIVE_INTRA_PARALLEL", "
 # Commit "ĐÁNG NGHI" (buggy) = có BẤT KỲ finding tầng rẻ nào mang mã CWE/CVE (chỉ cần 1 tool/1 finding).
 # (Mọi finding đều đã ép có CWE ở validate() -> thực chất: commit có ≥1 finding bất kỳ.)
 # 1 = chỉ tính đáng nghi khi finding rơi vào dòng commit THÊM/SỬA; 0 = mọi finding (mặc định 0).
+# Buggy (có CWE/CVE) -> tầng đắt (positive). Clean (0 CWE/CVE) -> negative, KHÔNG quét đắt (lấy hết).
 SUSPECT_REQUIRE_IN_DIFF = os.environ.get("ORCH_SUSPECT_REQUIRE_IN_DIFF") == "1"
-# Tỉ lệ lấy NEGATIVE: mỗi 1 commit buggy -> lấy bao nhiêu commit CLEAN (0-finding) làm mẫu ngẫu nhiên.
-CLEAN_PER_BUGGY = int(os.environ.get("ORCH_CLEAN_PER_BUGGY", "20"))
-# seed mẫu clean (để TÁI LẬP đúng tập đã chọn).
-SELECT_SEED = int(os.environ.get("ORCH_SELECT_SEED", "42"))
 
 # --- TẦNG ĐẮT (Bước 2 — Model A: song song CẤP COMMIT, 3 tool tuần tự, build dùng chung) ---
 # Số commit xử song song ở tầng đắt (nặng RAM/build -> ÍT hơn tầng rẻ nhiều). PoC = 2.
@@ -84,6 +81,12 @@ MAVEN_IMAGE = os.environ.get("ORCH_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-8")
 # Goal build (KHÔNG kèm -pl; module bị đụng được chèn động: `-pl <mods> -am`).
 MAVEN_GOALS = os.environ.get("ORCH_MAVEN_GOALS", "-B clean package -DskipTests")
 BUILD_TIMEOUT = int(os.environ.get("ORCH_BUILD_TIMEOUT", "1800"))
+# CodeQL analyze: chặn RAM/threads tường minh (mặc định ước lượng SAI trong container -> OOM).
+# threads=0 = dùng hết core. Suite mặc định nhẹ (code-scanning); extended quá chậm (>20'/commit).
+CODEQL_RAM_MB = int(os.environ.get("ORCH_CODEQL_RAM_MB", "20000"))
+CODEQL_THREADS = int(os.environ.get("ORCH_CODEQL_THREADS", "0"))
+CODEQL_SUITE = os.environ.get(
+    "ORCH_CODEQL_SUITE", "codeql/java-queries:codeql-suites/java-code-scanning.qls")
 # Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
 STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))
 

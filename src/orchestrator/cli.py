@@ -177,15 +177,13 @@ def cmd_select(args):
                                       if args.require_in_diff is not None
                                       else config.SUSPECT_REQUIRE_IN_DIFF)
     store = SQLiteStore()
-    res = select_commits.select(store, ratio=args.ratio, seed=args.seed)
+    res = select_commits.select(store)
     print(f"Universe (commit đã quét tầng rẻ): {res['universe']}")
     print(f"  buggy (có mã CWE/CVE"
-          f"{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}): {res['buggy']}")
-    print(f"  clean (0 finding) pool: {res['clean_pool']} "
-          f"-> lấy {res['clean_taken']} (tỉ lệ 1:{res['ratio']})")
+          f"{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}) -> TẦNG ĐẮT (positive): {res['buggy']}")
+    print(f"  clean (0 CWE/CVE) -> NEGATIVE (không quét đắt): {res['negative_clean']}")
     print(f"  xám (có finding nhưng không CWE/CVE, BỎ): {res['gray_excluded']}")
-    print(f"=> TẦNG ĐẮT sẽ quét {res['total_selected']} commit "
-          f"(ghi bảng selected_commits).")
+    print(f"=> selected_commits (hàng đợi đắt) = {res['total_selected']} commit buggy.")
     store.close()
 
 
@@ -219,11 +217,7 @@ def main(argv=None):
     ps.set_defaults(func=cmd_scan)
 
     psel = sub.add_parser("select",
-                          help="chọn commit cho tầng đắt: buggy (đáng nghi) + mẫu clean 1:N")
-    psel.add_argument("--ratio", type=int, default=config.CLEAN_PER_BUGGY,
-                      help=f"số clean / 1 buggy (mặc định {config.CLEAN_PER_BUGGY})")
-    psel.add_argument("--seed", type=int, default=config.SELECT_SEED,
-                      help="seed mẫu clean (tái lập)")
+                          help="chọn commit buggy (có CWE/CVE) cho tầng đắt; clean = negative")
     psel.add_argument("--require-in-diff", type=int, choices=(0, 1), default=None,
                       help="1=chỉ tính đáng nghi khi finding nằm trong diff commit")
     psel.set_defaults(func=cmd_select)
