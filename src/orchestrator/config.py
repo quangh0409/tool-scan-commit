@@ -85,9 +85,10 @@ BUILD_TIMEOUT = int(os.environ.get("ORCH_BUILD_TIMEOUT", "1800"))
 # threads=0 = dùng hết core. Suite mặc định nhẹ (code-scanning); extended quá chậm (>20'/commit).
 CODEQL_RAM_MB = int(os.environ.get("ORCH_CODEQL_RAM_MB", "20000"))
 CODEQL_THREADS = int(os.environ.get("ORCH_CODEQL_THREADS", "0"))
-# Mặc định suite TỐI GIẢN (10 query CWE giá-trị-cao, bake trong image) -> ~6.7'/commit
-# thay vì ~21' của code-scanning. Đổi ORCH_CODEQL_SUITE để dùng suite khác (vd java-code-scanning.qls).
-CODEQL_SUITE = os.environ.get("ORCH_CODEQL_SUITE", "/opt/minimal-java.qls")
+# Mặc định code-scanning đầy đủ (~80 query, ~20'/commit — người dùng chấp nhận để phủ rộng).
+# Suite tối giản /opt/minimal-java.qls (bake sẵn, ~6.7') vẫn dùng được qua ORCH_CODEQL_SUITE.
+CODEQL_SUITE = os.environ.get(
+    "ORCH_CODEQL_SUITE", "codeql/java-queries:codeql-suites/java-code-scanning.qls")
 # Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
 STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))
 
