@@ -6,3 +6,5 @@ RUN curl -sSL "$BUNDLE" -o /tmp/c.tgz \
  && tar -xzf /tmp/c.tgz -C /opt \
  && rm /tmp/c.tgz \
  && ln -s /opt/codeql/codeql /usr/local/bin/codeql
+# Suite tối giản (10 query CWE giá-trị-cao) — analyze ~3x nhanh hơn code-scanning.
+COPY minimal-java.qls /opt/minimal-java.qls

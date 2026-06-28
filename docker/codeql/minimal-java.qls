@@ -1,0 +1,17 @@
+# Suite CodeQL Java TỐI GIẢN — chỉ các query bảo mật giá-trị-cao (giảm thời gian analyze).
+# Dùng khi code-scanning (~50-80 query) quá chậm. Chọn theo CWE trọng yếu cho dataset.
+- description: "Minimal high-value Java security queries"
+- queries: .
+  from: codeql/java-queries
+- include:
+    id:
+      - java/sql-injection
+      - java/concatenated-sql-query
+      - java/xss
+      - java/command-line-injection
+      - java/path-injection
+      - java/unsafe-deserialization
+      - java/ssrf
+      - java/ldap-injection
+      - java/xxe
+      - java/spring-disabled-csrf-protection
