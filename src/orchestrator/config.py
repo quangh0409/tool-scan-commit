@@ -66,9 +66,11 @@ EXPENSIVE_WORKERS = int(os.environ.get("ORCH_EXPENSIVE_WORKERS", "2"))
 EXPENSIVE_TOOLS = [t.strip() for t in
                    os.environ.get("ORCH_EXPENSIVE_TOOLS", "codeql,findsecbugs,sonar").split(",")
                    if t.strip()]
-# Build dùng chung cho 3 tool. Image Maven + JDK đúng thời kỳ (train-ticket: Java 8) — PoC tinh chỉnh.
+# Build dùng chung cho 3 tool. Image Maven + JDK đúng thời kỳ (train-ticket: Java 8, Spring Boot 2.3).
+# PoC xác nhận: maven:3.9-eclipse-temurin-8 build OK; service+dep ~13s cache ấm.
 MAVEN_IMAGE = os.environ.get("ORCH_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-8")
-MAVEN_BUILD_CMD = os.environ.get("ORCH_MAVEN_BUILD_CMD", "mvn -B -q clean package -DskipTests")
+# Goal build (KHÔNG kèm -pl; module bị đụng được chèn động: `-pl <mods> -am`).
+MAVEN_GOALS = os.environ.get("ORCH_MAVEN_GOALS", "-B clean package -DskipTests")
 BUILD_TIMEOUT = int(os.environ.get("ORCH_BUILD_TIMEOUT", "1800"))
 # Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
 STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))

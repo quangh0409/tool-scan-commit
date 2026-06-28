@@ -9,7 +9,8 @@
 ## Trạng thái tổng quan (cập nhật nhanh)
 
 - **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song clone-pool + fix trufflehog + skip theo churn. **Pilot mới chạy xong** (26 commit/50, 1370 cụm, ~3–4 phút).
-- **Việc kế tiếp:** PoC build 1 commit cho tầng đắt (xem `EXPENSIVE_TIER_REPORT.md`); loại node_modules/vendored; (đã có bộ chọn commit `select`).
+- **Việc kế tiếp:** cắm tool đắt THẬT (CodeQL trước) trên build đã PoC; loại node_modules/vendored.
+- **PoC build XONG ✅:** train-ticket Spring Boot 2.3.12/JDK8/43 module; image `maven:3.9-eclipse-temurin-8`. Build **chỉ module bị đụng** (`-pl <mods> -am`, auto-detect) → service+dep ~13s, commit 11-module ~32s (cache ấm). `build.changed_modules()` + `build_commit()` đã chạy thật ra 183 .class. → build KHÔNG phải nút thắt.
 - **Cầu nối rẻ→đắt (XONG):** `orchestrator select` chọn buggy (**có mã CWE/CVE** — chỉ cần 1 tool/1 finding) + mẫu clean 1:N (N=`CLEAN_PER_BUGGY`, mặc định 20) → bảng `selected_commits`. `FLAG_LIMIT` (mặc định 0) bật/tắt ngưỡng bỏ commit khổng lồ.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.

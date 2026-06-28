@@ -258,12 +258,24 @@ Tái dùng `RepoPool`; Sonar server bật **1 lần/cả-run**, không bật/t�
 
 ---
 
-## 8. Đề xuất PoC tối thiểu TRƯỚC khi code đầy đủ (chống lãng phí build)
+## 8. PoC BUILD — ✅ ĐÃ CHẠY (train-ticket)
 
-1. **Chọn 1 commit train-ticket build được** (vd gần HEAD), `mvn -B clean compile -DskipTests` trong Docker → xác nhận compile OK + thời gian + JDK cần.
-2. Trên đúng build đó, chạy LẦN LƯỢT 3 tool, xác minh: (a) ra finding, (b) lấy được CWE, (c) path/line khớp source.
-3. Đo thời gian + RAM thực mỗi tool → ước tính K commit khả thi trong ngân sách.
-4. Chỉ khi 3 cái trên xanh mới hiện thực wrapper + selection + adapter.
+**Môi trường xác nhận:** train-ticket = Spring Boot **2.3.12** / **JDK 8** / **43 module** Maven.
+Image **`maven:3.9-eclipse-temurin-8`** build OK. Cache `.m2` dùng chung (mount `/root/.m2`).
+
+| Test | Build | Thời gian | Kết quả |
+|---|---|---|---|
+| `ts-common` (cold, tải deps lần đầu) | `-pl ts-common` | 28s mvn / 42s wall | SUCCESS, 55 `.class`, .m2=103MB |
+| `ts-order-service` + dep (ấm) | `-pl ts-order-service -am` | **13s** mvn / 16s wall | SUCCESS, jar + classes |
+| commit thật 313886e9 (11 module) | `-pl <11 mods> -am` (auto-detect) | **32s** (ấm) | `ok=True`, **183 `.class`**, 12 classes_dir |
+
+**Kết luận then chốt:** build **KHÔNG phải nút thắt khủng** như lo ngại — **với điều kiện chỉ build
+MODULE BỊ ĐỤNG + dep** (`-pl <mods> -am`), KHÔNG build cả 43 module. Đã hiện thực: `build.changed_modules()`
+tự suy module từ file đổi → chèn `-pl`. Commit đầu trả tiền tải deps (~1 lần), sau đó **~13–32s/commit**.
+→ K commit khả thi LỚN trong ngân sách (build rẻ hơn nhiều so với giả định "vài phút/commit").
+
+**Còn lại của PoC (chưa làm):** trên build này chạy thật 3 tool, xác minh (a) ra finding, (b) CWE, (c) path/line
+khớp source. Đây là bước kế (cắm `TODO(PoC)` trong codeql/findsecbugs/sonar).
 
 ---
 
