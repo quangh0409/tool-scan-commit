@@ -50,7 +50,8 @@ def _process(cid, worker, store, pool, tools, repo, dry_run):
             return ("build_failed", cid)
 
         store.set_commit_status(cid, "analyzing", build_status="ok")
-        for t in tools:
+
+        def _run_tool(t):
             t0 = time.time()
             try:
                 findings = t.scan(ctx)
@@ -61,6 +62,13 @@ def _process(cid, worker, store, pool, tools, repo, dry_run):
                                         "status": status, "n_findings": len(findings),
                                         "duration_sec": round(time.time() - t0, 1), "error": err})
             # TODO(§6): gộp findings rẻ+đắt rồi ghi bảng findings (cross-tier consensus).
+
+        if config.INTRA_PARALLEL and len(tools) > 1:   # Model B: 3 tool song song sau build
+            with ThreadPoolExecutor(max_workers=len(tools)) as ex:
+                list(ex.map(_run_tool, tools))
+        else:                                          # Model A: tuần tự
+            for t in tools:
+                _run_tool(t)
         store.set_commit_status(cid, "done", finished=True)
         return ("done", cid)
     finally:

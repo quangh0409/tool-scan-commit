@@ -16,6 +16,7 @@ phải clone lại; "tool xong trước thì nhả clone cho commit kế" = hàn
 """
 from __future__ import annotations
 
+import os
 import queue
 import shutil
 import subprocess
@@ -28,7 +29,8 @@ class RepoPool:
     def __init__(self, main_repo: Path, size: int):
         self.main = Path(main_repo)
         self.size = max(1, size)
-        self.base = config.WORK_DIR / "pool"
+        # base RIÊNG theo PID -> 2 tiến trình orchestrator chạy đồng thời không clobber nhau.
+        self.base = config.WORK_DIR / f"pool_{os.getpid()}"
         self._q: "queue.Queue[Path]" = queue.Queue()
         self._all: list[Path] = []
         self._setup()

@@ -58,12 +58,21 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     n_tools = len(tools)
     changed = [f for f in ci.code_files if (clone / f).exists()]
 
-    all_findings = []
-    for t in tools:
+    def _safe(t):
         try:
-            all_findings += t.scan(clone, ci.commit_id, args.repo, changed)
+            return t.scan(clone, ci.commit_id, args.repo, changed)
         except Exception as e:  # noqa: BLE001 — 1 tool lỗi không dừng cả phễu
             print(f"[{t.name}] lỗi @ {ci.commit_id[:8]}: {e}")
+            return []
+
+    all_findings = []
+    if config.INTRA_PARALLEL:                       # Model B: tool song song trong 1 commit
+        with ThreadPoolExecutor(max_workers=len(tools)) as ex:
+            for res in ex.map(_safe, tools):
+                all_findings += res
+    else:                                           # Model A: tool tuần tự
+        for t in tools:
+            all_findings += _safe(t)
 
     meta = {
         "parent_commit": ci.parent_commit,

@@ -7,6 +7,7 @@ sau nhanh). Build FAIL là DỮ LIỆU (ctx.ok=False + error), KHÔNG raise.
 """
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -38,13 +39,17 @@ def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
     pl = ["-pl", ",".join(mods), "-am"] if mods else []   # rỗng -> build full (fallback)
 
     t0 = time.time()
+    # Chạy maven AS CURRENT UID (không sinh file root mà orchestrator non-root xoá không được
+    # -> tránh kẹt clone-pool). HOME=/tmp + repo.local trong cache uid-owned.
     proc = docker_run([
         "run", "--rm",
+        "-u", f"{os.getuid()}:{os.getgid()}",
+        "-e", "HOME=/tmp",
         "-v", f"{clone_dir}:/work",
-        "-v", f"{_m2_cache()}:/root/.m2",
+        "-v", f"{_m2_cache()}:/m2",
         "-w", "/work",
         config.MAVEN_IMAGE,
-        "mvn", *config.MAVEN_GOALS.split(), *pl,
+        "mvn", *config.MAVEN_GOALS.split(), "-Dmaven.repo.local=/m2/repository", *pl,
     ], timeout=config.BUILD_TIMEOUT)
     ctx.duration_sec = round(time.time() - t0, 1)
 

@@ -45,9 +45,12 @@ VOTE_THRESHOLD = int(os.environ.get("ORCH_VOTE_THRESHOLD", "2"))
 STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
 
 # --- Song song CẤP COMMIT (Tầng ②) ---
-# Số clone-pool xử lý commit ĐỒNG THỜI. Mỗi worker xử trọn 1 commit (5 tool tuần tự
-# bên trong) -> tối đa SCAN_WORKERS container chạy cùng lúc. Đặt ~ số vCPU, chừa RAM.
+# Số clone-pool xử lý commit ĐỒNG THỜI. Mỗi worker xử trọn 1 commit -> tối đa SCAN_WORKERS
+# (hoặc SCAN_WORKERS×#tool nếu INTRA_PARALLEL) container cùng lúc. Đặt ~ số vCPU, chừa RAM.
 SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
+# Model A (0) = các TOOL trong 1 commit chạy TUẦN TỰ; Model B (1) = chạy SONG SONG.
+# Áp dụng cho CẢ tầng rẻ lẫn tầng đắt. Mặc định A (an toàn RAM); B để thử khi build/tool rẻ.
+INTRA_PARALLEL = int(os.environ.get("ORCH_INTRA_PARALLEL", "0"))
 
 # --- Chọn commit lên TẦNG ĐẮT (Bước 2) ---
 # Commit "ĐÁNG NGHI" (buggy) = có BẤT KỲ finding tầng rẻ nào mang mã CWE/CVE (chỉ cần 1 tool/1 finding).
