@@ -137,6 +137,69 @@ hoặc qua Maven: `com.github.spotbugs:spotbugs-maven-plugin` + dependency `find
 
 ---
 
+## 5b. MÔ HÌNH GIAO TIẾP rẻ → đắt (đẩy commit qua tầng)
+
+**Nguyên tắc:** 2 tầng KHÔNG gọi nhau trực tiếp trong bộ nhớ. Chúng giao tiếp DUY NHẤT qua
+**bảng SQLite làm hàng đợi bền** (`selected_commits`). Tầng rẻ *enqueue*; tầng đắt *pull/claim* &
+xử ở nhịp riêng. Lý do: tầng đắt chậm + chạy ngắt quãng (STOP VM giữa chừng) → cần **bền trên
+Persistent Disk + resume được**, không mất tiến độ.
+
+```
+ [scan]  tầng RẺ  ──ghi──> findings, scanned_files
+   (nhanh, song song)            │
+ [select] ──đọc findings─────────┘
+   (phân loại)  ──ghi──> selected_commits   ◄── HÀNG ĐỢI / "hợp đồng"
+                          (role, reason, status=pending)
+                                  │  pull + CLAIM nguyên tử
+ [analyze] tầng ĐẮT ──────────────┘
+   (chậm, ít worker)  mỗi commit: checkout → mvn build → CodeQL/FindSecBugs/Sonar
+        ├─ghi──> findings (tier=expensive, tool=codeql/…)   ── chung bảng với tầng rẻ
+        ├─ghi──> expensive_runs (build_status, tool, thời gian, lỗi)
+        └─cập nhật──> selected_commits.status (building→done / build_failed / error)
+                                  │
+ [consensus re-run] gộp finding RẺ+ĐẮT trên đúng commit đó → nhãn vuln tin cậy cao
+```
+
+### Hợp đồng = bảng `selected_commits` + vòng đời trạng thái
+Mở rộng bảng hiện có thêm cột lifecycle:
+`status, claimed_by, claimed_at, finished_at, build_status, attempts`.
+
+**State machine mỗi commit:**
+```
+pending ──claim──> building ──ok──> built ──> analyzing ──ok──> done
+                       └──fail──> build_failed (TERMINAL, ghi lại — KHÔNG crash)
+analyzing ──tool lỗi──> error (retry được)
+```
+
+### Pull + CLAIM nguyên tử (resume & cho phép vài worker)
+```sql
+BEGIN IMMEDIATE;                              -- khoá ghi SQLite
+SELECT commit_id FROM selected_commits
+  WHERE status='pending' ORDER BY role DESC   -- buggy trước clean
+  LIMIT 1;
+UPDATE selected_commits
+  SET status='building', claimed_by=?, claimed_at=?
+  WHERE commit_id=?;
+COMMIT;
+```
+→ Worker chiếm 1 commit, không ai nhặt trùng. VM tắt giữa chừng: hàng `pending`/`building`
+còn đó → lần sau chạy lại tiếp tục (reset `building` quá hạn về `pending`).
+
+### Vì sao chọn bảng-SQLite (không phải khác)
+- **Bền + resume:** khớp luật STOP-không-DELETE VM; mất điện vẫn còn hàng đợi.
+- **Tách rời:** tầng rẻ mở rộng/chạy lại không đụng tầng đắt; tầng đắt rút hàng theo nhịp riêng.
+- **Idempotent:** chạy lại `select` = ghi đè hàng đợi; `analyze` bỏ qua `done` trừ khi `--force`.
+- **stdlib-only, 1 VM:** không cần Redis/RabbitMQ (thừa, tốn, trái ràng buộc).
+- Ghi đa-luồng đã an toàn nhờ `Lock` + `BEGIN IMMEDIATE` (đã có ở `sqlite_store`).
+
+### Write-back vào đâu
+- **Finding tầng đắt → CHUNG bảng `findings`** (cùng schema `RawFinding`, thêm `tier=expensive`,
+  `tool=codeql/findsecbugs/sonar`) → `consensus()` gộp rẻ+đắt trên đúng commit → `vuln` thật.
+- **Telemetry build/scan → bảng mới `expensive_runs`** (commit, tool, build_status, duration, err)
+  để đo chi phí + chẩn lỗi build, KHÔNG nhét vào findings.
+
+---
+
 ## 6. Chuẩn hoá & CONSENSUS xuyên tầng
 
 - CodeQL → **SARIF native** (CWE từ tags).
