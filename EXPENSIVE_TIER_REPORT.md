@@ -236,6 +236,23 @@ Tái dùng `RepoPool`; Sonar server bật **1 lần/cả-run**, không bật/t�
 
 ---
 
+## 5d. NHÃN NEGATIVE: cheap-clean (silver) → verified-clean (GOLD)  [Ý TƯỞNG / BACKLOG]
+
+**Bối cảnh:** Mô hình chốt — commit 0-CWE/CVE từ tool rẻ = **negative**, KHÔNG quét tầng đắt (CodeQL ~phút/commit
+quá đắt cho mọi clean). Nhưng đó là **"cheap-clean" (silver)**: tool rẻ recall thấp → clean có thể vẫn chứa vuln
+mà chỉ tool đắt bắt được → negative có nhiễu nhãn.
+
+**Ý tưởng nâng cấp:** nếu **FindSecBugs / SonarQube đủ NHANH** (đo lúc cắm — FindSecBugs chỉ phân tích bytecode,
+Sonar scanner đẩy lên server; có thể nhanh hơn CodeQL nhiều), thì **cho 2 tool này quét luôn clean commit**:
+- clean commit qua FindSecBugs+Sonar mà **vẫn 0 finding** → nâng từ silver → **verified-clean = GOLD negative**.
+- clean commit mà FindSecBugs/Sonar **lại tìm ra** vuln → đó là FN của tool rẻ → chuyển sang positive (giá trị cao!).
+
+**Điều kiện:** chỉ làm nếu FindSecBugs+Sonar rẻ về thời gian (KHÔNG dùng CodeQL cho clean — quá chậm).
+**Ghi dataset:** cột nhãn negative phân biệt `cheap-clean` (chỉ tool rẻ) vs `verified-clean` (rẻ + FindSecBugs + Sonar).
+→ TODO: đo thời gian FindSecBugs/Sonar lúc cắm thật, rồi quyết.
+
+---
+
 ## 6. Chuẩn hoá & CONSENSUS xuyên tầng
 
 - CodeQL → **SARIF native** (CWE từ tags).
