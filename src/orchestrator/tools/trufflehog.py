@@ -1,6 +1,13 @@
 """
 Wrapper trufflehog (Tầng ② — bắt secret, CHỒNG PHỦ gitleaks để có consensus).
-Git-mode quét DIFF của đúng commit (`--since-commit <commit>~1`).
+
+⚠️ ĐÚNG ĐẮN — quét ĐÚNG 1 commit:
+  trufflehog git-mode quét theo MỌI REF (nhánh), KHÔNG theo HEAD. Nếu chỉ dùng
+  `--since-commit <SHA>~1`, nó quét cả dải <SHA>..<tip-nhánh> rồi ta gán nhầm hết
+  về commit đang xét (đã kiểm thực nghiệm: thấy secret của commit HẬU DUỆ lọt vào).
+  Cách đúng = `--branch <SHA>` (giới hạn lịch sử reachable từ chính SHA) KÈM
+  `--since-commit <SHA>~1` (chặn dưới) => quét đúng DIFF của 1 commit SHA.
+
 Output JSON-Lines (mỗi dòng 1 object), KHÔNG phải 1 mảng.
 trufflehog không gán CWE -> map cứng CWE-798 (giống gitleaks).
 Docker image: trufflesecurity/trufflehog:latest
@@ -30,10 +37,12 @@ class TrufflehogWrapper(ToolWrapper):
 
     def scan(self, repo_dir: Path, commit_id: str, repo: str,
              changed_files: list[str]) -> list[RawFinding]:
-        # quét chỉ commit này: from parent..HEAD (HEAD đang detached tại commit_id)
+        # quét ĐÚNG 1 commit: --branch <SHA> giới hạn reachable-từ-SHA (loại hậu duệ),
+        # --since-commit <SHA>~1 chặn dưới -> chỉ còn DIFF của chính SHA.
         proc = docker_run([
             "run", "--rm", "-v", f"{repo_dir}:/repo", IMAGE,
             "git", "file:///repo",
+            "--branch", commit_id,
             "--since-commit", f"{commit_id}~1",
             "--json", "--no-update",
         ], timeout=600)

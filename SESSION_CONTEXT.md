@@ -32,9 +32,15 @@
 - 8 commit giữ (commit 983-file `fa8d9efb` bị lọc do >100 file), **3 BỎ QUA** vì đụng file k8s yml >1000 dòng (2248/2012), 5 commit quét thật.
 - 161 finding đều hợp lệ (s_line>0, cwe đủ). trufflehog git-mode chạy OK trên clone ⇒ rủi ro `.git`-trong-container đã xử lý. Không lỗi giữa chừng.
 
+### ⚠️ BUG ĐÚNG ĐẮN đã phát hiện & SỬA — trufflehog over-scan
+- **Bug:** trufflehog git-mode quét theo MỌI REF (master), KHÔNG theo HEAD. Chỉ dùng `--since-commit <SHA>~1` → quét cả dải `<SHA>..master` rồi gán nhầm hết về `commit_id`. Đã kiểm: detach tại OLD vẫn báo secret của hậu duệ `fa8d9efb`. **Tồn tại từ thiết kế cũ** → dữ liệu trufflehog pilot trước (145) bị nhân bản/gán sai.
+- **Sửa:** thêm `--branch <SHA>` (giới hạn reachable-từ-SHA) kèm `--since-commit <SHA>~1` → quét ĐÚNG 1 commit. Kiểm qua wrapper: scan FA→5 finding đều ∈ changed; scan OLD→0 (hết gán nhầm).
+- **Tài liệu mới:** `SCAN_MECHANISM.md` — cơ chế scan từng tool + 6 bất biến đúng đắn (I1–I6) + bằng chứng + giới hạn.
+
 ### Kế tiếp (chưa làm)
-- Chạy lại pilot đầy đủ đo throughput vs lần trước (~9' tuần tự).
-- Đòn bẩy tiếp theo (đã đề xuất, chưa làm): **container ấm** (docker exec) + **cache theo blob-sha** để cắt khởi động container & quét trùng.
+- **Chạy lại pilot** (số liệu trufflehog cũ KHÔNG còn tin được sau fix) + đo throughput vs ~9' tuần tự.
+- Loại trừ `node_modules`/vendored trước khi quét (trufflehog FP trong `@types/node/*.d.ts`).
+- Đòn bẩy tiếp: **container ấm** (docker exec) + **cache theo blob-sha**.
 
 ---
 
