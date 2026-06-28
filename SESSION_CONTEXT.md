@@ -9,7 +9,8 @@
 ## Trạng thái tổng quan (cập nhật nhanh)
 
 - **Giai đoạn:** Bước 1 XONG — tầng rẻ 5 tool + CWE-grouping + category + song song clone-pool + fix trufflehog + skip theo churn. **Pilot mới chạy xong** (26 commit/50, 1370 cụm, ~3–4 phút).
-- **Việc kế tiếp:** cắm tool đắt THẬT (CodeQL trước) trên build đã PoC; loại node_modules/vendored.
+- **CodeQL THẬT xong ✅ (chạy được):** image `orch-codeql:2.25.6` (maven+codeql bundle). Wrapper: DB create trace `mvn compile` module-bị-đụng → analyze `java-code-scanning` → SARIF → RawFinding (CWE từ tags). PoC `350f6200`: ra CWE-352 spring-disabled-csrf @ SecurityConfig.java:65 (đúng path/line). Write-back: cột `tier`, `_store_expensive` (consensus+enrich+tier=expensive), verify OK. **⚠️ Chi phí ~21 phút/commit** (suite nhẹ, DB 84M) — query eval nặng → cần tối ưu hoặc K nhỏ. `--ram=20000 --threads=0`. Config: `CODEQL_SUITE/RAM_MB/THREADS`.
+- **Việc kế tiếp:** quyết hướng — tối ưu chi phí CodeQL (suite tối giản) / cắm FindSecBugs+Sonar (đo tốc độ cho GOLD) / chạy analyze thật. Loại node_modules/vendored.
 - **Mô hình dataset (chốt):** buggy (có CWE/CVE tool rẻ) → tầng đắt → POSITIVE; clean (0 CWE/CVE) → NEGATIVE lấy hết, KHÔNG quét đắt. Negative = "cheap-clean" (silver).
 - **BACKLOG (ý tưởng user):** nếu FindSecBugs/Sonar đo ra NHANH lúc cắm → cho 2 tool đó quét luôn clean commit; clean vẫn-sạch → **verified-clean = GOLD negative**; clean mà ra finding → FN tool rẻ → đẩy sang positive. (KHÔNG dùng CodeQL cho clean — quá chậm ~phút/commit.) Cột nhãn phân biệt cheap-clean vs verified-clean. Xem `EXPENSIVE_TIER_REPORT.md` §5d.
 - **Fix recall secret (yêu cầu user "doc có key cũng là lỗi"):** `coarse_filter` KHÔNG còn bỏ commit "chỉ docs/non-code"; chỉ bỏ khi **toàn file nhị phân** (`BINARY_EXTENSIONS`). Commit text-only (README/.env/.sh/Dockerfile) giờ giữ → gitleaks/trufflehog (quét toàn diff, bất kể đuôi) bắt được key. Verify: 34/150 commit text-only được giữ; commit README chạy secret tool OK.
