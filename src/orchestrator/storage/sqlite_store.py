@@ -154,9 +154,10 @@ class SQLiteStore:
             "SELECT DISTINCT commit_id FROM scanned_files")]
 
     def finding_class_rows(self) -> list[tuple]:
-        """(commit_id, category, finding_in_diff) mọi finding — để phân loại buggy/clean."""
+        """(commit_id, cwe, cve, finding_in_diff) mọi finding — để phân loại buggy/clean.
+        buggy = có mã CWE/CVE (cwe là JSON list, cve là text/NULL)."""
         return self.conn.execute(
-            "SELECT commit_id, category, finding_in_diff FROM findings").fetchall()
+            "SELECT commit_id, cwe, cve, finding_in_diff FROM findings").fetchall()
 
     def replace_selected(self, rows: list[dict]) -> int:
         """Ghi ĐÈ bảng selected_commits (idempotent: chạy lại = chọn lại)."""

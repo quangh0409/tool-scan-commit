@@ -170,11 +170,11 @@ def cmd_select(args):
     store = SQLiteStore()
     res = select_commits.select(store, ratio=args.ratio, seed=args.seed)
     print(f"Universe (commit đã quét tầng rẻ): {res['universe']}")
-    print(f"  buggy (đáng nghi: {sorted(config.SUSPECT_CATEGORIES)}"
+    print(f"  buggy (có mã CWE/CVE"
           f"{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}): {res['buggy']}")
     print(f"  clean (0 finding) pool: {res['clean_pool']} "
           f"-> lấy {res['clean_taken']} (tỉ lệ 1:{res['ratio']})")
-    print(f"  xám (chỉ infra/non-suspect, BỎ): {res['gray_excluded']}")
+    print(f"  xám (có finding nhưng không CWE/CVE, BỎ): {res['gray_excluded']}")
     print(f"=> TẦNG ĐẮT sẽ quét {res['total_selected']} commit "
           f"(ghi bảng selected_commits).")
     store.close()

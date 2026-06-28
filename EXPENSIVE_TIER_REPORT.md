@@ -124,15 +124,15 @@ hoặc qua Maven: `com.github.spotbugs:spotbugs-maven-plugin` + dependency `find
 
 Đây là **núm chi phí** chính (ngân sách GCP $300). Module `select_commits.py` + lệnh
 `orchestrator select` đọc DB tầng rẻ và phân loại:
-- **buggy (đáng nghi)** = commit có finding thuộc `SUSPECT_CATEGORIES` (mặc định **code/crypto/secret**;
-  bỏ infra/info nhiễu) → **MỌI buggy đều lên tầng đắt**. Cờ `--require-in-diff 1` để chỉ tính lỗi
-  commit-này-tạo.
+- **buggy (đáng nghi)** = commit có **BẤT KỲ finding nào mang mã CWE/CVE** (chỉ cần 1 tool/1 finding).
+  Vì schema ép mọi finding có CWE → thực chất buggy = commit có ≥1 finding. **MỌI buggy đều lên tầng đắt**.
+  Cờ `--require-in-diff 1` để chỉ tính lỗi commit-này-tạo.
 - **clean (0 finding)** = negative thật → lấy **MẪU ngẫu nhiên tỉ lệ 1 buggy : N clean** (N = `CLEAN_PER_BUGGY`,
   mặc định **20**, CLI `--ratio`, seed tái lập).
-- **xám** (chỉ infra/non-suspect) → BỎ (không đáng build, cũng không phải negative sạch).
-- Ghi `selection_reason` (vd `suspect:code+secret`, `negative-sample(1:20)`) vào bảng **`selected_commits`**
+- **xám** (có finding nhưng KHÔNG có CWE/CVE) → BỎ (hiếm; thường rỗng).
+- Ghi `selection_reason` (vd `suspect:cwe x86`, `negative-sample(1:20)`) vào bảng **`selected_commits`**
   = hàng đợi cho tầng đắt.
-- *Kiểm trên pilot run3:* universe 29 → 6 buggy + 12 clean (pool clean chỉ 12 < 20×6) → 18 commit cho tầng đắt.
+- *Kiểm trên pilot run3:* universe 29 → 17 buggy + 12 clean (pool clean 12 < 20×17) → 29 commit cho tầng đắt.
 - *Backlog:* thêm tín hiệu fix-commit (message "fix/CVE/security") để mine cặp vuln→fix.
 
 ---

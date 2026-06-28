@@ -50,11 +50,8 @@ STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
 SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
 
 # --- Chọn commit lên TẦNG ĐẮT (Bước 2) ---
-# Commit "ĐÁNG NGHI" (buggy) = có finding tầng rẻ thuộc các category này -> tầng đắt BẮT BUỘC quét.
-# (mặc định code/crypto/secret; bỏ infra/info vốn là nhiễu, không đáng dựng build đắt)
-SUSPECT_CATEGORIES = {c.strip() for c in
-                      os.environ.get("ORCH_SUSPECT_CATEGORIES", "code,crypto,secret").split(",")
-                      if c.strip()}
+# Commit "ĐÁNG NGHI" (buggy) = có BẤT KỲ finding tầng rẻ nào mang mã CWE/CVE (chỉ cần 1 tool/1 finding).
+# (Mọi finding đều đã ép có CWE ở validate() -> thực chất: commit có ≥1 finding bất kỳ.)
 # 1 = chỉ tính đáng nghi khi finding rơi vào dòng commit THÊM/SỬA; 0 = mọi finding (mặc định 0).
 SUSPECT_REQUIRE_IN_DIFF = os.environ.get("ORCH_SUSPECT_REQUIRE_IN_DIFF") == "1"
 # Tỉ lệ lấy NEGATIVE: mỗi 1 commit buggy -> lấy bao nhiêu commit CLEAN (0-finding) làm mẫu ngẫu nhiên.
