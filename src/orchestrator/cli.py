@@ -17,7 +17,7 @@ from pathlib import Path
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-from . import config, enumerate_commits as enm
+from . import config, enumerate_commits as enm, select_commits
 from .consensus.matcher import consensus
 from .repo_pool import RepoPool
 from .storage.sqlite_store import SQLiteStore
@@ -163,6 +163,23 @@ def cmd_scan(args):
     store.close()
 
 
+def cmd_select(args):
+    config.SUSPECT_REQUIRE_IN_DIFF = (args.require_in_diff == 1
+                                      if args.require_in_diff is not None
+                                      else config.SUSPECT_REQUIRE_IN_DIFF)
+    store = SQLiteStore()
+    res = select_commits.select(store, ratio=args.ratio, seed=args.seed)
+    print(f"Universe (commit đã quét tầng rẻ): {res['universe']}")
+    print(f"  buggy (đáng nghi: {sorted(config.SUSPECT_CATEGORIES)}"
+          f"{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}): {res['buggy']}")
+    print(f"  clean (0 finding) pool: {res['clean_pool']} "
+          f"-> lấy {res['clean_taken']} (tỉ lệ 1:{res['ratio']})")
+    print(f"  xám (chỉ infra/non-suspect, BỎ): {res['gray_excluded']}")
+    print(f"=> TẦNG ĐẮT sẽ quét {res['total_selected']} commit "
+          f"(ghi bảng selected_commits).")
+    store.close()
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="orchestrator")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -182,6 +199,16 @@ def main(argv=None):
     ps.add_argument("--flag-limit", type=int, choices=(0, 1), default=config.FLAG_LIMIT,
                     help="1=áp ngưỡng bỏ commit khổng lồ; 0=không (mặc định 0)")
     ps.set_defaults(func=cmd_scan)
+
+    psel = sub.add_parser("select",
+                          help="chọn commit cho tầng đắt: buggy (đáng nghi) + mẫu clean 1:N")
+    psel.add_argument("--ratio", type=int, default=config.CLEAN_PER_BUGGY,
+                      help=f"số clean / 1 buggy (mặc định {config.CLEAN_PER_BUGGY})")
+    psel.add_argument("--seed", type=int, default=config.SELECT_SEED,
+                      help="seed mẫu clean (tái lập)")
+    psel.add_argument("--require-in-diff", type=int, choices=(0, 1), default=None,
+                      help="1=chỉ tính đáng nghi khi finding nằm trong diff commit")
+    psel.set_defaults(func=cmd_select)
 
     args = p.parse_args(argv)
     args.func(args)

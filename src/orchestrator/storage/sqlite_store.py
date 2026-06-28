@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS run_meta (
     vote_threshold INTEGER, line_window INTEGER,
     tools TEXT      -- JSON [{name,version,digest}]
 );
+
+-- HÀNG ĐỢI TẦNG ĐẮT: commit được chọn để tool đắt quét.
+--   role=buggy  : tầng rẻ đánh dấu đáng nghi (category code/crypto/secret) -> bắt buộc quét.
+--   role=clean  : commit 0-finding, lấy MẪU theo tỉ lệ 1 buggy : N clean (negative cân bằng).
+CREATE TABLE IF NOT EXISTS selected_commits (
+    commit_id TEXT PRIMARY KEY,
+    role TEXT NOT NULL,             -- buggy | clean
+    selection_reason TEXT,
+    suspect_categories TEXT,        -- JSON list
+    n_suspect_findings INTEGER,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sel_role ON selected_commits(role);
 """
 
 _COLS = [
@@ -134,6 +147,32 @@ class SQLiteStore:
                  json.dumps(meta.get("tools", []))],
             )
             self.conn.commit()
+
+    # --- chọn commit cho tầng đắt ---
+    def scanned_commit_ids(self) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT commit_id FROM scanned_files")]
+
+    def finding_class_rows(self) -> list[tuple]:
+        """(commit_id, category, finding_in_diff) mọi finding — để phân loại buggy/clean."""
+        return self.conn.execute(
+            "SELECT commit_id, category, finding_in_diff FROM findings").fetchall()
+
+    def replace_selected(self, rows: list[dict]) -> int:
+        """Ghi ĐÈ bảng selected_commits (idempotent: chạy lại = chọn lại)."""
+        cols = ["commit_id", "role", "selection_reason",
+                "suspect_categories", "n_suspect_findings", "created_at"]
+        with self._lock:
+            self.conn.execute("DELETE FROM selected_commits")
+            if rows:
+                sql = (f"INSERT INTO selected_commits ({','.join(cols)}) "
+                       f"VALUES ({','.join('?'*len(cols))})")
+                self.conn.executemany(sql, [
+                    [r["commit_id"], r["role"], r["selection_reason"],
+                     json.dumps(r["suspect_categories"]), r["n_suspect_findings"],
+                     r["created_at"]] for r in rows])
+            self.conn.commit()
+        return len(rows)
 
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]

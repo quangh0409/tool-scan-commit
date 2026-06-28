@@ -49,6 +49,19 @@ STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
 # bên trong) -> tối đa SCAN_WORKERS container chạy cùng lúc. Đặt ~ số vCPU, chừa RAM.
 SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
 
+# --- Chọn commit lên TẦNG ĐẮT (Bước 2) ---
+# Commit "ĐÁNG NGHI" (buggy) = có finding tầng rẻ thuộc các category này -> tầng đắt BẮT BUỘC quét.
+# (mặc định code/crypto/secret; bỏ infra/info vốn là nhiễu, không đáng dựng build đắt)
+SUSPECT_CATEGORIES = {c.strip() for c in
+                      os.environ.get("ORCH_SUSPECT_CATEGORIES", "code,crypto,secret").split(",")
+                      if c.strip()}
+# 1 = chỉ tính đáng nghi khi finding rơi vào dòng commit THÊM/SỬA; 0 = mọi finding (mặc định 0).
+SUSPECT_REQUIRE_IN_DIFF = os.environ.get("ORCH_SUSPECT_REQUIRE_IN_DIFF") == "1"
+# Tỉ lệ lấy NEGATIVE: mỗi 1 commit buggy -> lấy bao nhiêu commit CLEAN (0-finding) làm mẫu ngẫu nhiên.
+CLEAN_PER_BUGGY = int(os.environ.get("ORCH_CLEAN_PER_BUGGY", "20"))
+# seed mẫu clean (để TÁI LẬP đúng tập đã chọn).
+SELECT_SEED = int(os.environ.get("ORCH_SELECT_SEED", "42"))
+
 # --- Repo pilot ---
 PILOT_REPO = "https://github.com/FudanSELab/train-ticket"
 PILOT_MAX_COMMITS = 50
