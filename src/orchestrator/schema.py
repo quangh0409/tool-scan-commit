@@ -118,6 +118,7 @@ class DatasetRow:
 
     confidence: float = 0.0
     silver_label: Optional[str] = None  # nhãn bạc: vd "VULN" / "CLEAN"
+    tier: str = "cheap"                 # "cheap" (5 tool rẻ) | "expensive" (CodeQL/...)
 
     def validate(self) -> "DatasetRow":
         if not self.cwe:

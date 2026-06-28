@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS findings (
     code_before TEXT, code_after TEXT,
     n_tools_ran INTEGER, n_tools_agree INTEGER,
     agreeing_tools TEXT, agreement_ratio REAL,
-    confidence REAL, silver_label TEXT  -- vuln | candidate | clean
+    confidence REAL, silver_label TEXT,  -- vuln | candidate | clean
+    tier TEXT DEFAULT 'cheap'            -- cheap (5 tool rẻ) | expensive (CodeQL/...)
 );
 CREATE INDEX IF NOT EXISTS idx_commit ON findings(commit_id);
 CREATE INDEX IF NOT EXISTS idx_cwe ON findings(cwe);
@@ -107,7 +108,7 @@ _COLS = [
     "lines_added", "lines_deleted", "code_snippet",
     "diff_parsed", "code_before_url", "code_after_url", "code_before", "code_after",
     "n_tools_ran", "n_tools_agree", "agreeing_tools", "agreement_ratio",
-    "confidence", "silver_label",
+    "confidence", "silver_label", "tier",
 ]
 _JSON_COLS = {"cwe", "agreeing_tools", "s_detail_line", "diff_parsed"}
 
@@ -122,6 +123,7 @@ class SQLiteStore:
         self._lock = threading.Lock()
         self.conn.executescript(_SCHEMA)
         self._migrate_selected()
+        self._migrate_findings()
         # index trên cột status: tạo SAU migration (đảm bảo cột tồn tại)
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sel_status ON selected_commits(status)")
@@ -133,6 +135,12 @@ class SQLiteStore:
         for col, decl in _SELECTED_NEW_COLS.items():
             if col not in have:
                 self.conn.execute(f"ALTER TABLE selected_commits ADD COLUMN {col} {decl}")
+
+    def _migrate_findings(self) -> None:
+        """Thêm cột mới (vd tier) nếu DB cũ đã có findings thiếu cột."""
+        have = {r[1] for r in self.conn.execute("PRAGMA table_info(findings)")}
+        if "tier" not in have:
+            self.conn.execute("ALTER TABLE findings ADD COLUMN tier TEXT DEFAULT 'cheap'")
 
     def insert_rows(self, rows: list[DatasetRow]) -> int:
         if not rows:
