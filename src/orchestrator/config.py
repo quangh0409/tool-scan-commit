@@ -89,6 +89,8 @@ CODEQL_THREADS = int(os.environ.get("ORCH_CODEQL_THREADS", "0"))
 # Suite tối giản /opt/minimal-java.qls (bake sẵn, ~6.7') vẫn dùng được qua ORCH_CODEQL_SUITE.
 CODEQL_SUITE = os.environ.get(
     "ORCH_CODEQL_SUITE", "codeql/java-queries:codeql-suites/java-code-scanning.qls")
+# SonarQube: mật khẩu admin đặt QUA API lúc start_server (admin/admin chỉ dùng được lần đầu).
+SONAR_ADMIN_PW = os.environ.get("ORCH_SONAR_ADMIN_PW", "Orch_2026!")
 # Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
 STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))
 
