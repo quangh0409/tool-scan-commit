@@ -17,7 +17,7 @@ from pathlib import Path
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-from . import config, enumerate_commits as enm, select_commits
+from . import config, enumerate_commits as enm, select_commits, expensive_runner
 from .consensus.matcher import consensus
 from .repo_pool import RepoPool
 from .storage.sqlite_store import SQLiteStore
@@ -180,6 +180,15 @@ def cmd_select(args):
     store.close()
 
 
+def cmd_analyze(args):
+    tools = [t.strip() for t in args.tools.split(",")] if args.tools else None
+    res = expensive_runner.analyze(args.repo, workers=args.workers,
+                                   dry_run=bool(args.dry_run), tools=tools)
+    print(f"\nXong: done={res.get('done',0)} build_failed={res.get('build_failed',0)} "
+          f"| {res['workers']} worker, tool {res['tools']}")
+    print(f"selected_commits status: {res['status_counts']}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="orchestrator")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -209,6 +218,17 @@ def main(argv=None):
     psel.add_argument("--require-in-diff", type=int, choices=(0, 1), default=None,
                       help="1=chỉ tính đáng nghi khi finding nằm trong diff commit")
     psel.set_defaults(func=cmd_select)
+
+    pa = sub.add_parser("analyze",
+                        help="TẦNG ĐẮT (Model A): rút selected_commits -> build + CodeQL/FindSecBugs/Sonar")
+    pa.add_argument("repo")
+    pa.add_argument("--workers", type=int, default=config.EXPENSIVE_WORKERS,
+                    help=f"số commit song song (mặc định {config.EXPENSIVE_WORKERS})")
+    pa.add_argument("--tools", default=None,
+                    help="danh sách tool (vd codeql,findsecbugs); mặc định theo config")
+    pa.add_argument("--dry-run", action="store_true",
+                    help="đi hết vòng đời hàng đợi mà KHÔNG build/scan (kiểm khung)")
+    pa.set_defaults(func=cmd_analyze)
 
     args = p.parse_args(argv)
     args.func(args)

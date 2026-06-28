@@ -200,6 +200,42 @@ còn đó → lần sau chạy lại tiếp tục (reset `building` quá hạn v
 
 ---
 
+## 5c. ĐƠN VỊ XỬ LÝ & SONG SONG (Model A — chốt)
+
+**Cùng một khuôn cho cả 2 tầng:** song song ở **CẤP COMMIT** (mỗi worker 1 clone), các **tool TUẦN TỰ
+trong 1 commit**. Khác nhau chỉ ở số worker (rẻ nhiều, đắt ít) và việc build.
+
+### Tầng RẺ (đang chạy — để đối chiếu)
+```
+Queue commit [c1 c2 c3 c4 …]
+  │  (ThreadPoolExecutor, SCAN_WORKERS≈4, clone-pool)
+  ├─ w1: c1 → gitleaks → trufflehog → semgrep → bearer → horusec → ghi DB → c_kế
+  ├─ w2: c2 → gitleaks → … → horusec → ghi DB → c_kế
+  ├─ w3: c3 → …
+  └─ w4: c4 → …
+        (5 tool TUẦN TỰ trong mỗi commit; KHÔNG build)
+```
+
+### Tầng ĐẮT (Model A — sắp dựng)
+```
+selected_commits (status=pending)         SonarQube SERVER = 1 singleton dùng chung
+  │  pull + CLAIM nguyên tử (buggy trước)         ▲ (projectKey=repo@sha)
+  ├─ w1: c1 → BUILD 1 lần → CodeQL → FindSecBugs → Sonar → ghi DB → done → claim kế
+  ├─ w2: c2 → BUILD 1 lần → CodeQL → FindSecBugs → Sonar → ghi DB → done → claim kế
+  └─ wW: …                 (W≈2–3, bounded RAM; 3 tool TUẦN TỰ, DÙNG CHUNG build)
+        build fail → build_failed (ghi) → bỏ commit → claim kế
+```
+
+**Vì sao tuần-tự-trong-commit, song-song-giữa-commit (không song song 3 tool/1 commit):**
+build (I/O nặng) của c2 chạy **đè** lên analyze (CPU/RAM nặng) của c1 → bù pha, tận dụng máy;
+còn chồng 3 analyze cùng-pha trong 1 commit chỉ **giành CPU/RAM** mà không nhanh hơn, lại buộc W nhỏ.
+Ngân sách 32GB: Model A `3 + W×4 GB` → **W≈3–4**; Model B `3 + W×7 GB` → W≈2 + nghẽn. → **chọn A**.
+
+**Tham số:** `EXPENSIVE_WORKERS` (mặc định 2 cho PoC), `EXPENSIVE_TOOLS` (codeql,findsecbugs,sonar).
+Tái dùng `RepoPool`; Sonar server bật **1 lần/cả-run**, không bật/tắt mỗi commit.
+
+---
+
 ## 6. Chuẩn hoá & CONSENSUS xuyên tầng
 
 - CodeQL → **SARIF native** (CWE từ tags).

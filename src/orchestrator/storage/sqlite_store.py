@@ -61,19 +61,43 @@ CREATE TABLE IF NOT EXISTS run_meta (
     tools TEXT      -- JSON [{name,version,digest}]
 );
 
--- HÀNG ĐỢI TẦNG ĐẮT: commit được chọn để tool đắt quét.
---   role=buggy  : tầng rẻ đánh dấu đáng nghi (category code/crypto/secret) -> bắt buộc quét.
+-- HÀNG ĐỢI TẦNG ĐẮT (hợp đồng rẻ->đắt): commit được chọn để tool đắt quét.
+--   role=buggy  : tầng rẻ đánh dấu đáng nghi (có mã CWE/CVE) -> bắt buộc quét.
 --   role=clean  : commit 0-finding, lấy MẪU theo tỉ lệ 1 buggy : N clean (negative cân bằng).
+-- Vòng đời status: pending -> building -> built -> analyzing -> done
+--                                    \-> build_failed (terminal) ; analyzing -> error (retry)
 CREATE TABLE IF NOT EXISTS selected_commits (
     commit_id TEXT PRIMARY KEY,
     role TEXT NOT NULL,             -- buggy | clean
     selection_reason TEXT,
     suspect_categories TEXT,        -- JSON list
     n_suspect_findings INTEGER,
-    created_at TEXT
+    created_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    claimed_by TEXT, claimed_at TEXT, finished_at TEXT,
+    build_status TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sel_role ON selected_commits(role);
+-- idx_sel_status tạo SAU migration (DB cũ chưa có cột status khi chạy _SCHEMA).
+
+-- TELEMETRY tầng đắt: 1 dòng / (commit, tool, phase) — đo chi phí + chẩn lỗi build.
+CREATE TABLE IF NOT EXISTS expensive_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commit_id TEXT, tool TEXT, phase TEXT,    -- build | analyze
+    status TEXT,                              -- ok | failed | skipped
+    n_findings INTEGER, duration_sec REAL,
+    error TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_exp_commit ON expensive_runs(commit_id);
 """
+
+# Cột mới của selected_commits cần ALTER khi DB cũ đã tạo bảng (CREATE IF NOT EXISTS không thêm cột).
+_SELECTED_NEW_COLS = {
+    "status": "TEXT NOT NULL DEFAULT 'pending'",
+    "claimed_by": "TEXT", "claimed_at": "TEXT", "finished_at": "TEXT",
+    "build_status": "TEXT", "attempts": "INTEGER NOT NULL DEFAULT 0",
+}
 
 _COLS = [
     "repo", "commit_id", "parent_commit", "commit_message", "author_date",
@@ -97,7 +121,18 @@ class SQLiteStore:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self._lock = threading.Lock()
         self.conn.executescript(_SCHEMA)
+        self._migrate_selected()
+        # index trên cột status: tạo SAU migration (đảm bảo cột tồn tại)
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sel_status ON selected_commits(status)")
         self.conn.commit()
+
+    def _migrate_selected(self) -> None:
+        """Thêm cột lifecycle nếu DB cũ đã có selected_commits dạng thiếu cột."""
+        have = {r[1] for r in self.conn.execute("PRAGMA table_info(selected_commits)")}
+        for col, decl in _SELECTED_NEW_COLS.items():
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE selected_commits ADD COLUMN {col} {decl}")
 
     def insert_rows(self, rows: list[DatasetRow]) -> int:
         if not rows:
@@ -174,6 +209,69 @@ class SQLiteStore:
                      r["created_at"]] for r in rows])
             self.conn.commit()
         return len(rows)
+
+    # --- hàng đợi tầng đắt (pull + claim nguyên tử) ---
+    def reset_stale_claims(self, older_than_sec: int) -> int:
+        """Đưa hàng 'building'/'analyzing' bị treo (claim quá hạn) về 'pending' để resume."""
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE selected_commits SET status='pending', claimed_by=NULL "
+                "WHERE status IN ('building','analyzing') "
+                "AND (claimed_at IS NULL OR (julianday('now')-julianday(claimed_at))*86400 > ?)",
+                [older_than_sec])
+            self.conn.commit()
+            return cur.rowcount
+
+    def claim_next_commit(self, worker: str) -> str | None:
+        """Chiếm 1 commit pending (buggy trước clean) NGUYÊN TỬ. None nếu hết."""
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            row = self.conn.execute(
+                "SELECT commit_id FROM selected_commits WHERE status='pending' "
+                "ORDER BY CASE role WHEN 'buggy' THEN 0 ELSE 1 END, commit_id LIMIT 1"
+            ).fetchone()
+            if not row:
+                self.conn.commit()
+                return None
+            cid = row[0]
+            self.conn.execute(
+                "UPDATE selected_commits SET status='building', claimed_by=?, "
+                "claimed_at=datetime('now'), attempts=attempts+1 WHERE commit_id=?",
+                [worker, cid])
+            self.conn.commit()
+            return cid
+
+    def set_commit_status(self, commit_id: str, status: str,
+                          build_status: str | None = None, finished: bool = False) -> None:
+        with self._lock:
+            sets = ["status=?"]
+            vals: list = [status]
+            if build_status is not None:
+                sets.append("build_status=?"); vals.append(build_status)
+            if finished:
+                sets.append("finished_at=datetime('now')")
+            vals.append(commit_id)
+            self.conn.execute(
+                f"UPDATE selected_commits SET {','.join(sets)} WHERE commit_id=?", vals)
+            self.conn.commit()
+
+    def insert_expensive_run(self, rec: dict) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO expensive_runs (commit_id,tool,phase,status,n_findings,"
+                "duration_sec,error,created_at) VALUES (?,?,?,?,?,?,?,datetime('now'))",
+                [rec.get("commit_id"), rec.get("tool"), rec.get("phase"), rec.get("status"),
+                 rec.get("n_findings"), rec.get("duration_sec"), rec.get("error")])
+            self.conn.commit()
+
+    def selected_status_counts(self) -> dict:
+        return dict(self.conn.execute(
+            "SELECT status, COUNT(*) FROM selected_commits GROUP BY status").fetchall())
+
+    def selected_role(self, commit_id: str) -> str | None:
+        r = self.conn.execute(
+            "SELECT role FROM selected_commits WHERE commit_id=?", [commit_id]).fetchone()
+        return r[0] if r else None
 
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]

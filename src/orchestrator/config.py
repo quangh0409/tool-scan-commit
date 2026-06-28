@@ -59,6 +59,20 @@ CLEAN_PER_BUGGY = int(os.environ.get("ORCH_CLEAN_PER_BUGGY", "20"))
 # seed mẫu clean (để TÁI LẬP đúng tập đã chọn).
 SELECT_SEED = int(os.environ.get("ORCH_SELECT_SEED", "42"))
 
+# --- TẦNG ĐẮT (Bước 2 — Model A: song song CẤP COMMIT, 3 tool tuần tự, build dùng chung) ---
+# Số commit xử song song ở tầng đắt (nặng RAM/build -> ÍT hơn tầng rẻ nhiều). PoC = 2.
+EXPENSIVE_WORKERS = int(os.environ.get("ORCH_EXPENSIVE_WORKERS", "2"))
+# Tool đắt bật (theo thứ tự chạy trong 1 commit). Tách dấu phẩy.
+EXPENSIVE_TOOLS = [t.strip() for t in
+                   os.environ.get("ORCH_EXPENSIVE_TOOLS", "codeql,findsecbugs,sonar").split(",")
+                   if t.strip()]
+# Build dùng chung cho 3 tool. Image Maven + JDK đúng thời kỳ (train-ticket: Java 8) — PoC tinh chỉnh.
+MAVEN_IMAGE = os.environ.get("ORCH_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-8")
+MAVEN_BUILD_CMD = os.environ.get("ORCH_MAVEN_BUILD_CMD", "mvn -B -q clean package -DskipTests")
+BUILD_TIMEOUT = int(os.environ.get("ORCH_BUILD_TIMEOUT", "1800"))
+# Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
+STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))
+
 # --- Repo pilot ---
 PILOT_REPO = "https://github.com/FudanSELab/train-ticket"
 PILOT_MAX_COMMITS = 50
