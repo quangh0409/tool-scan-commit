@@ -63,7 +63,7 @@ def _process(cid, worker, store, pool, tools, repo, dry_run):
                                         "duration_sec": round(time.time() - t0, 1), "error": err})
             # TODO(§6): gộp findings rẻ+đắt rồi ghi bảng findings (cross-tier consensus).
 
-        if config.INTRA_PARALLEL and len(tools) > 1:   # Model B: 3 tool song song sau build
+        if config.EXPENSIVE_INTRA_PARALLEL and len(tools) > 1:   # Model B: 3 tool song song sau build
             with ThreadPoolExecutor(max_workers=len(tools)) as ex:
                 list(ex.map(_run_tool, tools))
         else:                                          # Model A: tuần tự

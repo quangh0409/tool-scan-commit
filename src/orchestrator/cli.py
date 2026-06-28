@@ -66,7 +66,7 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
             return []
 
     all_findings = []
-    if config.INTRA_PARALLEL:                       # Model B: tool song song trong 1 commit
+    if config.CHEAP_INTRA_PARALLEL:                 # Model B: tool song song trong 1 commit
         with ThreadPoolExecutor(max_workers=len(tools)) as ex:
             for res in ex.map(_safe, tools):
                 all_findings += res
