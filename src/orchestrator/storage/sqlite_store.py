@@ -394,10 +394,12 @@ class SQLiteStore:
         return len(rows)
 
     def negative_level(self, commit_id: str) -> str | None:
-        """Mức nhãn ÂM của 1 commit 0-finding: verified-clean (đã qua tầng đắt) | cheap-clean.
-        None nếu commit CÓ finding (không phải negative)."""
+        """Mức nhãn ÂM của commit: verified-clean (qua tầng đắt, 0 lỗi TẠO) | cheap-clean.
+        None nếu commit TẠO lỗi (finding_in_diff=1) -> POSITIVE. Nợ cũ (in_diff=0) KHÔNG tính
+        (tool đắt quét cả file nên phơi lỗi có sẵn — không phải commit này gây ra)."""
         if self.conn.execute(
-                "SELECT 1 FROM findings WHERE commit_id=? LIMIT 1", [commit_id]).fetchone():
+                "SELECT 1 FROM findings WHERE commit_id=? AND finding_in_diff=1 LIMIT 1",
+                [commit_id]).fetchone():
             return None
         exp = self.conn.execute(
             "SELECT 1 FROM expensive_runs WHERE commit_id=? AND phase='analyze' "

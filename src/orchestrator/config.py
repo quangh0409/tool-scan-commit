@@ -61,6 +61,10 @@ VOTE_THRESHOLD = int(os.environ.get("ORCH_VOTE_THRESHOLD", "2"))
 GOLD_MIN_EXPENSIVE = int(os.environ.get("ORCH_GOLD_MIN_EXPENSIVE", "2"))
 GOLD_ALLOW_1EXP_1CHEAP = int(os.environ.get("ORCH_GOLD_ALLOW_1EXP_1CHEAP", "1"))
 SILVER_MIN_CHEAP = int(os.environ.get("ORCH_SILVER_MIN_CHEAP", "2"))
+# LỌC NHIỄU khi GÁN NHÃN (raw giữ nguyên — chỉ bỏ khỏi consensus). CWE/rule FP cao.
+# CWE-117 (CRLF log-injection): FindSecBugs flag mọi log(userInput) -> FP nặng, phá verified-clean.
+NOISE_CWE = {c.strip() for c in os.environ.get("ORCH_NOISE_CWE", "CWE-117").split(",") if c.strip()}
+NOISE_RULES = {r.strip() for r in os.environ.get("ORCH_NOISE_RULES", "").split(",") if r.strip()}
 
 # --- Ngữ cảnh file ---
 # Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).

@@ -191,6 +191,21 @@ def cmd_analyze(args):
     print(f"selected_commits status: {res['status_counts']}")
 
 
+def cmd_relabel(args):
+    """Gán nhãn LẠI mọi commit từ raw_findings (áp filter nhiễu hiện tại). KHÔNG quét lại."""
+    from .consensus.labeler import relabel_commit
+    repo_dir = enm.clone_or_update(args.repo)   # dùng git show (sha-scoped) — không checkout
+    store = SQLiteStore()
+    ids = store.all_commit_ids()
+    for cid in ids:
+        relabel_commit(store, cid, repo_dir, args.repo)
+    print(f"Relabel {len(ids)} commit | lọc nhiễu CWE={sorted(config.NOISE_CWE)} "
+          f"rules={sorted(config.NOISE_RULES) or '-'}")
+    print(f"DB: {store.count()} findings | label: "
+          f"{dict(store.conn.execute('SELECT label,COUNT(*) FROM findings GROUP BY label'))}")
+    store.close()
+
+
 def cmd_export(args):
     from . import export_dataset
     store = SQLiteStore()
@@ -241,6 +256,11 @@ def main(argv=None):
     pa.add_argument("--codeql", type=int, choices=(0, 1), default=None,
                     help="1=bật CodeQL (mặc định), 0=TẮT (chỉ FindSecBugs+Sonar, nhanh)")
     pa.set_defaults(func=cmd_analyze)
+
+    prl = sub.add_parser("relabel",
+                         help="gán nhãn LẠI từ raw (áp filter nhiễu) — KHÔNG quét lại")
+    prl.add_argument("repo")
+    prl.set_defaults(func=cmd_relabel)
 
     pex = sub.add_parser("export",
                          help="(C) xuất file trực quan mỗi commit: mỗi tool .raw/.findings + label.json")

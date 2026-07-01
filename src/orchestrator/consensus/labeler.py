@@ -16,9 +16,16 @@ def _added_lines(pd) -> set[int]:
     return {ln for ln, _ in (pd.added if pd else [])}
 
 
+def _is_noise(f) -> bool:
+    """Finding thuộc blocklist nhiễu (CWE/rule FP cao) -> bỏ khỏi gán nhãn (raw vẫn giữ)."""
+    if config.NOISE_RULES and f.rule_id in config.NOISE_RULES:
+        return True
+    return any(c in config.NOISE_CWE for c in f.cwe)
+
+
 def relabel_commit(store, commit_id: str, clone_dir: Path, repo: str) -> list:
-    """Đọc raw của commit -> gộp cụm + vote tier-aware -> enrich -> ghi đè findings. Trả rows."""
-    raws = store.raw_for_commit(commit_id)
+    """Đọc raw của commit -> LỌC NHIỄU -> gộp cụm + vote tier-aware -> enrich -> ghi đè findings."""
+    raws = [f for f in store.raw_for_commit(commit_id) if not _is_noise(f)]
     if not raws:
         store.replace_findings_for_commit(commit_id, [])
         return []
