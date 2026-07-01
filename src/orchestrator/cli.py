@@ -206,6 +206,25 @@ def cmd_relabel(args):
     store.close()
 
 
+def cmd_kappa(args):
+    from . import kappa as kp
+    store = SQLiteStore()
+    allit, by_group, by_cat = kp.collect(store)
+    k, n = kp.fleiss(allit)
+    ks = f"{k:.3f}" if k is not None else "-"
+    print(f"Fleiss' kappa TỔNG: {ks}  ({kp._label(k)}) | {n} item ≥2 rater")
+    print("theo CATEGORY:")
+    for cat, items in sorted(by_cat.items()):
+        kc, nc = kp.fleiss(items)
+        print(f"  {cat:8} κ={f'{kc:.3f}' if kc is not None else '-':>7}  ({kp._label(kc)}) n={nc}")
+    print("theo NHÓM-CWE (n≥5):")
+    for grp, items in sorted(by_group.items(), key=lambda x: -len(x[1])):
+        kg, ng = kp.fleiss(items)
+        if ng >= 5:
+            print(f"  {grp:18} κ={f'{kg:.3f}' if kg is not None else '-':>7}  n={ng}")
+    store.close()
+
+
 def cmd_export(args):
     from . import export_dataset
     store = SQLiteStore()
@@ -261,6 +280,9 @@ def main(argv=None):
                          help="gán nhãn LẠI từ raw (áp filter nhiễu) — KHÔNG quét lại")
     prl.add_argument("repo")
     prl.set_defaults(func=cmd_relabel)
+
+    pk = sub.add_parser("kappa", help="Fleiss' kappa: độ tin đồng thuận tool (từ raw)")
+    pk.set_defaults(func=cmd_kappa)
 
     pex = sub.add_parser("export",
                          help="(C) xuất file trực quan mỗi commit: mỗi tool .raw/.findings + label.json")
