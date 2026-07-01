@@ -55,24 +55,38 @@ def classify(store: SQLiteStore):
     return universe, buggy, clean, gray
 
 
-def select(store: SQLiteStore) -> dict:
-    """Đẩy CHỈ commit buggy (có CWE/CVE) vào hàng đợi tầng đắt. Clean = negative (không quét đắt)."""
+def select(store: SQLiteStore, include_clean: bool = False) -> dict:
+    """Đẩy commit buggy (có CWE/CVE) vào hàng đợi tầng đắt.
+    include_clean=True: THÊM cả clean commit (role=clean) để tầng đắt verify -> verified-clean GOLD.
+      (dùng add_selected INSERT-OR-IGNORE -> không reset trạng thái commit đã done)."""
     universe, buggy, clean, gray = classify(store)
-
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    rows: list[dict] = []
+
+    buggy_rows: list[dict] = []
     for cid in sorted(buggy):
         b = buggy[cid]
         signal = ["cwe"] + (["cve"] if b["has_cve"] else [])
-        rows.append({
+        buggy_rows.append({
             "commit_id": cid, "role": "buggy",
             "selection_reason": f"suspect:{'/'.join(signal)} x{b['n']}",
             "suspect_categories": signal, "n_suspect_findings": b["n"],
             "created_at": now,
         })
-    store.replace_selected(rows)
+
+    if include_clean:
+        clean_rows = [{"commit_id": cid, "role": "clean",
+                       "selection_reason": "negative-verify (FindSecBugs+Sonar)",
+                       "suspect_categories": [], "n_suspect_findings": 0,
+                       "created_at": now} for cid in sorted(clean)]
+        # incremental: giữ nguyên buggy đã done, chỉ thêm cái mới
+        added = store.add_selected(buggy_rows + clean_rows)
+        n_sel = added
+    else:
+        store.replace_selected(buggy_rows)
+        n_sel = len(buggy_rows)
+
     return {
         "universe": len(universe), "buggy": len(buggy),
         "negative_clean": len(clean), "gray_excluded": len(gray),
-        "total_selected": len(rows),
+        "include_clean": include_clean, "total_selected": n_sel,
     }

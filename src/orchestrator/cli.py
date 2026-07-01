@@ -167,13 +167,16 @@ def cmd_select(args):
                                       if args.require_in_diff is not None
                                       else config.SUSPECT_REQUIRE_IN_DIFF)
     store = SQLiteStore()
-    res = select_commits.select(store)
+    res = select_commits.select(store, include_clean=args.include_clean)
     print(f"Universe (commit đã quét tầng rẻ): {res['universe']}")
     print(f"  buggy (có mã CWE/CVE"
           f"{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}) -> TẦNG ĐẮT (positive): {res['buggy']}")
-    print(f"  clean (0 CWE/CVE) -> NEGATIVE (không quét đắt): {res['negative_clean']}")
-    print(f"  xám (có finding nhưng không CWE/CVE, BỎ): {res['gray_excluded']}")
-    print(f"=> selected_commits (hàng đợi đắt) = {res['total_selected']} commit buggy.")
+    if args.include_clean:
+        print(f"  clean -> CŨNG đưa vào tầng đắt để VERIFY (→ verified-clean GOLD): {res['negative_clean']}")
+        print(f"=> đã thêm (incremental) {res['total_selected']} commit vào hàng đợi.")
+    else:
+        print(f"  clean (0 CWE/CVE) -> NEGATIVE (không quét đắt): {res['negative_clean']}")
+        print(f"=> selected_commits (hàng đợi đắt) = {res['total_selected']} commit buggy.")
     store.close()
 
 
@@ -194,6 +197,7 @@ def cmd_export(args):
     res = export_dataset.export_all(store, args.out or config.EXPORT_DIR)
     store.close()
     print(f"Export {res['commits']} commit | {res['raw_files']} file raw -> {res['out']}")
+    print(f"negatives: {res.get('negatives', {})} (verified-clean = qua tầng đắt; cheap-clean = chỉ rẻ)")
     print("Mỗi commit: <tool>.raw.* (thô) + <tool>.findings.json (parsed) + label.json + summary.json")
 
 
@@ -221,6 +225,8 @@ def main(argv=None):
                           help="chọn commit buggy (có CWE/CVE) cho tầng đắt; clean = negative")
     psel.add_argument("--require-in-diff", type=int, choices=(0, 1), default=None,
                       help="1=chỉ tính đáng nghi khi finding nằm trong diff commit")
+    psel.add_argument("--include-clean", action="store_true",
+                      help="THÊM clean commit vào hàng đợi đắt để verify -> verified-clean GOLD negative")
     psel.set_defaults(func=cmd_select)
 
     pa = sub.add_parser("analyze",

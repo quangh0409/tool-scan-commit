@@ -376,6 +376,34 @@ class SQLiteStore:
             "SELECT role FROM selected_commits WHERE commit_id=?", [commit_id]).fetchone()
         return r[0] if r else None
 
+    def add_selected(self, rows: list[dict]) -> int:
+        """Thêm commit vào hàng đợi KHÔNG đụng row đã có (INSERT OR IGNORE) — enqueue tăng dần
+        (vd thêm clean commit để verify mà không reset trạng thái buggy đã done)."""
+        if not rows:
+            return 0
+        cols = ["commit_id", "role", "selection_reason",
+                "suspect_categories", "n_suspect_findings", "created_at"]
+        with self._lock:
+            self.conn.executemany(
+                f"INSERT OR IGNORE INTO selected_commits ({','.join(cols)}) "
+                f"VALUES ({','.join('?'*len(cols))})",
+                [[r["commit_id"], r["role"], r["selection_reason"],
+                  json.dumps(r["suspect_categories"]), r["n_suspect_findings"],
+                  r["created_at"]] for r in rows])
+            self.conn.commit()
+        return len(rows)
+
+    def negative_level(self, commit_id: str) -> str | None:
+        """Mức nhãn ÂM của 1 commit 0-finding: verified-clean (đã qua tầng đắt) | cheap-clean.
+        None nếu commit CÓ finding (không phải negative)."""
+        if self.conn.execute(
+                "SELECT 1 FROM findings WHERE commit_id=? LIMIT 1", [commit_id]).fetchone():
+            return None
+        exp = self.conn.execute(
+            "SELECT 1 FROM expensive_runs WHERE commit_id=? AND phase='analyze' "
+            "AND status='ok' LIMIT 1", [commit_id]).fetchone()
+        return "verified-clean" if exp else "cheap-clean"
+
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
 

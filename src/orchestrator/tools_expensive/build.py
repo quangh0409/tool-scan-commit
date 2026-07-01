@@ -36,7 +36,12 @@ def changed_modules(clone_dir: Path, commit_id: str) -> list[str]:
 def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
     ctx = BuildContext(commit_id=commit_id, repo=repo, clone_dir=clone_dir)
     mods = changed_modules(clone_dir, commit_id)
-    pl = ["-pl", ",".join(mods), "-am"] if mods else []   # rỗng -> build full (fallback)
+    if not mods:
+        # commit KHÔNG đụng module Java nào (vd chỉ docs/yml) -> không có gì để build/analyze.
+        # KHÔNG full-build cả 43 module (rất chậm). ok=True, classes rỗng -> FindSecBugs/Sonar bỏ qua.
+        ctx.ok = True
+        return ctx
+    pl = ["-pl", ",".join(mods), "-am"]
 
     t0 = time.time()
     # Chạy maven AS CURRENT UID (không sinh file root mà orchestrator non-root xoá không được

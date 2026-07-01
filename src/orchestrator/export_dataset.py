@@ -39,6 +39,7 @@ def export_all(store: SQLiteStore, out_dir: Path) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     n_commit = n_raw = 0
+    negatives = []
     for cid in store.all_commit_ids():
         d = out_dir / cid[:12]
         d.mkdir(parents=True, exist_ok=True)
@@ -59,11 +60,23 @@ def export_all(store: SQLiteStore, out_dir: Path) -> dict:
         rows = [_decode(r) for r in store.findings_for_commit(cid)]
         _w(d / "label.json", rows)
 
+        neg = store.negative_level(cid)   # verified-clean | cheap-clean | None
+        if neg:
+            negatives.append({"commit_id": cid, "level": neg,
+                              "tools": sorted(by_tool)})
         _w(d / "summary.json", {
             "commit_id": cid,
             "tools_reported": sorted(by_tool),
             "n_cluster_labeled": len(rows),
             "labels": dict(Counter(r.get("label") for r in rows)),
+            "negative_level": neg,
         })
         n_commit += 1
-    return {"commits": n_commit, "raw_files": n_raw, "out": str(out_dir)}
+
+    # danh sách NEGATIVE mức toàn dataset (cheap-clean vs verified-clean GOLD)
+    _w(out_dir / "negatives.json", {
+        "counts": dict(Counter(x["level"] for x in negatives)),
+        "commits": negatives,
+    })
+    return {"commits": n_commit, "raw_files": n_raw, "out": str(out_dir),
+            "negatives": dict(Counter(x["level"] for x in negatives))}
