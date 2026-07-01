@@ -34,6 +34,7 @@ def _make_tools(names):
 
 def _store_expensive(store, all_findings, clone, cid, repo) -> int:
     """Ghi raw ĐẮT rồi RELABEL toàn commit (gộp raw rẻ+đắt -> nhãn cross-tier gold/silver)."""
+    all_findings = [f for f in all_findings if not enm.is_excluded_path(f.file_path)]
     store.insert_raw(all_findings)
     rows = relabel_commit(store, cid, clone, repo)
     return len(rows)

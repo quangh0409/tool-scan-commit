@@ -78,6 +78,8 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
         for t in tools:
             all_findings += _safe(t)
 
+    # loại finding trong vendored/generated (node_modules...) — nhiễu, không phải của dự án
+    all_findings = [f for f in all_findings if not enm.is_excluded_path(f.file_path)]
     # LƯU RAW từng-tool -> RELABEL (gộp cụm + vote tier-aware + enrich). Nhãn dẫn xuất từ raw
     # -> khi tầng đắt chạy sau, chỉ thêm raw đắt rồi relabel là nhãn tự nâng cấp (RULE_GAN_NHAN.md).
     store.insert_raw(all_findings)

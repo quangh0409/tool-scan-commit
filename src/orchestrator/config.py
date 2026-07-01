@@ -29,6 +29,12 @@ BINARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".bmp", ".
                      ".jar", ".war", ".ear", ".class", ".so", ".dll", ".exe", ".bin",
                      ".woff", ".woff2", ".ttf", ".eot", ".otf",
                      ".mp4", ".mp3", ".avi", ".mov", ".wav", ".ogg"}
+# Đường dẫn VENDORED/GENERATED — finding trong đó KHÔNG phải của dự án (nhiễu). Loại khỏi scan + finding.
+# (vd secret trong node_modules/@types/*.d.ts của thư viện, không phải secret dự án.)
+EXCLUDE_PATH_PATTERNS = [p for p in os.environ.get(
+    "ORCH_EXCLUDE_PATHS",
+    "node_modules/,/vendor/,bower_components/,/dist/,/build/,/third_party/,"
+    "/generated/,.min.js,.min.css,.pb.go,_pb2.py").split(",") if p]
 
 # Ngưỡng BỎ QUA commit "khổng lồ" (diff quá lớn = bulk/generated, quét tốn & loãng tín hiệu).
 # Xét theo MỨC THAY ĐỔI của commit LÊN TỪNG FILE (add/del trong diff), KHÔNG phải kích thước file:

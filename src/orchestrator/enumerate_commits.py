@@ -17,6 +17,12 @@ from . import config
 _HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
+def is_excluded_path(path: str) -> bool:
+    """True nếu path thuộc vendored/generated (node_modules, vendor, .min.js…) -> loại."""
+    p = "/" + str(path)
+    return any(pat in p for pat in config.EXCLUDE_PATH_PATTERNS)
+
+
 @dataclass
 class CommitInfo:
     commit_id: str
@@ -35,13 +41,15 @@ class CommitInfo:
     @property
     def code_files(self) -> list[str]:
         return [f for f in self.changed_files
-                if Path(f).suffix.lower() in config.CODE_EXTENSIONS]
+                if Path(f).suffix.lower() in config.CODE_EXTENSIONS
+                and not is_excluded_path(f)]
 
     @property
     def scannable_files(self) -> list[str]:
-        """File đáng quét secret = mọi file KHÔNG nhị phân (gồm docs/config text)."""
+        """File đáng quét secret = mọi file KHÔNG nhị phân & KHÔNG vendored (gồm docs/config text)."""
         return [f for f in self.changed_files
-                if Path(f).suffix.lower() not in config.BINARY_EXTENSIONS]
+                if Path(f).suffix.lower() not in config.BINARY_EXTENSIONS
+                and not is_excluded_path(f)]
 
 
 def _git(repo_dir: Path, *args: str) -> str:
