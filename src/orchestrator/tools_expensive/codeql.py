@@ -46,7 +46,7 @@ class CodeQLTool(ExpensiveTool):
         import os
         return f"{os.getuid()}:{os.getgid()}"
 
-    def scan(self, ctx: BuildContext) -> list[RawFinding]:
+    def scan(self, ctx: BuildContext, raw_out: list | None = None) -> list[RawFinding]:
         mods = changed_modules(ctx.clone_dir, ctx.commit_id)
         pl = f" -pl {','.join(mods)} -am" if mods else ""
         sarif_name = f"codeql_{ctx.commit_id[:12]}.sarif"
@@ -71,8 +71,11 @@ class CodeQLTool(ExpensiveTool):
         if not sarif.exists():
             tail = (proc.stderr or proc.stdout or "")[-400:]
             raise RuntimeError(f"codeql không ra SARIF (rc={proc.returncode}): {tail}")
+        sarif_text = sarif.read_text() or "{}"
+        if raw_out is not None:
+            raw_out.append(("sarif", sarif_text))
         try:
-            data = json.loads(sarif.read_text() or "{}")
+            data = json.loads(sarif_text)
         finally:
             sarif.unlink(missing_ok=True)
 

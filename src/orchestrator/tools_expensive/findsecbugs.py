@@ -32,7 +32,7 @@ class FindSecBugsTool(ExpensiveTool):
                 return str(m.relative_to(clone))
         return ""
 
-    def scan(self, ctx: BuildContext) -> list[RawFinding]:
+    def scan(self, ctx: BuildContext, raw_out: list | None = None) -> list[RawFinding]:
         if not ctx.classes_dirs:
             return []
         rels = [str(d.relative_to(ctx.clone_dir)) for d in ctx.classes_dirs]
@@ -50,6 +50,8 @@ class FindSecBugsTool(ExpensiveTool):
         if not xml.exists():
             tail = (proc.stderr or proc.stdout or "")[-400:]
             raise RuntimeError(f"findsecbugs không ra XML (rc={proc.returncode}): {tail}")
+        if raw_out is not None:
+            raw_out.append(("xml", xml.read_text(errors="replace")))
         try:
             root = ET.parse(xml).getroot()
         finally:

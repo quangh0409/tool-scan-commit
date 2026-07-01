@@ -34,7 +34,7 @@ class SemgrepWrapper(ToolWrapper):
         return (proc.stdout or "").strip().splitlines()[0] if proc.stdout.strip() else None
 
     def scan(self, repo_dir: Path, commit_id: str, repo: str,
-             changed_files: list[str]) -> list[RawFinding]:
+             changed_files: list[str], raw_out: list | None = None) -> list[RawFinding]:
         if not changed_files:
             return []
         cfg_args = []
@@ -46,6 +46,8 @@ class SemgrepWrapper(ToolWrapper):
             "run", "--rm", "-v", f"{repo_dir}:/src", IMAGE,
             "semgrep", "scan", *cfg_args, "--json", "--quiet", *targets,
         ], timeout=900)
+        if raw_out is not None:
+            raw_out.append(("json", proc.stdout or ""))
         try:
             data = json.loads(proc.stdout or "{}")
         except json.JSONDecodeError:

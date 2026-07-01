@@ -108,7 +108,7 @@ class SonarTool(ExpensiveTool):
         return cwes
 
     # ---- scan 1 commit ----
-    def scan(self, ctx: BuildContext) -> list[RawFinding]:
+    def scan(self, ctx: BuildContext, raw_out: list | None = None) -> list[RawFinding]:
         if not ctx.classes_dirs:
             return []
         mods = changed_modules(ctx.clone_dir, ctx.commit_id)
@@ -150,6 +150,8 @@ class SonarTool(ExpensiveTool):
             raw.append((i.get("rule"), i.get("component", ""), i.get("line"),
                         i.get("message"), i.get("severity")))
         h = self._get(f"/api/hotspots/search?projectKey={key}&ps=500")
+        if raw_out is not None:
+            raw_out.append(("json", json.dumps({"issues": d, "hotspots": h})))
         for hs in h.get("hotspots", []):
             raw.append((hs.get("ruleKey"), hs.get("component", ""), hs.get("line"),
                         hs.get("message"), hs.get("vulnerabilityProbability")))

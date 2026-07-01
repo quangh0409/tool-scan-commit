@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS raw_findings (
 );
 CREATE INDEX IF NOT EXISTS idx_raw_commit ON raw_findings(commit_id);
 
+-- (B) OUTPUT THÔ nguyên bản mỗi tool/commit (SARIF/XML/JSON…) — audit + tái lập 100%.
+CREATE TABLE IF NOT EXISTS raw_output (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commit_id TEXT, tool TEXT, tier TEXT, fmt TEXT,   -- json|jsonl|sarif|xml
+    content TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rawout_commit ON raw_output(commit_id);
+
 -- MẪU SỐ: mọi (commit, file) đã quét + số finding. n_findings=0 => negative/clean.
 -- Cần để dựng confusion matrix (benchmark) và có NEGATIVE thật cho train.
 CREATE TABLE IF NOT EXISTS scanned_files (
@@ -193,6 +201,35 @@ class SQLiteStore:
             self.conn.executemany(sql, payload)
             self.conn.commit()
         return len(payload)
+
+    def insert_raw_output(self, commit_id: str, tool: str, fmt: str, content: str) -> None:
+        """(B) Lưu output THÔ 1 tool/commit."""
+        if content is None:
+            return
+        from ..consensus.tiers import tier_of
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) "
+                "VALUES (?,?,?,?,?,datetime('now'))",
+                [commit_id, tool, tier_of(tool), fmt, content])
+            self.conn.commit()
+
+    def raw_output_for_commit(self, commit_id: str) -> list[tuple]:
+        """-> [(tool, fmt, content)] để export."""
+        return self.conn.execute(
+            "SELECT tool, fmt, content FROM raw_output WHERE commit_id=?",
+            [commit_id]).fetchall()
+
+    def all_commit_ids(self) -> list[str]:
+        """Mọi commit có dữ liệu (raw_findings ∪ findings ∪ raw_output)."""
+        q = ("SELECT commit_id FROM raw_findings UNION SELECT commit_id FROM findings "
+             "UNION SELECT commit_id FROM raw_output")
+        return [r[0] for r in self.conn.execute(q) if r[0]]
+
+    def findings_for_commit(self, commit_id: str) -> list[dict]:
+        cur = self.conn.execute("SELECT * FROM findings WHERE commit_id=?", [commit_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
 
     def raw_for_commit(self, commit_id: str):
         """Dựng lại list[RawFinding] từ raw_findings của 1 commit."""

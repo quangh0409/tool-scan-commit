@@ -59,11 +59,15 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     changed = [f for f in ci.code_files if (clone / f).exists()]
 
     def _safe(t):
+        raw = []
         try:
-            return t.scan(clone, ci.commit_id, args.repo, changed)
+            fs = t.scan(clone, ci.commit_id, args.repo, changed, raw_out=raw)
         except Exception as e:  # noqa: BLE001 — 1 tool lỗi không dừng cả phễu
             print(f"[{t.name}] lỗi @ {ci.commit_id[:8]}: {e}")
-            return []
+            fs = []
+        if raw:  # (B) lưu output thô
+            store.insert_raw_output(ci.commit_id, t.name, raw[0][0], raw[0][1])
+        return fs
 
     all_findings = []
     if config.CHEAP_INTRA_PARALLEL:                 # Model B: tool song song trong 1 commit
@@ -182,6 +186,15 @@ def cmd_analyze(args):
     print(f"selected_commits status: {res['status_counts']}")
 
 
+def cmd_export(args):
+    from . import export_dataset
+    store = SQLiteStore()
+    res = export_dataset.export_all(store, args.out or config.EXPORT_DIR)
+    store.close()
+    print(f"Export {res['commits']} commit | {res['raw_files']} file raw -> {res['out']}")
+    print("Mỗi commit: <tool>.raw.* (thô) + <tool>.findings.json (parsed) + label.json + summary.json")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="orchestrator")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -220,6 +233,11 @@ def main(argv=None):
     pa.add_argument("--codeql", type=int, choices=(0, 1), default=None,
                     help="1=bật CodeQL (mặc định), 0=TẮT (chỉ FindSecBugs+Sonar, nhanh)")
     pa.set_defaults(func=cmd_analyze)
+
+    pex = sub.add_parser("export",
+                         help="(C) xuất file trực quan mỗi commit: mỗi tool .raw/.findings + label.json")
+    pex.add_argument("--out", default=None, help=f"thư mục xuất (mặc định {config.EXPORT_DIR})")
+    pex.set_defaults(func=cmd_export)
 
     args = p.parse_args(argv)
     args.func(args)

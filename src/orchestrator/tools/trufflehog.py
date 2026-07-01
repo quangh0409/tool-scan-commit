@@ -36,7 +36,7 @@ class TrufflehogWrapper(ToolWrapper):
         return out.strip().splitlines()[0] if out.strip() else None
 
     def scan(self, repo_dir: Path, commit_id: str, repo: str,
-             changed_files: list[str]) -> list[RawFinding]:
+             changed_files: list[str], raw_out: list | None = None) -> list[RawFinding]:
         # quét ĐÚNG 1 commit: --branch <SHA> giới hạn reachable-từ-SHA (loại hậu duệ),
         # --since-commit <SHA>~1 chặn dưới -> chỉ còn DIFF của chính SHA.
         proc = docker_run([
@@ -46,6 +46,8 @@ class TrufflehogWrapper(ToolWrapper):
             "--since-commit", f"{commit_id}~1",
             "--json", "--no-update",
         ], timeout=600)
+        if raw_out is not None:
+            raw_out.append(("jsonl", proc.stdout or ""))
 
         findings: list[RawFinding] = []
         for ln in (proc.stdout or "").splitlines():

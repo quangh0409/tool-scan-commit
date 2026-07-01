@@ -25,7 +25,7 @@ class GitleaksWrapper(ToolWrapper):
         return (proc.stdout or "").strip() or None
 
     def scan(self, repo_dir: Path, commit_id: str, repo: str,
-             changed_files: list[str]) -> list[RawFinding]:
+             changed_files: list[str], raw_out: list | None = None) -> list[RawFinding]:
         # git-mode: chỉ quét DIFF của đúng commit này (secret được THÊM vào),
         # không quét lại toàn cây mỗi commit -> rẻ + đúng ngữ nghĩa.
         proc = docker_run([
@@ -35,6 +35,8 @@ class GitleaksWrapper(ToolWrapper):
             "--report-format", "json", "--report-path", "/dev/stdout",
             "--exit-code", "0",
         ])
+        if raw_out is not None:
+            raw_out.append(("json", proc.stdout or ""))
         findings: list[RawFinding] = []
         try:
             data = json.loads(proc.stdout or "[]")

@@ -65,11 +65,14 @@ def _process(cid, worker, store, pool, tools, repo, dry_run):
 
         def _run_tool(t):
             t0 = time.time()
+            raw = []
             try:
-                findings = t.scan(ctx)
+                findings = t.scan(ctx, raw_out=raw)
                 err, status = None, "ok"
             except Exception as e:  # noqa: BLE001 — 1 tool lỗi không hỏng cả commit
                 findings, err, status = [], str(e), "failed"
+            if raw:  # (B) lưu output thô
+                store.insert_raw_output(cid, t.name, raw[0][0], raw[0][1])
             store.insert_expensive_run({"commit_id": cid, "tool": t.name, "phase": "analyze",
                                         "status": status, "n_findings": len(findings),
                                         "duration_sec": round(time.time() - t0, 1), "error": err})

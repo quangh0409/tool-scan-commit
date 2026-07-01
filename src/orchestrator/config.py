@@ -13,6 +13,7 @@ WORK_DIR = Path(os.environ.get("ORCH_WORK_DIR", ROOT / "work"))
 # Nơi lưu dataset cuối (SQLite/Parquet) — THẲNG trên VM, KHÔNG GCS
 DATA_DIR = Path(os.environ.get("ORCH_DATA_DIR", ROOT / "data"))
 SQLITE_PATH = Path(os.environ.get("ORCH_SQLITE", DATA_DIR / "dataset.sqlite"))
+EXPORT_DIR = Path(os.environ.get("ORCH_EXPORT_DIR", DATA_DIR / "export"))
 
 # --- Lọc thô (Tầng ①) ---
 SKIP_MERGE_COMMITS = True

@@ -65,7 +65,7 @@ class HorusecWrapper(ToolWrapper):
         return None
 
     def scan(self, repo_dir: Path, commit_id: str, repo: str,
-             changed_files: list[str]) -> list[RawFinding]:
+             changed_files: list[str], raw_out: list | None = None) -> list[RawFinding]:
         if not changed_files:
             return []
         # copy file đổi vào temp dir (diff-scoped) + dir output riêng
@@ -89,8 +89,11 @@ class HorusecWrapper(ToolWrapper):
             report = out / "h.json"
             if not report.exists():
                 return []
+            report_text = report.read_text() or "{}"
+            if raw_out is not None:
+                raw_out.append(("json", report_text))
             try:
-                data = json.loads(report.read_text() or "{}")
+                data = json.loads(report_text)
             except json.JSONDecodeError:
                 return []
 
