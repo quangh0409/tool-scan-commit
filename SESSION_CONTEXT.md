@@ -56,8 +56,15 @@ Phiên dài, hoàn tất phần lớn "não" của dataset. Tóm tắt việc đ
 ### #1 Loại node_modules/vendored/generated
 - `EXCLUDE_PATH_PATTERNS` + `is_excluded_path`; áp vào code_files/scannable_files + finding-level (secret tool quét whole-diff).
 
-### #2 Chạy pipeline THẬT end-to-end — ĐANG CHẠY (cuối phiên)
-- Backup DB cũ → `dataset_run3.sqlite`. Đang: `scan --max 50` (fresh) → `select` → `analyze --codeql 0` (đợi user set lại vm.max_map_count) → `export`. Đây là lần "ráp tất cả" đầu tiên ra dataset gold thật.
+### #2 Chạy pipeline THẬT end-to-end — XONG ✅ (lần ráp tất cả đầu tiên)
+- `scan --max 50`: 39 commit, 2815 cụm, **node_modules=0** (lọc chuẩn), 317s.
+- `select`: 29 universe → **20 buggy** + 9 clean.
+- `analyze --codeql 0` (FindSecBugs+Sonar, 2 worker): **26 phút**, 19 done + **1 build_failed** (fa8d9efb khổng lồ — xử đúng, không crash). FindSecBugs tb 64.7s (build đa-module), Sonar 14.6s.
+- `export`: 39 thư mục (mỗi commit: <tool>.raw + <tool>.findings + label + summary).
+- **DATASET (cross-tier THẬT):** candidate 2808 · silver **3571** · gold **4** · tier {cheap 2811, expensive 3568, mixed 4}.
+  - gold (E1+C1): CWE-352 CSRF (semgrep+sonar) @ SecurityConfig; weak-crypto CWE-326/330 (bearer+sonar).
+  - **Phát hiện thật:** gold ÍT vì FindSecBugs & Sonar phủ RỜI NHAU (FindSecBugs→CWE-117 CRLF nhiễu 1118; Sonar→CWE-352/942 CORS) → hiếm trùng cụm → ít E≥2. **CodeQL (dataflow) sẽ trùng nhiều hơn → tăng gold.** FindSecBugs nhiễu (CWE-117 = 1118 finding, phần lớn FP log-injection).
+- DB backup: dataset_prev(run1)/dataset_run2/dataset_run3.sqlite.
 
 ### Tài liệu tạo/ cập nhật
 `RULE_GAN_NHAN.md` (quy tắc gán nhãn), `EXECUTION_FLOW.md` (luồng + time đo), `EXPENSIVE_TIER_REPORT.md` §5b/§5c/§5d/§8, `docker/{codeql,findsecbugs}/Dockerfile` + `minimal-java.qls`.
