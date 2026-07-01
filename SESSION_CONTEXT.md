@@ -80,8 +80,13 @@ Phiên dài, hoàn tất phần lớn "não" của dataset. Tóm tắt việc đ
 - **`negative_level` theo `finding_in_diff=1`** (commit TẠO lỗi): nợ cũ (in_diff=0, tool đắt quét cả file phơi ra) KHÔNG tính not-clean. → negatives: **verified-clean 10 + cheap-clean 10**; 4 clean-commit thành POSITIVE (FN thật: mass-assignment CWE-915 / CORS commit tạo).
 - **Bài học lớn:** tool đắt quét WHOLE-FILE → phơi nợ cũ; phải dùng `finding_in_diff` để phân "commit TẠO" vs "có sẵn". Đây là trục phân positive/negative đúng.
 
+### Fleiss' kappa — XONG ✅ (lệnh `kappa`)
+- `kappa.py` + cli `kappa`: item=cụm, rater=tool đủ-năng-lực-&-đã-chạy (từ raw_output), yes/no. Tính κ tổng+category+nhóm-CWE. Không quét lại.
+- **KẾT QUẢ: κ TỔNG = -0.32 (ÂM)** = tool phủ **RỜI NHAU** (co-location dưới ngẫu nhiên). secret -0.11 (ít rời nhất, gitleaks+trufflehog trùng hơn); sql_injection/xss ~-0.45 (rời nhất). → tool BỔ SUNG nhau, đồng thuận hiếm → giải thích gold=4. Là tín hiệu sức khoẻ.
+- Lưu ý: κ âm bị chi phối bởi cụm 1-tool (phần lớn); clustering ±3 dòng có thể hơi chặt (tool tìm cùng vuln nhưng lệch dòng/CWE → không gộp). Có thể tinh chỉnh sau.
+
 ### Việc kế tiếp
-Fleiss' kappa (raw đã sẵn); chạy `--codeql 1` tăng gold; GOLD set kiểm tay; (tuỳ) lọc thêm rule FP FindSecBugs.
+Chạy `--codeql 1` tăng gold (CodeQL trùng semgrep/sonar hơn → κ code bớt âm); GOLD set kiểm tay đo precision; (tuỳ) nới clustering / lọc thêm FP.
 
 ---
 
