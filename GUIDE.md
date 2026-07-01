@@ -50,6 +50,17 @@ python3 -m orchestrator.cli pipeline $REPO --max 50 --include-clean
 `pipeline` = **scan → select → analyze → relabel → kappa → export** tuần tự, in tiến độ từng bước.
 Tuỳ chọn: `--max --branch --codeql 0/1 --include-clean --workers --flag-limit --no-meta --out`.
 
+### DỌN sau khi xong 1 project 🧹
+Sau khi đã tải dataset/export về, dọn clone + export để **giải phóng đĩa** trước project kế:
+```bash
+python3 -m orchestrator.cli clean $REPO --export        # xoá clone + pool + export (giữ DB + cache .m2)
+python3 -m orchestrator.cli clean $REPO --all           # xoá HẾT: clone + pool + export + cache + DB
+```
+Mặc định `clean $REPO` chỉ xoá **clone + pool** (giữ export/DB/cache). Cờ `--export --cache --db --all`
+để xoá thêm. (Giữ `.m2cache` giúp project Java kế build nhanh — chỉ `--cache`/`--all` mới xoá.)
+
+**Quy trình nhiều project:** `pipeline repoA` → tải export/DB về → `clean repoA --export` → `pipeline repoB` …
+
 ### Hoặc chạy TỪNG BƯỚC (kiểm soát / debug)
 ```bash
 REPO=https://github.com/FudanSELab/train-ticket

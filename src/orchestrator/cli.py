@@ -206,6 +206,38 @@ def cmd_relabel(args):
     store.close()
 
 
+def cmd_clean(args):
+    """Dọn artifact sau khi scan xong: clone + pool (mặc định); tuỳ chọn export/cache/DB."""
+    import shutil
+    from pathlib import Path as _P
+    from .tools.base import docker_run
+    removed = []
+
+    def _rm(p, label):
+        p = _P(p)
+        if not p.exists():
+            return
+        shutil.rmtree(p, ignore_errors=True)
+        if p.exists():   # còn (file root-owned từ build cũ) -> xoá bằng container root
+            docker_run(["run", "--rm", "-v", f"{p.parent}:/w", "alpine",
+                        "rm", "-rf", f"/w/{p.name}"], timeout=120)
+        removed.append(label)
+
+    name = args.repo.rstrip("/").split("/")[-1].removesuffix(".git")
+    _rm(config.WORK_DIR / name, f"clone({name})")
+    for pd in config.WORK_DIR.glob("pool_*"):
+        _rm(pd, pd.name)
+    if args.export or args.all:
+        _rm(config.EXPORT_DIR, "export")
+    if args.cache or args.all:
+        _rm(config.WORK_DIR / ".m2cache", ".m2cache")
+    if args.db or args.all:
+        if config.SQLITE_PATH.exists():
+            config.SQLITE_PATH.unlink()
+            removed.append("dataset.sqlite")
+    print(f"Đã dọn: {removed or '(không có gì)'}")
+
+
 def cmd_pipeline(args):
     """Chạy TRỌN pipeline: scan -> select -> analyze -> relabel -> kappa -> export."""
     import time as _t
@@ -325,6 +357,14 @@ def main(argv=None):
     pp.add_argument("--no-meta", action="store_true", help="bỏ thu version/digest tool")
     pp.add_argument("--out", default=None, help="thư mục export")
     pp.set_defaults(func=cmd_pipeline)
+
+    pc = sub.add_parser("clean", help="dọn artifact sau scan: clone+pool (mặc định); +export/cache/DB")
+    pc.add_argument("repo")
+    pc.add_argument("--export", action="store_true", help="xoá luôn thư mục export")
+    pc.add_argument("--cache", action="store_true", help="xoá cache Maven .m2 (sẽ tải lại lần sau)")
+    pc.add_argument("--db", action="store_true", help="xoá luôn dataset.sqlite")
+    pc.add_argument("--all", action="store_true", help="xoá HẾT: clone+pool+export+cache+DB")
+    pc.set_defaults(func=cmd_clean)
 
     pex = sub.add_parser("export",
                          help="(C) xuất file trực quan mỗi commit: mỗi tool .raw/.findings + label.json")
