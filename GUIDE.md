@@ -38,8 +38,19 @@ sudo sysctl -w vm.max_map_count=262144
 
 ---
 
-## 2. Quy trình chuẩn (6 lệnh)
+## 2. Quy trình chuẩn
 
+### Cách NHANH NHẤT — 1 lệnh chạy TRỌN pipeline 🎯
+```bash
+REPO=https://github.com/FudanSELab/train-ticket
+python3 -m orchestrator.cli pipeline $REPO --max 50 --include-clean
+#   nhanh (bỏ CodeQL):        pipeline $REPO --codeql 0
+#   nhánh + quét hết:         pipeline $REPO --branch master --max 0
+```
+`pipeline` = **scan → select → analyze → relabel → kappa → export** tuần tự, in tiến độ từng bước.
+Tuỳ chọn: `--max --branch --codeql 0/1 --include-clean --workers --flag-limit --no-meta --out`.
+
+### Hoặc chạy TỪNG BƯỚC (kiểm soát / debug)
 ```bash
 REPO=https://github.com/FudanSELab/train-ticket
 

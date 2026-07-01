@@ -206,6 +206,27 @@ def cmd_relabel(args):
     store.close()
 
 
+def cmd_pipeline(args):
+    """Chạy TRỌN pipeline: scan -> select -> analyze -> relabel -> kappa -> export."""
+    import time as _t
+    ns = argparse.Namespace(
+        repo=args.repo, max=args.max, branch=args.branch,
+        flag_limit=args.flag_limit, no_meta=args.no_meta,
+        require_in_diff=None, include_clean=args.include_clean,
+        workers=args.workers, tools=None, dry_run=False, codeql=args.codeql,
+        out=args.out,
+    )
+    steps = [("① SCAN (tầng rẻ)", cmd_scan), ("② SELECT", cmd_select),
+             ("③ ANALYZE (tầng đắt)", cmd_analyze), ("④ RELABEL", cmd_relabel),
+             ("⑤ KAPPA", cmd_kappa), ("⑥ EXPORT", cmd_export)]
+    t0 = _t.time()
+    for i, (name, fn) in enumerate(steps, 1):
+        print(f"\n{'='*60}\n>>> {name}  ({i}/{len(steps)})\n{'='*60}", flush=True)
+        fn(ns)
+    print(f"\n{'='*60}\n✅ PIPELINE XONG sau {int(_t.time()-t0)}s "
+          f"| DB: {config.SQLITE_PATH} | export: {ns.out or config.EXPORT_DIR}\n{'='*60}")
+
+
 def cmd_kappa(args):
     from . import kappa as kp
     store = SQLiteStore()
@@ -287,6 +308,23 @@ def main(argv=None):
 
     pk = sub.add_parser("kappa", help="Fleiss' kappa: độ tin đồng thuận tool (từ raw)")
     pk.set_defaults(func=cmd_kappa)
+
+    pp = sub.add_parser("pipeline",
+                        help="CHẠY TRỌN: scan->select->analyze->relabel->kappa->export")
+    pp.add_argument("repo")
+    pp.add_argument("--max", type=int, default=config.PILOT_MAX_COMMITS,
+                    help="số commit mới nhất (0 = hết)")
+    pp.add_argument("--branch", default=None, help="nhánh (mặc định: nhánh mặc định repo)")
+    pp.add_argument("--flag-limit", type=int, choices=(0, 1), default=config.FLAG_LIMIT)
+    pp.add_argument("--codeql", type=int, choices=(0, 1), default=None,
+                    help="0=tắt CodeQL (nhanh ~30s/commit); mặc định theo config (bật)")
+    pp.add_argument("--include-clean", action="store_true",
+                    help="quét cả clean commit ở tầng đắt -> verified-clean GOLD")
+    pp.add_argument("--workers", type=int, default=config.EXPENSIVE_WORKERS,
+                    help="số commit song song ở tầng đắt")
+    pp.add_argument("--no-meta", action="store_true", help="bỏ thu version/digest tool")
+    pp.add_argument("--out", default=None, help="thư mục export")
+    pp.set_defaults(func=cmd_pipeline)
 
     pex = sub.add_parser("export",
                          help="(C) xuất file trực quan mỗi commit: mỗi tool .raw/.findings + label.json")
