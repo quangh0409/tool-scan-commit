@@ -45,8 +45,15 @@ FLAG_LIMIT = int(os.environ.get("ORCH_FLAG_LIMIT", "0"))
 
 # --- Consensus (Tầng ⑥) ---
 LINE_WINDOW = 3  # ±W dòng để gộp 2 finding cùng (file, CWE)
-# ngưỡng số tool đồng thuận để gán nhãn "vuln"; 1..K-1 => "candidate"; 0 => "clean"
+# ngưỡng số tool đồng thuận để gán nhãn "vuln"; 1..K-1 => "candidate"; 0 => "clean" (legacy)
 VOTE_THRESHOLD = int(os.environ.get("ORCH_VOTE_THRESHOLD", "2"))
+# Thang nhãn cross-tier (RULE_GAN_NHAN.md §4/§9). E=#tool đắt, C=#tool rẻ trong cụm.
+#   gold  : E>=GOLD_MIN_EXPENSIVE  HOẶC (GOLD_ALLOW_1EXP_1CHEAP và E>=1 và C>=1)
+#   silver: E>=1  HOẶC  C>=SILVER_MIN_CHEAP
+#   candidate: còn lại (1 tool rẻ)
+GOLD_MIN_EXPENSIVE = int(os.environ.get("ORCH_GOLD_MIN_EXPENSIVE", "2"))
+GOLD_ALLOW_1EXP_1CHEAP = int(os.environ.get("ORCH_GOLD_ALLOW_1EXP_1CHEAP", "1"))
+SILVER_MIN_CHEAP = int(os.environ.get("ORCH_SILVER_MIN_CHEAP", "2"))
 
 # --- Ngữ cảnh file ---
 # Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).

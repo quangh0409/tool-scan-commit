@@ -17,6 +17,18 @@ from pathlib import PurePosixPath
 from .. import config
 from ..schema import RawFinding, DatasetRow
 from .cwe_groups import primary_group
+from .tiers import tier_of, eligible_tools
+
+
+def _label(E: int, C: int) -> str:
+    """Thang nhãn cross-tier (RULE_GAN_NHAN.md §4). E=#đắt, C=#rẻ."""
+    if E >= config.GOLD_MIN_EXPENSIVE:
+        return "gold"
+    if config.GOLD_ALLOW_1EXP_1CHEAP and E >= 1 and C >= 1:
+        return "gold"
+    if E >= 1 or C >= config.SILVER_MIN_CHEAP:
+        return "silver"
+    return "candidate"
 
 
 def _norm_path(p: str) -> str:
@@ -48,8 +60,7 @@ def cluster_findings(findings: list[RawFinding], window: int | None = None) -> l
     return clusters
 
 
-def vote(cluster: list[RawFinding], n_tools_ran: int,
-         commit_meta: dict | None = None) -> DatasetRow:
+def vote(cluster: list[RawFinding], commit_meta: dict | None = None) -> DatasetRow:
     commit_meta = commit_meta or {}
     tools = sorted({f.tool for f in cluster})
     cwes = sorted({c for f in cluster for c in f.cwe})
@@ -58,15 +69,13 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
     # verified = True nếu BẤT KỲ tool nào trong cụm xác nhận (cho secret)
     vts = [f.verified for f in cluster if f.verified is not None]
     verified = (True in vts) if vts else None
-    n_agree = len(tools)
-    ratio = (n_agree / n_tools_ran) if n_tools_ran else 0.0
-    # nhãn 3 lớp: >=K tool "vuln", 1..K-1 "candidate" (1 tool = FP cao, KHÔNG coi là vuln)
-    if n_agree >= config.VOTE_THRESHOLD:
-        label = "vuln"
-    elif n_agree >= 1:
-        label = "candidate"
-    else:
-        label = "clean"
+
+    E = sum(1 for t in tools if tier_of(t) == "expensive")  # số tool ĐẮT
+    C = len(tools) - E                                       # số tool RẺ
+    eligible = len(eligible_tools(cat))                      # mẫu số theo NĂNG LỰC
+    ratio = (len(tools) / eligible) if eligible else 0.0
+    label = _label(E, C)
+    tier = "mixed" if (E and C) else ("expensive" if E else "cheap")
 
     return DatasetRow(
         repo=rep.repo,
@@ -91,16 +100,17 @@ def vote(cluster: list[RawFinding], n_tools_ran: int,
         lines_added=commit_meta.get("lines_added"),
         lines_deleted=commit_meta.get("lines_deleted"),
         code_snippet=rep.code_snippet,
-        n_tools_ran=n_tools_ran,
-        n_tools_agree=n_agree,
+        n_tools_ran=eligible,
+        n_tools_agree=len(tools),
         agreeing_tools=tools,
         agreement_ratio=round(ratio, 3),
         confidence=round(ratio, 3),
-        silver_label=label,
+        silver_label=label,          # alias legacy (giữ cột cũ đọc được)
+        label=label,
+        n_cheap=C, n_expensive=E, eligible=eligible, tier=tier,
     ).validate()
 
 
-def consensus(findings: list[RawFinding], n_tools_ran: int,
-              commit_meta: dict | None = None, window: int | None = None) -> list[DatasetRow]:
-    return [vote(cl, n_tools_ran, commit_meta)
-            for cl in cluster_findings(findings, window)]
+def consensus(findings: list[RawFinding], commit_meta: dict | None = None,
+              window: int | None = None) -> list[DatasetRow]:
+    return [vote(cl, commit_meta) for cl in cluster_findings(findings, window)]

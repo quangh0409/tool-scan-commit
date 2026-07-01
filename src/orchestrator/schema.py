@@ -117,8 +117,13 @@ class DatasetRow:
     agreement_ratio: float = 0.0
 
     confidence: float = 0.0
-    silver_label: Optional[str] = None  # nhãn bạc: vd "VULN" / "CLEAN"
-    tier: str = "cheap"                 # "cheap" (5 tool rẻ) | "expensive" (CodeQL/...)
+    silver_label: Optional[str] = None  # legacy: vuln/candidate/clean
+    tier: str = "cheap"                 # cheap | expensive | mixed (cụm có cả 2 tầng)
+    # --- nhãn cross-tier (RULE_GAN_NHAN.md) ---
+    label: Optional[str] = None         # gold | silver | candidate
+    n_cheap: int = 0                    # số tool RẺ đồng thuận trong cụm
+    n_expensive: int = 0                # số tool ĐẮT đồng thuận trong cụm
+    eligible: int = 0                   # số tool ĐỦ NĂNG LỰC báo miền này (mẫu số)
 
     def validate(self) -> "DatasetRow":
         if not self.cwe:

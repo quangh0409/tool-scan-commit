@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import config, enumerate_commits as enm
-from .consensus.matcher import consensus
+from .consensus.labeler import relabel_commit
 from .repo_pool import RepoPool
 from .storage.sqlite_store import SQLiteStore
 from .tools_expensive.build import build_commit
@@ -32,25 +32,11 @@ def _make_tools(names):
     return [_REGISTRY[n]() for n in names if n in _REGISTRY]
 
 
-def _store_expensive(store, all_findings, n_tools, clone, cid, repo) -> int:
-    """Gộp cụm finding tầng đắt + enrich (diff_parsed, finding_in_diff, url) + tier=expensive -> ghi."""
-    if not all_findings:
-        return 0
-    ci = enm.get_commit_info(clone, cid)
-    meta = {"parent_commit": ci.parent_commit, "commit_message": ci.message,
-            "author_date": ci.author_date, "lines_added": ci.lines_added,
-            "lines_deleted": ci.lines_deleted}
-    rows = consensus(all_findings, n_tools, meta)
-    file_diffs = enm.get_file_diffs(clone, cid)
-    for r in rows:
-        pd = file_diffs.get(r.file_path)
-        r.diff_parsed = pd.as_dict() if pd else {"added": [], "deleted": []}
-        added = {ln for ln, _ in (pd.added if pd else [])}
-        r.finding_in_diff = bool(set(r.s_detail_line) & added)
-        r.code_after_url = enm.blob_url(repo, r.commit_id, r.file_path)
-        r.code_before_url = enm.blob_url(repo, r.parent_commit, r.file_path)
-        r.tier = "expensive"
-    return store.insert_rows(rows)
+def _store_expensive(store, all_findings, clone, cid, repo) -> int:
+    """Ghi raw ĐẮT rồi RELABEL toàn commit (gộp raw rẻ+đắt -> nhãn cross-tier gold/silver)."""
+    store.insert_raw(all_findings)
+    rows = relabel_commit(store, cid, clone, repo)
+    return len(rows)
 
 
 def _process(cid, worker, store, pool, tools, repo, dry_run):
@@ -98,7 +84,7 @@ def _process(cid, worker, store, pool, tools, repo, dry_run):
                 _run_tool(t)
 
         # write-back: consensus (trong nhóm tool đắt) + enrich + tier=expensive -> bảng findings
-        _store_expensive(store, all_findings, len(tools), clone, cid, repo)
+        _store_expensive(store, all_findings, clone, cid, repo)
         store.set_commit_status(cid, "done", finished=True)
         return ("done", cid)
     finally:

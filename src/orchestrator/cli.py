@@ -18,7 +18,7 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from . import config, enumerate_commits as enm, select_commits, expensive_runner
-from .consensus.matcher import consensus
+from .consensus.labeler import relabel_commit
 from .repo_pool import RepoPool
 from .storage.sqlite_store import SQLiteStore
 from .tools.bearer import BearerWrapper
@@ -74,27 +74,11 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
         for t in tools:
             all_findings += _safe(t)
 
-    meta = {
-        "parent_commit": ci.parent_commit,
-        "commit_message": ci.message,
-        "author_date": ci.author_date,
-        "lines_added": ci.lines_added,
-        "lines_deleted": ci.lines_deleted,
-    }
-    rows = consensus(all_findings, n_tools, meta)
-
-    # enrich: diff_parsed + finding_in_diff + permalink + (tuỳ chọn) toàn văn
-    file_diffs = enm.get_file_diffs(clone, ci.commit_id)
-    for r in rows:
-        pd = file_diffs.get(r.file_path)
-        r.diff_parsed = pd.as_dict() if pd else {"added": [], "deleted": []}
-        r.finding_in_diff = bool(set(r.s_detail_line) & _added_lines(pd))
-        r.code_after_url = enm.blob_url(args.repo, r.commit_id, r.file_path)
-        r.code_before_url = enm.blob_url(args.repo, r.parent_commit, r.file_path)
-        if config.STORE_FULL_FILE:
-            r.code_after = enm.file_content_at(clone, r.commit_id, r.file_path)
-            r.code_before = enm.file_content_at(clone, r.parent_commit, r.file_path)
-    wrote = store.insert_rows(rows)
+    # LƯU RAW từng-tool -> RELABEL (gộp cụm + vote tier-aware + enrich). Nhãn dẫn xuất từ raw
+    # -> khi tầng đắt chạy sau, chỉ thêm raw đắt rồi relabel là nhãn tự nâng cấp (RULE_GAN_NHAN.md).
+    store.insert_raw(all_findings)
+    rows = relabel_commit(store, ci.commit_id, clone, args.repo)
+    wrote = len(rows)
 
     # MẪU SỐ: ghi mọi file đã quét (kể cả 0 finding = negative/clean)
     files_with_finding = {r.file_path for r in rows}

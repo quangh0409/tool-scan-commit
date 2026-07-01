@@ -33,13 +33,26 @@ CREATE TABLE IF NOT EXISTS findings (
     code_before TEXT, code_after TEXT,
     n_tools_ran INTEGER, n_tools_agree INTEGER,
     agreeing_tools TEXT, agreement_ratio REAL,
-    confidence REAL, silver_label TEXT,  -- vuln | candidate | clean
-    tier TEXT DEFAULT 'cheap'            -- cheap (5 tool rẻ) | expensive (CodeQL/...)
+    confidence REAL, silver_label TEXT,  -- alias legacy của label
+    tier TEXT DEFAULT 'cheap',           -- cheap | expensive | mixed
+    label TEXT,                          -- gold | silver | candidate (cross-tier)
+    n_cheap INTEGER, n_expensive INTEGER, eligible INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_commit ON findings(commit_id);
 CREATE INDEX IF NOT EXISTS idx_cwe ON findings(cwe);
 CREATE INDEX IF NOT EXISTS idx_cat ON findings(category);
-CREATE INDEX IF NOT EXISTS idx_label ON findings(silver_label);
+CREATE INDEX IF NOT EXISTS idx_label ON findings(label);
+
+-- RAW: mỗi finding TỪNG-TOOL (trước gộp cụm) — nguồn để recompute nhãn + Fleiss' kappa.
+CREATE TABLE IF NOT EXISTS raw_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo TEXT, commit_id TEXT, tool TEXT, tier TEXT,
+    file_path TEXT, s_line INTEGER, e_line INTEGER,
+    cwe TEXT,                            -- JSON list
+    rule_id TEXT, severity TEXT, message TEXT, verified INTEGER,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_raw_commit ON raw_findings(commit_id);
 
 -- MẪU SỐ: mọi (commit, file) đã quét + số finding. n_findings=0 => negative/clean.
 -- Cần để dựng confusion matrix (benchmark) và có NEGATIVE thật cho train.
@@ -109,6 +122,7 @@ _COLS = [
     "diff_parsed", "code_before_url", "code_after_url", "code_before", "code_after",
     "n_tools_ran", "n_tools_agree", "agreeing_tools", "agreement_ratio",
     "confidence", "silver_label", "tier",
+    "label", "n_cheap", "n_expensive", "eligible",
 ]
 _JSON_COLS = {"cwe", "agreeing_tools", "s_detail_line", "diff_parsed"}
 
@@ -137,10 +151,13 @@ class SQLiteStore:
                 self.conn.execute(f"ALTER TABLE selected_commits ADD COLUMN {col} {decl}")
 
     def _migrate_findings(self) -> None:
-        """Thêm cột mới (vd tier) nếu DB cũ đã có findings thiếu cột."""
+        """Thêm cột mới nếu DB cũ đã có findings thiếu cột."""
         have = {r[1] for r in self.conn.execute("PRAGMA table_info(findings)")}
-        if "tier" not in have:
-            self.conn.execute("ALTER TABLE findings ADD COLUMN tier TEXT DEFAULT 'cheap'")
+        for col, decl in {"tier": "TEXT DEFAULT 'cheap'", "label": "TEXT",
+                          "n_cheap": "INTEGER", "n_expensive": "INTEGER",
+                          "eligible": "INTEGER"}.items():
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE findings ADD COLUMN {col} {decl}")
 
     def insert_rows(self, rows: list[DatasetRow]) -> int:
         if not rows:
@@ -158,6 +175,47 @@ class SQLiteStore:
             self.conn.executemany(sql, payload)
             self.conn.commit()
         return len(payload)
+
+    # --- RAW findings (nguồn recompute nhãn) ---
+    def insert_raw(self, findings) -> int:
+        """Ghi từng finding per-tool vào raw_findings (tier suy từ tên tool)."""
+        from ..consensus.tiers import tier_of
+        if not findings:
+            return 0
+        sql = ("INSERT INTO raw_findings (repo,commit_id,tool,tier,file_path,s_line,"
+               "e_line,cwe,rule_id,severity,message,verified,created_at) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))")
+        payload = [[f.repo, f.commit_id, f.tool, tier_of(f.tool), f.file_path, f.s_line,
+                    f.e_line, json.dumps(f.cwe), f.rule_id, f.severity, f.message,
+                    (1 if f.verified else 0) if f.verified is not None else None]
+                   for f in findings]
+        with self._lock:
+            self.conn.executemany(sql, payload)
+            self.conn.commit()
+        return len(payload)
+
+    def raw_for_commit(self, commit_id: str):
+        """Dựng lại list[RawFinding] từ raw_findings của 1 commit."""
+        from ..schema import RawFinding
+        rows = self.conn.execute(
+            "SELECT repo,commit_id,file_path,s_line,cwe,e_line,tool,rule_id,severity,"
+            "message,verified FROM raw_findings WHERE commit_id=?", [commit_id]).fetchall()
+        out = []
+        for r in rows:
+            out.append(RawFinding(
+                repo=r[0], commit_id=r[1], file_path=r[2], s_line=r[3],
+                cwe=json.loads(r[4]) if r[4] else [], e_line=r[5], tool=r[6],
+                rule_id=r[7] or "", severity=r[8], message=r[9],
+                verified=(bool(r[10]) if r[10] is not None else None),
+            ).validate())
+        return out
+
+    def replace_findings_for_commit(self, commit_id: str, rows: list[DatasetRow]) -> int:
+        """Xoá findings cũ của commit rồi ghi nhãn mới (idempotent — recompute an toàn)."""
+        with self._lock:
+            self.conn.execute("DELETE FROM findings WHERE commit_id=?", [commit_id])
+            self.conn.commit()
+        return self.insert_rows(rows)
 
     def insert_scanned_files(self, records: list[dict]) -> int:
         """records: {repo, commit_id, parent_commit, author_date, file_path,
