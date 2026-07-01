@@ -71,9 +71,23 @@ def clone_or_update(repo_url: str, dest: Path | None = None) -> Path:
     return dest
 
 
-def list_commits(repo_dir: Path, max_count: int | None = None) -> list[str]:
-    args = ["log", "--pretty=%H"]
-    if max_count:
+def resolve_rev(repo_dir: Path, branch: str | None) -> str:
+    """Nhánh -> ref git dùng được. None/HEAD -> HEAD. Thử <branch> rồi origin/<branch>."""
+    if not branch or branch == "HEAD":
+        return "HEAD"
+    for cand in (branch, f"origin/{branch}"):
+        try:
+            _git(repo_dir, "rev-parse", "--verify", "--quiet", cand)
+            return cand
+        except subprocess.CalledProcessError:
+            continue
+    return branch  # để git tự báo lỗi nếu nhánh sai
+
+
+def list_commits(repo_dir: Path, max_count: int | None = None,
+                 rev: str = "HEAD") -> list[str]:
+    args = ["log", "--pretty=%H", rev]
+    if max_count and max_count > 0:      # <=0 hoặc None => KHÔNG giới hạn (mọi commit)
         args += [f"-n{max_count}"]
     return _git(repo_dir, *args).split()
 
@@ -202,10 +216,12 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
     return True, "ok"
 
 
-def enumerate_repo(repo_url: str, max_count: int | None = None):
-    """Yield (CommitInfo, keep, reason) — mới->cũ."""
+def enumerate_repo(repo_url: str, max_count: int | None = None,
+                   branch: str | None = None):
+    """Yield (CommitInfo, keep, reason) — mới->cũ. branch=None -> nhánh mặc định; max<=0 -> mọi commit."""
     repo_dir = clone_or_update(repo_url)
-    for cid in list_commits(repo_dir, max_count):
+    rev = resolve_rev(repo_dir, branch)
+    for cid in list_commits(repo_dir, max_count, rev):
         ci = get_commit_info(repo_dir, cid)
         keep, reason = coarse_filter(ci)
         yield ci, keep, reason

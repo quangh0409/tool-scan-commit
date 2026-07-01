@@ -45,6 +45,9 @@ REPO=https://github.com/FudanSELab/train-ticket
 
 # ① QUÉT tầng rẻ (5 tool, song song) -> raw + nhãn cheap-only
 python3 -m orchestrator.cli scan $REPO --max 50
+#   chọn NHÁNH + quét HẾT (không giới hạn):
+python3 -m orchestrator.cli scan $REPO --branch master --max 0
+#   (--branch: mặc định nhánh mặc định repo; nhận cả 'origin/<nhánh>'. --max 0 = mọi commit)
 
 # ② CHỌN commit cho tầng đắt: buggy (có CWE/CVE) -> positive; clean -> negative
 python3 -m orchestrator.cli select
