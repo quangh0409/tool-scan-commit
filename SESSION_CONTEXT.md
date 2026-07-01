@@ -74,8 +74,14 @@ Phiên dài, hoàn tất phần lớn "não" của dataset. Tóm tắt việc đ
 - Chạy 9 clean commit: **0 verified-clean, 9 "FN→positive"** — NHƯNG phần lớn là **nhiễu CWE-117 (CRLF log-injection) của FindSecBugs** (flag mọi `log(userInput)`). → **verified-clean BẤT KHẢ nếu chưa lọc nhiễu FindSecBugs.** Negative còn 10 cheap-clean (commit docs).
 - ⚠️ **Chặn tiếp theo = LỌC NHIỄU FindSecBugs** (CWE-117/high-FP rule). Raw đã lưu → relabel không cần quét lại.
 
+### Lọc nhiễu + verified-clean theo finding_in_diff — XONG ✅
+- `config.NOISE_CWE` (mặc định CWE-117) + `labeler._is_noise`: lọc raw khỏi consensus (raw giữ nguyên).
+- **Lệnh `relabel <repo>`**: gán nhãn LẠI từ raw (git show, KHÔNG quét lại) — **30s/39 commit**. CWE-117: silver 4566→3283.
+- **`negative_level` theo `finding_in_diff=1`** (commit TẠO lỗi): nợ cũ (in_diff=0, tool đắt quét cả file phơi ra) KHÔNG tính not-clean. → negatives: **verified-clean 10 + cheap-clean 10**; 4 clean-commit thành POSITIVE (FN thật: mass-assignment CWE-915 / CORS commit tạo).
+- **Bài học lớn:** tool đắt quét WHOLE-FILE → phơi nợ cũ; phải dùng `finding_in_diff` để phân "commit TẠO" vs "có sẵn". Đây là trục phân positive/negative đúng.
+
 ### Việc kế tiếp
-**LỌC NHIỄU FindSecBugs CWE-117** (thiết yếu cho cả gold lẫn verified-clean); Fleiss' kappa; chạy `--codeql 1` tăng gold; GOLD set kiểm tay.
+Fleiss' kappa (raw đã sẵn); chạy `--codeql 1` tăng gold; GOLD set kiểm tay; (tuỳ) lọc thêm rule FP FindSecBugs.
 
 ---
 
