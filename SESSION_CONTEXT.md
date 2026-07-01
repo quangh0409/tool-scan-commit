@@ -34,6 +34,39 @@
 
 ---
 
+## Phiên 2026-07-01 — BƯỚC 2 (tầng đắt) + CROSS-TIER CONSENSUS + export
+
+Phiên dài, hoàn tất phần lớn "não" của dataset. Tóm tắt việc đã làm (chi tiết ở overview trên):
+
+### Tầng đắt — cả 3 tool THẬT (validated trên commit 350f6200, build dùng chung ~14s)
+- **CodeQL** (`orch-codeql:2.25.6` = maven+JDK8+bundle): DB create trace `mvn compile` (29s) → analyze → SARIF → CWE. Chẩn đoán chi phí: analyze là nút thắt (~20' code-scanning). **Suite tối giản** `minimal-java.qls` (10 query, bake image) → 6.7'/commit. Công tắc `USE_CODEQL` (`--codeql 0/1`).
+- **FindSecBugs** (`orch-findsecbugs:1.14.0`): bytecode → SpotBugs XML → CWE (BugPattern.cweid), path glob. **7s** ⚡.
+- **SonarQube** (`sonarqube:lts-community` + scanner): server singleton, headless (đổi pw+token QUA API), scanner + `sonar.java.libraries=/m2 jar` (BẮT BUỘC), poll CE, issues+hotspots, CWE regex từ mô tả rule. **22s**.
+- Gotcha: `vm.max_map_count>=262144` (user sudo, reset khi reboot); admin/admin chỉ dùng lần đầu → `SONAR_ADMIN_PW`.
+
+### Cross-tier consensus (mảnh nhãn chất lượng) — theo `RULE_GAN_NHAN.md`
+- **Kiến trúc lưu RAW → recompute**: bảng `raw_findings` (từng-tool); `consensus/labeler.relabel_commit` gộp cụm rẻ+đắt → nhãn. Analyze đắt thêm raw đắt + relabel → nhãn TỰ nâng cấp (candidate→gold).
+- `consensus/tiers.py` (tier + eligible theo năng lực); `matcher.vote()` tier-aware → **gold/silver/candidate**; config `GOLD_MIN_EXPENSIVE/GOLD_ALLOW_1EXP_1CHEAP/SILVER_MIN_CHEAP`. Trường mới: label/n_cheap/n_expensive/eligible/tier=mixed.
+- Verify: ladder 6 ca đúng; semgrep(candidate) → +codeql+findsecbugs = **gold** (1 dòng, không nhân đôi).
+
+### (B) output THÔ + (C) export
+- Mọi wrapper trả `raw_out` → bảng `raw_output` (sarif/xml/json audit 100%).
+- Lệnh `export`: mỗi commit 1 thư mục — `<tool>.raw.<ext>` + `<tool>.findings.json` + `label.json` + `summary.json`. Số tool KHÔNG hardcode (7/8 tuỳ CodeQL).
+
+### #1 Loại node_modules/vendored/generated
+- `EXCLUDE_PATH_PATTERNS` + `is_excluded_path`; áp vào code_files/scannable_files + finding-level (secret tool quét whole-diff).
+
+### #2 Chạy pipeline THẬT end-to-end — ĐANG CHẠY (cuối phiên)
+- Backup DB cũ → `dataset_run3.sqlite`. Đang: `scan --max 50` (fresh) → `select` → `analyze --codeql 0` (đợi user set lại vm.max_map_count) → `export`. Đây là lần "ráp tất cả" đầu tiên ra dataset gold thật.
+
+### Tài liệu tạo/ cập nhật
+`RULE_GAN_NHAN.md` (quy tắc gán nhãn), `EXECUTION_FLOW.md` (luồng + time đo), `EXPENSIVE_TIER_REPORT.md` §5b/§5c/§5d/§8, `docker/{codeql,findsecbugs}/Dockerfile` + `minimal-java.qls`.
+
+### Việc kế tiếp (sau #2)
+GOLD-negative (FindSecBugs+Sonar quét clean); Fleiss' kappa từ raw_findings; GOLD set kiểm tay đo precision.
+
+---
+
 ## Phiên 2026-06-28 (c) — Pilot LẠI sau fix trufflehog + skip-churn (DỮ LIỆU SẠCH HƠN NHIỀU)
 
 `train-ticket --max 50`, 4 worker. **26 commit quét, 3 bỏ (>100 file), 1370 cụm, ~3–4 phút** (vs ~9' tuần tự). DB cũ giữ ở `data/dataset_prev.sqlite`.
