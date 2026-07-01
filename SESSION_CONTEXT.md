@@ -69,8 +69,13 @@ Phiên dài, hoàn tất phần lớn "não" của dataset. Tóm tắt việc đ
 ### Tài liệu tạo/ cập nhật
 `RULE_GAN_NHAN.md` (quy tắc gán nhãn), `EXECUTION_FLOW.md` (luồng + time đo), `EXPENSIVE_TIER_REPORT.md` §5b/§5c/§5d/§8, `docker/{codeql,findsecbugs}/Dockerfile` + `minimal-java.qls`.
 
-### Việc kế tiếp (sau #2)
-GOLD-negative (FindSecBugs+Sonar quét clean); Fleiss' kappa từ raw_findings; GOLD set kiểm tay đo precision.
+### #3 GOLD-negative — CODE XONG ✅ nhưng lộ vấn đề phương pháp
+- Code: `select --include-clean` (add_selected incremental), `negative_level` (verified/cheap-clean), export negatives.json, `build.py` skip build khi 0 module Java.
+- Chạy 9 clean commit: **0 verified-clean, 9 "FN→positive"** — NHƯNG phần lớn là **nhiễu CWE-117 (CRLF log-injection) của FindSecBugs** (flag mọi `log(userInput)`). → **verified-clean BẤT KHẢ nếu chưa lọc nhiễu FindSecBugs.** Negative còn 10 cheap-clean (commit docs).
+- ⚠️ **Chặn tiếp theo = LỌC NHIỄU FindSecBugs** (CWE-117/high-FP rule). Raw đã lưu → relabel không cần quét lại.
+
+### Việc kế tiếp
+**LỌC NHIỄU FindSecBugs CWE-117** (thiết yếu cho cả gold lẫn verified-clean); Fleiss' kappa; chạy `--codeql 1` tăng gold; GOLD set kiểm tay.
 
 ---
 
