@@ -88,6 +88,9 @@ python3 -m orchestrator.cli kappa
 
 # ⑥ EXPORT: file trực quan mỗi commit
 python3 -m orchestrator.cli export
+
+# (tuỳ chọn) BACKFILL 14 đặc trưng Kamei cho DB CŨ (scan mới tự tính rồi — không cần)
+python3 -m orchestrator.cli features $REPO   # [--branch <nhánh đã scan>] ~giây, không quét lại
 ```
 
 **Mẹo tốc độ:** `analyze --codeql 0` (~30s/commit) trước để có dữ liệu nhanh; chạy đầy đủ (`--codeql 1`,
@@ -108,6 +111,22 @@ python3 -m orchestrator.cli export
 | `ORCH_EXPORT_DIR` | `data/export` | thư mục export |
 | `ORCH_STORE_FULL_FILE` | `0` | `1` = lưu TOÀN VĂN code_before/after (nặng); mặc định chỉ permalink |
 | `ORCH_DOCKER_SG` | (tắt) | `1` = bọc docker qua `sg docker -c` (khi chưa vào nhóm docker) |
+
+### 3.1b — 14 đặc trưng Kamei (JIT defect prediction)
+
+Tính CHỈ từ git history (Kamei et al. 2013), tự chạy trong `scan` (1 lượt duyệt, ~giây); nằm ở
+bảng `commit_features`, nhúng vào mỗi row `label.json` (key `kamei`) và block `kamei` trong
+`summary.json` (kể cả commit NEGATIVE). Backfill DB cũ: lệnh `features` (mục 2).
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `ORCH_KAMEI` | `1` | `0` = tắt tính đặc trưng khi scan |
+| `ORCH_FIX_KEYWORDS` | `fix,bug,defect,patch,fault,repair` | từ khoá nhận diện commit FIX (khớp đầu-từ, không phân hoa/thường) |
+
+14 đặc trưng: **NS/ND/NF/Entropy** (diffusion) · **LA/LD/LT** (size) · **FIX** (purpose) ·
+**NDEV/AGE/NUC** (history) · **EXP/REXP/SEXP** (experience). Lưu RAW value (không normalize).
+Merge commit bỏ qua; rename được theo dõi; file nhị phân tính NF/ND/NS nhưng loại khỏi Entropy/LA/LD/LT;
+KHÔNG áp `ORCH_EXCLUDE_PATHS` (trung thành định nghĩa gốc).
 
 ### 3.2 Lọc commit / file (tầng ①)
 | Biến | Mặc định | Ý nghĩa |

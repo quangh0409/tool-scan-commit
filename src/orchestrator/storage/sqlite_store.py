@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS findings (
     confidence REAL, silver_label TEXT,  -- alias legacy của label
     tier TEXT DEFAULT 'cheap',           -- cheap | expensive | mixed
     label TEXT,                          -- gold | silver | candidate (cross-tier)
-    n_cheap INTEGER, n_expensive INTEGER, eligible INTEGER
+    n_cheap INTEGER, n_expensive INTEGER, eligible INTEGER,
+    kamei TEXT                           -- JSON 14 đặc trưng Kamei cấp commit
 );
 CREATE INDEX IF NOT EXISTS idx_commit ON findings(commit_id);
 CREATE INDEX IF NOT EXISTS idx_cwe ON findings(cwe);
@@ -104,6 +105,19 @@ CREATE INDEX IF NOT EXISTS idx_sel_role ON selected_commits(role);
 -- idx_sel_status tạo SAU migration (DB cũ chưa có cột status khi chạy _SCHEMA).
 
 -- TELEMETRY tầng đắt: 1 dòng / (commit, tool, phase) — đo chi phí + chẩn lỗi build.
+-- 14 ĐẶC TRƯNG KAMEI (JIT defect prediction) cấp COMMIT — tính từ git history (kamei.py).
+-- Độc lập findings: commit NEGATIVE (0 finding) vẫn có đặc trưng.
+CREATE TABLE IF NOT EXISTS commit_features (
+    commit_id TEXT PRIMARY KEY,
+    repo TEXT, author TEXT, author_date TEXT,
+    ns INTEGER, nd INTEGER, nf INTEGER, entropy REAL,   -- diffusion
+    la INTEGER, ld INTEGER, lt REAL,                    -- size
+    fix INTEGER,                                        -- purpose
+    ndev INTEGER, age REAL, nuc INTEGER,                -- history
+    exp INTEGER, rexp REAL, sexp INTEGER,               -- experience
+    created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS expensive_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     commit_id TEXT, tool TEXT, phase TEXT,    -- build | analyze
@@ -130,9 +144,13 @@ _COLS = [
     "diff_parsed", "code_before_url", "code_after_url", "code_before", "code_after",
     "n_tools_ran", "n_tools_agree", "agreeing_tools", "agreement_ratio",
     "confidence", "silver_label", "tier",
-    "label", "n_cheap", "n_expensive", "eligible",
+    "label", "n_cheap", "n_expensive", "eligible", "kamei",
 ]
-_JSON_COLS = {"cwe", "agreeing_tools", "s_detail_line", "diff_parsed"}
+_JSON_COLS = {"cwe", "agreeing_tools", "s_detail_line", "diff_parsed", "kamei"}
+
+# 14 đặc trưng Kamei — thứ tự cột trong commit_features
+_KAMEI_COLS = ["ns", "nd", "nf", "entropy", "la", "ld", "lt", "fix",
+               "ndev", "age", "nuc", "exp", "rexp", "sexp"]
 
 
 class SQLiteStore:
@@ -163,7 +181,7 @@ class SQLiteStore:
         have = {r[1] for r in self.conn.execute("PRAGMA table_info(findings)")}
         for col, decl in {"tier": "TEXT DEFAULT 'cheap'", "label": "TEXT",
                           "n_cheap": "INTEGER", "n_expensive": "INTEGER",
-                          "eligible": "INTEGER"}.items():
+                          "eligible": "INTEGER", "kamei": "TEXT"}.items():
             if col not in have:
                 self.conn.execute(f"ALTER TABLE findings ADD COLUMN {col} {decl}")
 
@@ -219,6 +237,29 @@ class SQLiteStore:
         return self.conn.execute(
             "SELECT tool, fmt, content FROM raw_output WHERE commit_id=?",
             [commit_id]).fetchall()
+
+    # --- 14 đặc trưng Kamei (cấp commit) ---
+    def upsert_commit_features(self, repo: str, feats: dict[str, dict]) -> int:
+        """feats: {commit_id: {author, author_date, ns..sexp}} (từ kamei.compute_features).
+        INSERT OR REPLACE -> idempotent."""
+        if not feats:
+            return 0
+        cols = ["commit_id", "repo", "author", "author_date", *_KAMEI_COLS]
+        sql = (f"INSERT OR REPLACE INTO commit_features ({','.join(cols)},created_at) "
+               f"VALUES ({','.join('?' * len(cols))},datetime('now'))")
+        payload = [[cid, repo, f.get("author"), f.get("author_date"),
+                    *[f.get(k) for k in _KAMEI_COLS]] for cid, f in feats.items()]
+        with self._lock:
+            self.conn.executemany(sql, payload)
+            self.conn.commit()
+        return len(payload)
+
+    def features_for_commit(self, commit_id: str) -> dict | None:
+        """-> dict 14 đặc trưng Kamei (None nếu chưa tính)."""
+        r = self.conn.execute(
+            f"SELECT {','.join(_KAMEI_COLS)} FROM commit_features WHERE commit_id=?",
+            [commit_id]).fetchone()
+        return dict(zip(_KAMEI_COLS, r)) if r else None
 
     def all_commit_ids(self) -> list[str]:
         """Mọi commit có dữ liệu (raw_findings ∪ findings ∪ raw_output)."""

@@ -131,6 +131,18 @@ def cmd_scan(args):
     for sha, reason in skipped_big:
         print(f"[{sha[:8]}] BỎ QUA: {reason}")
 
+    # 14 đặc trưng Kamei: tính 1 lượt (single-thread) TRƯỚC khi quét -> relabel trong
+    # scan tự nhặt từ bảng commit_features nhúng vào từng row.
+    if config.KAMEI_ENABLED and todo:
+        import time as _t
+        from . import kamei
+        t0 = _t.time()
+        rev = enm.resolve_rev(repo_dir, args.branch)
+        feats = kamei.compute_features(repo_dir, {ci.commit_id for ci in todo}, rev)
+        store.upsert_commit_features(args.repo, feats)
+        print(f"Kamei: 14 đặc trưng cho {len(feats)}/{len(todo)} commit "
+              f"({_t.time() - t0:.1f}s)")
+
     workers = max(1, min(config.SCAN_WORKERS, len(todo) or 1))
     pool = RepoPool(repo_dir, workers)
     print(f"Song song CẤP COMMIT: {workers} worker (clone pool) | {len(todo)} commit cần quét "
@@ -203,6 +215,33 @@ def cmd_relabel(args):
           f"rules={sorted(config.NOISE_RULES) or '-'}")
     print(f"DB: {store.count()} findings | label: "
           f"{dict(store.conn.execute('SELECT label,COUNT(*) FROM findings GROUP BY label'))}")
+    store.close()
+
+
+def cmd_features(args):
+    """Backfill 14 đặc trưng Kamei cho MỌI commit đã có trong DB (không quét lại),
+    rồi relabel để nhúng vào label rows."""
+    import time as _t
+    from . import kamei
+    repo_dir = enm.clone_or_update(args.repo)
+    rev = enm.resolve_rev(repo_dir, args.branch)
+    store = SQLiteStore()
+    targets = set(store.all_commit_ids())
+    t0 = _t.time()
+    feats = kamei.compute_features(repo_dir, targets, rev)
+    store.upsert_commit_features(args.repo, feats)
+    missing = targets - feats.keys()
+    print(f"Kamei: tính {len(feats)}/{len(targets)} commit ({_t.time() - t0:.1f}s)"
+          + (f" | thiếu {len(missing)} (merge/ngoài nhánh {rev})" if missing else ""))
+    for cid in feats:
+        relabel_commit(store, cid, repo_dir, args.repo)
+    print(f"Đã nhúng vào label rows (relabel {len(feats)} commit).")
+    # sanity: min/mean/max vài đặc trưng
+    for col in ("nf", "entropy", "lt", "exp", "ndev", "fix"):
+        r = store.conn.execute(
+            f"SELECT MIN({col}), ROUND(AVG({col}),3), MAX({col}) "
+            f"FROM commit_features").fetchone()
+        print(f"  {col:8} min={r[0]} avg={r[1]} max={r[2]}")
     store.close()
 
 
@@ -340,6 +379,13 @@ def main(argv=None):
 
     pk = sub.add_parser("kappa", help="Fleiss' kappa: độ tin đồng thuận tool (từ raw)")
     pk.set_defaults(func=cmd_kappa)
+
+    pf = sub.add_parser("features",
+                        help="backfill 14 đặc trưng Kamei cho commit trong DB + nhúng vào label")
+    pf.add_argument("repo")
+    pf.add_argument("--branch", default=None,
+                    help="nhánh duyệt lịch sử (mặc định: nhánh mặc định repo — PHẢI trùng nhánh đã scan)")
+    pf.set_defaults(func=cmd_features)
 
     pp = sub.add_parser("pipeline",
                         help="CHẠY TRỌN: scan->select->analyze->relabel->kappa->export")

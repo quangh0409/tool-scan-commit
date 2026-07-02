@@ -21,6 +21,7 @@
 - **GOLD không bắt buộc CodeQL (chốt):** GOLD = đồng thuận ĐA-TOOL; 2 tool đắt (FindSecBugs+Sonar) [+rẻ] đủ GOLD cho CẢ positive lẫn negative; CodeQL là bonus tùy ngân sách. Dataset ghi rõ tool nào xác nhận (agreeing_tools+tier). Xem `EXPENSIVE_TIER_REPORT.md` §5d.
 - **CROSS-TIER CONSENSUS XONG ✅** (theo `RULE_GAN_NHAN.md`): lưu RAW từng-tool (bảng `raw_findings`) → `relabel_commit` gộp cụm rẻ+đắt → nhãn **gold/silver/candidate** (matcher tier-aware, config GOLD_MIN_EXPENSIVE...). Analyze đắt thêm raw đắt + relabel → nhãn tự nâng (candidate→gold). Verify: ladder 6 ca đúng; semgrep(candidate)→+codeql+findsecbugs=gold (mixed, 1 dòng). Trường mới: label/n_cheap/n_expensive/eligible/tier=mixed.
 - **(B) lưu output THÔ + (C) export XONG ✅:** mọi wrapper trả `raw_out` → bảng `raw_output` (sarif/xml/json audit). Lệnh `export` → mỗi commit 1 thư mục: `<tool>.raw.<ext>` + `<tool>.findings.json` + `label.json` + `summary.json`. Số tool KHÔNG hardcode (5 rẻ + 2/3 đắt = 7/8 tuỳ CodeQL).
+- **14 ĐẶC TRƯNG KAMEI XONG ✅** (JIT defect prediction, Kamei 2013): module `kamei.py` — 1 lượt `git log --reverse -M --numstat` (~3-4s/39 commit), state tăng dần, chỉ nhìn quá khứ. NS/ND/NF/Entropy · LA/LD/LT · FIX · NDEV/AGE/NUC · EXP/REXP/SEXP. Bảng `commit_features` + field `DatasetRow.kamei` (nhúng mọi row label.json qua relabel) + block `kamei` trong summary.json (CẢ commit negative). Tự chạy trong `scan` (`ORCH_KAMEI=1`); backfill DB cũ: lệnh `features <repo>`. Test synthetic 84/84 (gồm rename/merge-skip/binary); spot-check e5ae0c3a khớp git (NF=193/LA=3554/LD=2027/EXP=0). Merge bỏ qua; KHÔNG áp EXCLUDE_PATHS.
 - **Việc kế tiếp:** chạy `analyze` THẬT (ra positive gold); GOLD-negative (FindSecBugs+Sonar quét clean); Fleiss' kappa từ raw_findings; loại node_modules/vendored.
 - **Mô hình dataset (chốt):** buggy (có CWE/CVE tool rẻ) → tầng đắt → POSITIVE; clean (0 CWE/CVE) → NEGATIVE lấy hết, KHÔNG quét đắt. Negative = "cheap-clean" (silver).
 - **BACKLOG (ý tưởng user):** nếu FindSecBugs/Sonar đo ra NHANH lúc cắm → cho 2 tool đó quét luôn clean commit; clean vẫn-sạch → **verified-clean = GOLD negative**; clean mà ra finding → FN tool rẻ → đẩy sang positive. (KHÔNG dùng CodeQL cho clean — quá chậm ~phút/commit.) Cột nhãn phân biệt cheap-clean vs verified-clean. Xem `EXPENSIVE_TIER_REPORT.md` §5d.
@@ -31,6 +32,25 @@
 - **Cầu nối rẻ→đắt (XONG):** `orchestrator select` chọn buggy (**có mã CWE/CVE** — chỉ cần 1 tool/1 finding) + mẫu clean 1:N (N=`CLEAN_PER_BUGGY`, mặc định 20) → bảng `selected_commits`. `FLAG_LIMIT` (mặc định 0) bật/tắt ngưỡng bỏ commit khổng lồ.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-07-02 — 14 đặc trưng Kamei (JIT defect prediction)
+
+Theo paper "Expert Features for Defect Prediction and Localization" (bộ 14 đặc trưng Kamei et al. 2013).
+
+### Đã làm
+- **`kamei.py` (MỚI):** `compute_features(repo_dir, targets, rev)` — 1 lệnh `git log --reverse -M --numstat --pretty=<sentinel>` duyệt CŨ→MỚI, state tăng dần (file_loc/last_ts/authors/commits, author_nprev/prev_ts, subsys_nprev); đặc trưng tính TRƯỚC khi cập nhật state (chỉ nhìn quá khứ). Biên: merge bỏ hoàn toàn (chuẩn Commit Guru); rename `{old => new}` chuyển state; binary (numstat `-`) tính NF/ND/NS nhưng loại khỏi Entropy/LA/LD/LT; Entropy chuẩn hoá /log2(n); LT/AGE = trung bình theo file; REXP=Σ1/(tuổi_năm+1); KHÔNG áp EXCLUDE_PATHS. FIX theo `ORCH_FIX_KEYWORDS` (khớp đầu-từ, quét cả body %B — bắt được squash-merge "Release 0.2.0" chứa dòng fix).
+- **Schema/DB:** bảng `commit_features` (PK commit_id, độc lập findings → negative vẫn có); `DatasetRow.kamei: dict` + cột JSON `kamei` trong findings (migrate tự động); `upsert_commit_features` (INSERT OR REPLACE, idempotent) + `features_for_commit`.
+- **Luồng:** `relabel_commit` join từ bảng (không tự tính) → mọi row của commit mang cùng block kamei. `cmd_scan` tính 1 lượt TRƯỚC pool worker. Lệnh mới **`features <repo> [--branch]`** backfill DB cũ + relabel nhúng + in sanity min/avg/max. `pipeline` không đổi bước. Export: label.json decode kamei; summary.json thêm block `kamei`.
+- **Config:** `ORCH_KAMEI` (mặc định 1), `ORCH_FIX_KEYWORDS`.
+
+### Verify
+- Test synthetic (repo git tạm, 8 commit/2 author/2 subsystem/rename/merge/nhánh side): **84/84 assert** — mọi công thức khớp tính tay (kể cả LT cộng dồn qua rename, NUC/state nhặt cả commit nhánh side, merge không emit).
+- Backfill thật train-ticket: 39/39 commit, 3-4s; idempotent (chạy 2 lần vẫn 39 hàng).
+- Spot-check `e5ae0c3a` (Release 0.2.0): NF=193/LA=3554/LD=2027 khớp `git show --numstat`; EXP=0 khớp (author lần đầu); fix=1 đúng (body chứa nhiều dòng "fix").
+- Smoke `scan --max 3` (DB tạm): kamei tự tính + nhúng sẵn vào findings ngay khi scan.
+- Docs: GUIDE.md §2 (lệnh features) + §3.1b (bảng đặc trưng + env).
 
 ---
 

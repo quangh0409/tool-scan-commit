@@ -16,7 +16,7 @@ from pathlib import Path
 from . import config
 from .storage.sqlite_store import SQLiteStore
 
-_JSON_COLS = ("cwe", "agreeing_tools", "s_detail_line", "diff_parsed")
+_JSON_COLS = ("cwe", "agreeing_tools", "s_detail_line", "diff_parsed", "kamei")
 
 
 def _decode(row: dict) -> dict:
@@ -70,6 +70,8 @@ def export_all(store: SQLiteStore, out_dir: Path) -> dict:
             "n_cluster_labeled": len(rows),
             "labels": dict(Counter(r.get("label") for r in rows)),
             "negative_level": neg,
+            # 14 đặc trưng Kamei cấp commit — có cả với commit NEGATIVE (label.json rỗng)
+            "kamei": store.features_for_commit(cid),
         })
         n_commit += 1
 

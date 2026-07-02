@@ -66,6 +66,12 @@ SILVER_MIN_CHEAP = int(os.environ.get("ORCH_SILVER_MIN_CHEAP", "2"))
 NOISE_CWE = {c.strip() for c in os.environ.get("ORCH_NOISE_CWE", "CWE-117").split(",") if c.strip()}
 NOISE_RULES = {r.strip() for r in os.environ.get("ORCH_NOISE_RULES", "").split(",") if r.strip()}
 
+# --- 14 đặc trưng Kamei (JIT defect prediction) — tính từ git history, xem kamei.py ---
+KAMEI_ENABLED = int(os.environ.get("ORCH_KAMEI", "1"))          # 1=tính khi scan, 0=tắt
+# Từ khoá nhận diện commit FIX (khớp ĐẦU-từ, case-insensitive: 'fixes'/'bugfix' đều trúng)
+FIX_KEYWORDS = os.environ.get("ORCH_FIX_KEYWORDS",
+                              "fix,bug,defect,patch,fault,repair")
+
 # --- Ngữ cảnh file ---
 # Mặc định CHỈ lưu permalink (rẻ). Bật để lưu thêm toàn văn code_before/code_after (nặng).
 STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"

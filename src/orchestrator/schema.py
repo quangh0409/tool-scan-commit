@@ -116,6 +116,10 @@ class DatasetRow:
     agreeing_tools: list[str] = field(default_factory=list)
     agreement_ratio: float = 0.0
 
+    # 14 đặc trưng Kamei CẤP COMMIT (JIT defect prediction — kamei.py), lặp lại trên
+    # mọi row của commit để mỗi row là 1 sample ML tự đủ. {} nếu chưa tính.
+    kamei: dict = field(default_factory=dict)
+
     confidence: float = 0.0
     silver_label: Optional[str] = None  # legacy: vuln/candidate/clean
     tier: str = "cheap"                 # cheap | expensive | mixed (cụm có cả 2 tầng)

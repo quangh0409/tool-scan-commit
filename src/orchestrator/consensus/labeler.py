@@ -37,7 +37,9 @@ def relabel_commit(store, commit_id: str, clone_dir: Path, repo: str) -> list:
     rows = consensus(raws, meta)
 
     file_diffs = enm.get_file_diffs(clone_dir, commit_id)
+    kamei_feat = store.features_for_commit(commit_id) or {}  # 14 đặc trưng (join, không tính)
     for r in rows:
+        r.kamei = kamei_feat
         pd = file_diffs.get(r.file_path)
         r.diff_parsed = pd.as_dict() if pd else {"added": [], "deleted": []}
         r.finding_in_diff = bool(set(r.s_detail_line) & _added_lines(pd))
