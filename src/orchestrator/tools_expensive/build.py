@@ -8,12 +8,20 @@ sau nhanh). Build FAIL là DỮ LIỆU (ctx.ok=False + error), KHÔNG raise.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 
 from .. import config, enumerate_commits as enm
 from ..tools.base import docker_run
 from .base import BuildContext
+
+# JDK khai trong pom: <java.version>17</>, <maven.compiler.release|target|source>1.8</>
+_JAVA_VER_RE = re.compile(
+    r"<(?:java\.version|maven\.compiler\.(?:release|target|source))>\s*(?:1\.)?(\d+)\s*<",
+    re.IGNORECASE)
+_JDK_AVAILABLE = (8, 11, 17, 21)   # tag temurin có sẵn trên Docker Hub
 
 
 def _m2_cache() -> Path:
@@ -33,6 +41,30 @@ def changed_modules(clone_dir: Path, commit_id: str) -> list[str]:
     return sorted(mods)
 
 
+def detect_jdk(clone_dir: Path, commit_id: str) -> int | None:
+    """JDK khai báo trong pom.xml GỐC tại commit (sha-scoped, không checkout).
+    '1.8'/'8' -> 8; làm tròn LÊN tag temurin gần nhất (9,10->11; 12-16->17; 18+->21).
+    None nếu không có pom / không khai."""
+    try:
+        pom = enm._git(clone_dir, "show", f"{commit_id}:pom.xml")
+    except subprocess.CalledProcessError:
+        return None
+    m = _JAVA_VER_RE.search(pom)
+    if not m:
+        return None
+    v = int(m.group(1))
+    return next((c for c in _JDK_AVAILABLE if v <= c), _JDK_AVAILABLE[-1])
+
+
+def maven_image_for(clone_dir: Path, commit_id: str) -> str:
+    """Image build cho commit: auto-detect JDK từ pom (bật mặc định) -> fallback MAVEN_IMAGE."""
+    if config.JDK_AUTODETECT:
+        jdk = detect_jdk(clone_dir, commit_id)
+        if jdk:
+            return config.JDK_IMAGE_TEMPLATE.format(jdk=jdk)
+    return config.MAVEN_IMAGE
+
+
 def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
     ctx = BuildContext(commit_id=commit_id, repo=repo, clone_dir=clone_dir)
     mods = changed_modules(clone_dir, commit_id)
@@ -42,6 +74,7 @@ def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
         ctx.ok = True
         return ctx
     pl = ["-pl", ",".join(mods), "-am"]
+    image = maven_image_for(clone_dir, commit_id)
 
     t0 = time.time()
     # Chạy maven AS CURRENT UID (không sinh file root mà orchestrator non-root xoá không được
@@ -53,15 +86,20 @@ def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
         "-v", f"{clone_dir}:/work",
         "-v", f"{_m2_cache()}:/m2",
         "-w", "/work",
-        config.MAVEN_IMAGE,
+        image,
         "mvn", *config.MAVEN_GOALS.split(), "-Dmaven.repo.local=/m2/repository", *pl,
     ], timeout=config.BUILD_TIMEOUT)
     ctx.duration_sec = round(time.time() - t0, 1)
 
     if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "")[-500:]
+        # lỗi thật của mvn nằm ở STDOUT ([ERROR]...); stderr thường chỉ có nhiễu entrypoint
+        # (vd "mkdir /root: Permission denied") -> ưu tiên dòng [ERROR] stdout, kèm stderr ngắn.
+        err_lines = [l for l in (proc.stdout or "").splitlines()
+                     if "[ERROR]" in l or "[FATAL]" in l]
+        tail = ("\n".join(err_lines)[-500:] if err_lines
+                else ((proc.stdout or "")[-300:] + (proc.stderr or "")[-200:]))
         ctx.ok = False
-        ctx.error = f"mvn rc={proc.returncode} (mods={mods or 'full'}): {tail}"
+        ctx.error = f"mvn rc={proc.returncode} (mods={mods or 'full'}, image={image}): {tail}"
         return ctx
 
     # gom target/classes của module vừa build (đầu vào cho FindSecBugs/Sonar)

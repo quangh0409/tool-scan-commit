@@ -105,6 +105,12 @@ USE_CODEQL = int(os.environ.get("ORCH_USE_CODEQL", "1"))
 # Build dùng chung cho 3 tool. Image Maven + JDK đúng thời kỳ (train-ticket: Java 8, Spring Boot 2.3).
 # PoC xác nhận: maven:3.9-eclipse-temurin-8 build OK; service+dep ~13s cache ấm.
 MAVEN_IMAGE = os.environ.get("ORCH_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-8")
+# AUTO-DETECT JDK theo TỪNG COMMIT (repo lịch sử dài đổi JDK: Boot 1.x/2.x cần 8, mới cần 17):
+# đọc pom.xml tại commit (<java.version>/<maven.compiler.release|target|source>) -> map image
+# temurin 8/11/17/21. Không dò được -> fallback MAVEN_IMAGE. 0 = luôn dùng MAVEN_IMAGE.
+JDK_AUTODETECT = int(os.environ.get("ORCH_JDK_AUTODETECT", "1"))
+JDK_IMAGE_TEMPLATE = os.environ.get("ORCH_JDK_IMAGE_TEMPLATE",
+                                    "maven:3.9-eclipse-temurin-{jdk}")
 # Goal build (KHÔNG kèm -pl; module bị đụng được chèn động: `-pl <mods> -am`).
 MAVEN_GOALS = os.environ.get("ORCH_MAVEN_GOALS", "-B clean package -DskipTests")
 BUILD_TIMEOUT = int(os.environ.get("ORCH_BUILD_TIMEOUT", "1800"))

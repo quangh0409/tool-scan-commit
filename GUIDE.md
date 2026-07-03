@@ -161,7 +161,9 @@ CLI: `select --include-clean` (thêm clean để verify), `select --require-in-d
 |---|---|---|
 | `ORCH_EXPENSIVE_TOOLS` | `codeql,findsecbugs,sonar` | tool đắt bật (thứ tự chạy) |
 | `ORCH_USE_CODEQL` | `1` | công tắc riêng CodeQL (nút thắt ~95% time). `0`=chỉ FindSecBugs+Sonar (~30s/commit) |
-| `ORCH_MAVEN_IMAGE` | `maven:3.9-eclipse-temurin-8` | image build (đổi JDK theo repo) |
+| `ORCH_MAVEN_IMAGE` | `maven:3.9-eclipse-temurin-8` | image build FALLBACK (khi không dò được JDK / tắt autodetect) |
+| `ORCH_JDK_AUTODETECT` | `1` | dò JDK TỪNG COMMIT từ pom.xml (`java.version`/`maven.compiler.*`) → image temurin 8/11/17/21. `0`=luôn dùng MAVEN_IMAGE |
+| `ORCH_JDK_IMAGE_TEMPLATE` | `maven:3.9-eclipse-temurin-{jdk}` | template image khi autodetect trúng |
 | `ORCH_MAVEN_GOALS` | `-B clean package -DskipTests` | goal build (module bị đụng tự chèn `-pl <mods> -am`) |
 | `ORCH_BUILD_TIMEOUT` | `1800` | timeout build (giây) |
 | `ORCH_CODEQL_SUITE` | `codeql/java-queries:codeql-suites/java-code-scanning.qls` | bộ query CodeQL. Dùng `/opt/minimal-java.qls` (bake sẵn, 10 query) để **nhanh 3×** (~6.7' thay vì 20') |

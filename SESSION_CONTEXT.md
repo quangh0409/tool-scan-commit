@@ -24,6 +24,7 @@
 - **14 ĐẶC TRƯNG KAMEI XONG ✅** (JIT defect prediction, Kamei 2013): module `kamei.py` — 1 lượt `git log --reverse -M --numstat` (~3-4s/39 commit), state tăng dần, chỉ nhìn quá khứ. NS/ND/NF/Entropy · LA/LD/LT · FIX · NDEV/AGE/NUC · EXP/REXP/SEXP. Bảng `commit_features` + field `DatasetRow.kamei` (nhúng mọi row label.json qua relabel) + block `kamei` trong summary.json (CẢ commit negative). Tự chạy trong `scan` (`ORCH_KAMEI=1`); backfill DB cũ: lệnh `features <repo>`. Test synthetic 84/84 (gồm rename/merge-skip/binary); spot-check e5ae0c3a khớp git (NF=193/LA=3554/LD=2027/EXP=0). Merge bỏ qua; KHÔNG áp EXCLUDE_PATHS.
 - **Việc kế tiếp:** chạy `analyze` THẬT (ra positive gold); GOLD-negative (FindSecBugs+Sonar quét clean); Fleiss' kappa từ raw_findings; loại node_modules/vendored.
 - **Mô hình dataset (chốt):** buggy (có CWE/CVE tool rẻ) → tầng đắt → POSITIVE; clean (0 CWE/CVE) → NEGATIVE lấy hết, KHÔNG quét đắt. Negative = "cheap-clean" (silver).
+- **BACKLOG (chốt với user 2026-07-02): AUTO-DETECT JDK cho build tầng đắt** — làm SAU khi pipeline spring-cloud-stream chạy xong. Ý tưởng: (1) đọc `pom.xml` tại từng commit (`git show <sha>:pom.xml`) → `<java.version>`/`<maven.compiler.release>` → map image `maven:3.9-eclipse-temurin-<8|11|17|21>`, fallback `ORCH_MAVEN_IMAGE`; (2) tuỳ chọn retry hạ cấp JDK khi build fail trước khi đánh `build_failed`. Bối cảnh: repo lịch sử dài đổi JDK (spring-cloud-stream: Boot 1.x/2.x cần 8, main cần 17) — image cố định kiểu gì cũng fail một khúc.
 - **BACKLOG (ý tưởng user):** nếu FindSecBugs/Sonar đo ra NHANH lúc cắm → cho 2 tool đó quét luôn clean commit; clean vẫn-sạch → **verified-clean = GOLD negative**; clean mà ra finding → FN tool rẻ → đẩy sang positive. (KHÔNG dùng CodeQL cho clean — quá chậm ~phút/commit.) Cột nhãn phân biệt cheap-clean vs verified-clean. Xem `EXPENSIVE_TIER_REPORT.md` §5d.
 - **Fix recall secret (yêu cầu user "doc có key cũng là lỗi"):** `coarse_filter` KHÔNG còn bỏ commit "chỉ docs/non-code"; chỉ bỏ khi **toàn file nhị phân** (`BINARY_EXTENSIONS`). Commit text-only (README/.env/.sh/Dockerfile) giờ giữ → gitleaks/trufflehog (quét toàn diff, bất kể đuôi) bắt được key. Verify: 34/150 commit text-only được giữ; commit README chạy secret tool OK.
 - **A vs B (tầng rẻ, đo sạch 29 commit/4 worker):** A 264s; B (tool song song trong commit) **227s (~14% nhanh hơn)**, findings 2828≈2827. → **Tầng rẻ CHỐT dùng B** (`CHEAP_INTRA_PARALLEL=1` mặc định). Tầng đắt giữ A (`EXPENSIVE_INTRA_PARALLEL=0`) tới khi cắm tool thật mới đo. Toggle tách theo tầng.
@@ -32,6 +33,24 @@
 - **Cầu nối rẻ→đắt (XONG):** `orchestrator select` chọn buggy (**có mã CWE/CVE** — chỉ cần 1 tool/1 finding) + mẫu clean 1:N (N=`CLEAN_PER_BUGGY`, mặc định 20) → bảng `selected_commits`. `FLAG_LIMIT` (mặc định 0) bật/tắt ngưỡng bỏ commit khổng lồ.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-07-02/03 (b) — CHẠY THẬT spring-cloud-stream FULL (4364 commit) + auto-detect JDK
+
+### Pipeline full-history đầu tiên — XONG ✅ (16.5h, exit 0)
+- `pipeline https://github.com/spring-cloud/spring-cloud-stream --max 0 --branch main --codeql 0 --include-clean` + **DB RIÊNG** `data/dataset_spring-cloud-stream.sqlite` (`ORCH_SQLITE` — KHÔNG trộn repo trong 1 DB: relabel/select sẽ crash/trộn commit) + `ORCH_MAVEN_IMAGE=maven:3.9-eclipse-temurin-17` (main cần JDK 17).
+- **① Scan:** 4364 commit / 5.7h (~645 c/h, 4 worker), 4308 cụm rẻ, 18973 file clean, 0 lỗi. Kamei 4364/4364 trong 3.3s.
+- **③ Analyze (FindSecBugs+Sonar, 2 worker, ~10h):** done **1110** / build_failed **2631**.
+- **Nhãn cuối:** gold **26** (toàn sensitive_exposure CWE-209/215/489, bearer+sonar) · silver 5764 · candidate 4271 = 10061 cụm. in_diff=1: 444. Negatives: **verified-clean 1004 (GOLD)** + cheap-clean 3115; positive 245.
+- **Kappa:** κ tổng **-0.392** (10061 item) — tool phủ rời nhau, giống train-ticket (-0.32).
+- **Export:** 4364 thư mục (923MB) + **`dataset.jsonl`** (10061 dòng, 41MB) + **`commits.jsonl`** (4364 dòng, kamei+labels+negative_level) do phiên này gộp thêm.
+- Raw theo tool: findsecbugs 57202 (nhiễu) · bearer 3545 · horusec 530 · semgrep 315 · sonar 201 · trufflehog 14.
+
+### Auto-detect JDK (Task #1) — XONG ✅ + PHÁT HIỆN QUAN TRỌNG
+- `build.detect_jdk()` (pom tại commit, sha-scoped) + `maven_image_for()` → temurin 8/11/17/21 (làm tròn LÊN), fallback `MAVEN_IMAGE`. Config `ORCH_JDK_AUTODETECT=1`, `ORCH_JDK_IMAGE_TEMPLATE`. Hồi quy train-ticket OK (không khai java.version → fallback 8 như cũ).
+- **Fix bug che lỗi build:** error tail cũ lấy `stderr or stdout` — stderr toàn nhiễu entrypoint ("mkdir /root: Permission denied") CHE lỗi mvn thật (nằm stdout). Giờ ưu tiên dòng [ERROR]/[FATAL] stdout.
+- **⚠️ PHÁT HIỆN: 2631 build_failed KHÔNG phải do JDK.** Phân loại theo pom: **2406 commit neo parent/dep `*-SNAPSHOT` đã bị XOÁ khỏi repo.spring.io** (mô hình dev Spring: main luôn SNAPSHOT giữa các release) → **không thể build lại, bất kể JDK** — giới hạn data-availability của hệ sinh thái, không phải bug pipeline. 222 "release" còn lại phần lớn cũng kéo submodule SNAPSHOT (test 006a7205 v3.2.0 vẫn fail vì starter-parent 3.2.0-SNAPSHOT). → Tầng đắt chỉ phủ được commit mà dependency closure còn tồn tại (= 1110 commit gần đây). Auto-detect vẫn giá trị cho repo khác / lần chạy sau (khỏi cần ORCH_MAVEN_IMAGE tay).
 
 ---
 
