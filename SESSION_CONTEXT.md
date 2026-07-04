@@ -8,6 +8,7 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
+- **MỚI NHẤT (2026-07-03/04): repo full-history THỨ HAI xong — spring-cloud-kubernetes 2666 commit (~8.5h)**: DB `data/dataset_spring-cloud-kubernetes.sqlite`, export `data/export_spring-cloud-kubernetes/` (2666 thư mục, 135MB, dataset.jsonl 3273 dòng + commits.jsonl 2666 dòng). Nhãn: **gold 0 · silver 585 · candidate 2688** — repo này **KHÔNG có cụm nào ≥2 tool trùng** (n_tools_agree≥2 = 0, κ=-0.473); silver toàn 1-tool-đắt (findsecbugs 482 / sonar 103). Negatives: **verified-clean 264 (GOLD)** + cheap-clean 2250. Analyze: done 300 / build_failed 1955 (~87% — SNAPSHOT data-availability như spring-cloud-stream). **Crash giữa run đã vá 2 fix bền** (xem phiên 2026-07-03/04).
 - **Giai đoạn:** Pipeline HOÀN CHỈNH đã chạy thật FULL-HISTORY repo lớn — **spring-cloud-stream 4364 commit, 16.5h, exit 0** (xem phiên 2026-07-02/03 (b)). Dataset: `data/dataset_spring-cloud-stream.sqlite` + `data/export/{dataset,commits}.jsonl`. Train-ticket pilot ở `data/dataset.sqlite`.
 - **Cấu trúc dataset 2 mức (chốt, giải thích cho user 2026-07-03):** `dataset.jsonl` 1 dòng = 1 **CỤM finding** (gộp raw theo file + nhóm-CWE + dòng ±3 rồi vote) — 10061 cụm từ 1468 commit-có-finding, KHÔNG chứa negative; `commits.jsonl` 1 dòng = 1 **commit** (đủ 4364: kamei + labels + negative_level) — dùng cho JIT commit-level. Gold positive=26 cụm; gold negative=1004 commit verified-clean.
 - **CodeQL THẬT xong ✅ (chạy được):** image `orch-codeql:2.25.6` (maven+codeql bundle). Wrapper: DB create trace `mvn compile` module-bị-đụng → analyze `java-code-scanning` → SARIF → RawFinding (CWE từ tags). PoC `350f6200`: ra CWE-352 spring-disabled-csrf @ SecurityConfig.java:65 (đúng path/line). Write-back: cột `tier`, `_store_expensive` (consensus+enrich+tier=expensive), verify OK. **⚠️ Chi phí ~21 phút/commit** (suite nhẹ, DB 84M) — query eval nặng → cần tối ưu hoặc K nhỏ. `--ram=20000 --threads=0`. Config: `CODEQL_SUITE/RAM_MB/THREADS`.
@@ -34,6 +35,31 @@
 - **Cầu nối rẻ→đắt (XONG):** `orchestrator select` chọn buggy (**có mã CWE/CVE** — chỉ cần 1 tool/1 finding) + mẫu clean 1:N (N=`CLEAN_PER_BUGGY`, mặc định 20) → bảng `selected_commits`. `FLAG_LIMIT` (mặc định 0) bật/tắt ngưỡng bỏ commit khổng lồ.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-07-03/04 — CHẠY THẬT spring-cloud-kubernetes FULL (2666 commit) + vá crash checkout pool
+
+### Run full-history repo #2 — XONG ✅ (~8.5h kể cả 1 lần crash+resume)
+- Lệnh: `pipeline https://github.com/spring-cloud/spring-cloud-kubernetes --max 0 --branch main --codeql 0 --include-clean` + `ORCH_SQLITE=data/dataset_spring-cloud-kubernetes.sqlite` + `--out data/export_spring-cloud-kubernetes` (DB + export RIÊNG theo repo, như quy ước).
+- **① Scan:** 2666/2666 commit (~5h, ~480 c/h, 4 worker), 2688 cụm rẻ, 24375 file clean, 0 bỏ vì khổng lồ, 0 lỗi. Kamei 2666/2666.
+- **② Select:** universe 2255 = buggy 487 + clean 1768 (include-clean).
+- **③ Analyze (FindSecBugs+Sonar):** done **300** / build_failed **1955** (~87% — pom neo `*-SNAPSHOT` đã xoá khỏi repo.spring.io, cùng mô hình data-availability spring-cloud-stream; JDK auto-detect chạy tốt, thấy image temurin-8 được chọn tự động cho commit cũ).
+- **Nhãn cuối:** gold **0** · silver 585 · candidate 2688 (3273 cụm; in_diff=1: 564). **Phát hiện:** repo này KHÔNG có cụm nào ≥2 tool trùng (n_tools_agree≥2 = 0) → silver toàn 1-tool-đắt (findsecbugs 482: weak_random/path_traversal/CWE-176; sonar 103); κ tổng **-0.473** (rời hơn cả stream -0.392). Raw: findsecbugs 4191 · semgrep 1669 · bearer 551 · horusec 536 · sonar 103 · trufflehog 1.
+- **Negatives:** verified-clean **264 (GOLD)** + cheap-clean 2250.
+- **Export:** 2666 thư mục (135MB) + `dataset.jsonl` (3273 dòng) + `commits.jsonl` (2666 dòng — script gộp: dataset = concat label.json; commits = commit_features + labels/role/negative_level từ summary.json).
+
+### ⚠️ CRASH giữa analyze + 2 FIX BỀN (đã áp dụng, CHƯA commit)
+- **Sự cố:** worker chết tại `git checkout --detach a06ebc9f` trong clone pool (artefact build untracked sót lại từ commit trước đụng độ file commit đích) → exception KHÔNG được bắt trong `expensive_runner._loop` → `ex.map` ném → SẬP cả pipeline (exit 1) sau ~1575/2255 commit.
+- **Fix 1 `repo_pool.checkout`:** dùng `checkout -qf`; nếu vẫn fail → `git clean -fdxq` rồi retry lần cuối.
+- **Fix 2 `expensive_runner._loop`:** try/except quanh từng commit → ghi `expensive_runs` (phase=process, status=failed) + `set_commit_status('error')` rồi đi tiếp — 1 commit hỏng KHÔNG giết worker/run nữa.
+- **Resume chứng minh thiết kế bền:** claim nguyên tử + `reset_stale_claims` (7200s) → không mất dữ liệu; chạy tiếp `analyze→relabel→kappa→export` bằng lệnh con (KHÔNG chạy lại `pipeline` — tránh scan lại). Commit từng gây crash `a06ebc9f` sau fix → **done** sạch sẽ.
+- **Bài học vận hành:** 2 commit bị claim đúng lúc crash kẹt `building` → lượt resume sau reset stale mới vét được; kiểm `selected_commits` status trước khi kết luận xong.
+
+### Kế tiếp
+- Kiểm tay mẫu silver 1-tool-đắt + 264 verified-clean của kubernetes; so sánh cross-repo với stream.
+- Cân nhắc repo pilot #3 dạng APP thuần (không phải library Spring) để né SNAPSHOT-hole + tăng tỷ lệ build ok.
+- Commit 2 fix (repo_pool + expensive_runner) — user chưa yêu cầu commit.
 
 ---
 

@@ -124,7 +124,14 @@ def analyze(repo: str, workers: int | None = None, dry_run: bool = False,
             cid = store.claim_next_commit(f"w{wid}")
             if cid is None:
                 return
-            outcome, _ = _process(cid, f"w{wid}", store, pool, tool_objs, repo, dry_run)
+            try:
+                outcome, _ = _process(cid, f"w{wid}", store, pool, tool_objs, repo, dry_run)
+            except Exception as e:  # noqa: BLE001 — 1 commit lỗi không được giết worker/cả run
+                store.insert_expensive_run({"commit_id": cid, "tool": "-", "phase": "process",
+                                            "status": "failed", "n_findings": 0,
+                                            "duration_sec": 0.0, "error": str(e)[:1000]})
+                store.set_commit_status(cid, "error", finished=True)
+                outcome = "error"
             counts[outcome] = counts.get(outcome, 0) + 1
             print(f"[w{wid}] {cid[:8]} -> {outcome}")
 
