@@ -53,9 +53,11 @@ class CommitInfo:
 
 
 def _git(repo_dir: Path, *args: str) -> str:
+    # errors="replace": diff có thể chứa byte ngoài UTF-8 (file encoding GBK/legacy)
+    # -> không được nổ UnicodeDecodeError giữa pipeline.
     out = subprocess.run(
         ["git", "-C", str(repo_dir), *args],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, errors="replace", check=True,
     )
     return out.stdout
 

@@ -8,7 +8,8 @@
 
 ## Trạng thái tổng quan (cập nhật nhanh)
 
-- **MỚI NHẤT (2026-07-03/04): repo full-history THỨ HAI xong — spring-cloud-kubernetes 2666 commit (~8.5h)**: DB `data/dataset_spring-cloud-kubernetes.sqlite`, export `data/export_spring-cloud-kubernetes/` (2666 thư mục, 135MB, dataset.jsonl 3273 dòng + commits.jsonl 2666 dòng). Nhãn: **gold 0 · silver 585 · candidate 2688** — repo này **KHÔNG có cụm nào ≥2 tool trùng** (n_tools_agree≥2 = 0, κ=-0.473); silver toàn 1-tool-đắt (findsecbugs 482 / sonar 103). Negatives: **verified-clean 264 (GOLD)** + cheap-clean 2250. Analyze: done 300 / build_failed 1955 (~87% — SNAPSHOT data-availability như spring-cloud-stream). **Crash giữa run đã vá 2 fix bền** (xem phiên 2026-07-03/04).
+- **MỚI NHẤT (2026-07-04): repo full-history THỨ BA xong — train-ticket 274 commit (~2.5h) — RUN ĐẸP NHẤT DỰ ÁN**: DB `data/dataset_train-ticket.sqlite`, export `data/export_train-ticket/` (276 thư mục, 516MB, dataset.jsonl 19708 dòng + commits.jsonl 276 dòng). **App thuần build 92% ok (160 done/14 fail — vs 13% của library Spring)** → tầng đắt phủ gần trọn: nhãn **gold 208** (csrf 109 · weak_random 32 · sensitive_exposure 26 · CWE-1004 25 · hardcoded_secret 11 · CWE-614 5) · silver 11974 · candidate 7526; tier mixed 190; in_diff=1 2485. Negatives: verified-clean **70 GOLD** + cheap-clean 111. κ=-0.359. **Crash UnicodeDecodeError giữa relabel đã vá bền** (diff GBK 290MB — errors="replace" ở `_git`/repo_pool/tools.base; kamei vốn đã đúng). → Chốt chiến lược: **repo pilot nên là APP thuần**, không phải library.
+- **(2026-07-03/04): repo full-history THỨ HAI xong — spring-cloud-kubernetes 2666 commit (~8.5h)**: DB `data/dataset_spring-cloud-kubernetes.sqlite`, export `data/export_spring-cloud-kubernetes/` (2666 thư mục, 135MB, dataset.jsonl 3273 dòng + commits.jsonl 2666 dòng). Nhãn: **gold 0 · silver 585 · candidate 2688** — repo này **KHÔNG có cụm nào ≥2 tool trùng** (n_tools_agree≥2 = 0, κ=-0.473); silver toàn 1-tool-đắt (findsecbugs 482 / sonar 103). Negatives: **verified-clean 264 (GOLD)** + cheap-clean 2250. Analyze: done 300 / build_failed 1955 (~87% — SNAPSHOT data-availability như spring-cloud-stream). **Crash giữa run đã vá 2 fix bền** (xem phiên 2026-07-03/04).
 - **Giai đoạn:** Pipeline HOÀN CHỈNH đã chạy thật FULL-HISTORY repo lớn — **spring-cloud-stream 4364 commit, 16.5h, exit 0** (xem phiên 2026-07-02/03 (b)). Dataset: `data/dataset_spring-cloud-stream.sqlite` + `data/export/{dataset,commits}.jsonl`. Train-ticket pilot ở `data/dataset.sqlite`.
 - **Cấu trúc dataset 2 mức (chốt, giải thích cho user 2026-07-03):** `dataset.jsonl` 1 dòng = 1 **CỤM finding** (gộp raw theo file + nhóm-CWE + dòng ±3 rồi vote) — 10061 cụm từ 1468 commit-có-finding, KHÔNG chứa negative; `commits.jsonl` 1 dòng = 1 **commit** (đủ 4364: kamei + labels + negative_level) — dùng cho JIT commit-level. Gold positive=26 cụm; gold negative=1004 commit verified-clean.
 - **CodeQL THẬT xong ✅ (chạy được):** image `orch-codeql:2.25.6` (maven+codeql bundle). Wrapper: DB create trace `mvn compile` module-bị-đụng → analyze `java-code-scanning` → SARIF → RawFinding (CWE từ tags). PoC `350f6200`: ra CWE-352 spring-disabled-csrf @ SecurityConfig.java:65 (đúng path/line). Write-back: cột `tier`, `_store_expensive` (consensus+enrich+tier=expensive), verify OK. **⚠️ Chi phí ~21 phút/commit** (suite nhẹ, DB 84M) — query eval nặng → cần tối ưu hoặc K nhỏ. `--ram=20000 --threads=0`. Config: `CODEQL_SUITE/RAM_MB/THREADS`.
@@ -35,6 +36,25 @@
 - **Cầu nối rẻ→đắt (XONG):** `orchestrator select` chọn buggy (**có mã CWE/CVE** — chỉ cần 1 tool/1 finding) + mẫu clean 1:N (N=`CLEAN_PER_BUGGY`, mặc định 20) → bảng `selected_commits`. `FLAG_LIMIT` (mặc định 0) bật/tắt ngưỡng bỏ commit khổng lồ.
 - **Repo này đã là git repo?** Rồi.
 - **5 tool tầng rẻ:** secret = gitleaks+trufflehog(+horusec Leaks); code = semgrep(p/default)+bearer(+horusec). VOTE_THRESHOLD=2.
+
+---
+
+## Phiên 2026-07-04 (b) — CHẠY THẬT train-ticket FULL (274 commit) + vá UnicodeDecodeError
+
+### Run full-history repo #3 — XONG ✅ (~2.5h kể cả 1 crash+resume) — GOLD BÙNG NỔ
+- Lệnh: `pipeline https://github.com/FudanSELab/train-ticket --max 0 --branch master --codeql 0 --include-clean` + `ORCH_SQLITE=data/dataset_train-ticket.sqlite` + `--out data/export_train-ticket`. (User yêu cầu `--branch main` nhưng repo chỉ có `master` — đã xác minh `git ls-remote` trước khi chạy.)
+- **① Scan:** 274 commit (~35'), 7070 cụm rẻ, 4209 file clean, 0 bỏ khổng lồ (FLAG_LIMIT=0 nên quét cả bulk-commit pilot cũ từng skip). Kamei 276/276 (3.4s).
+- **② Select:** universe 174 = buggy 119 + clean 55.
+- **③ Analyze:** done **160** / build_failed **14** (92% ok! — app thuần không SNAPSHOT-hole; JDK8 fallback + auto-detect chạy êm). ~2h/2 worker.
+- **Nhãn cuối:** **gold 208** · silver 11974 · candidate 7526 (19708 cụm; tier mixed 190; in_diff=1: 2485). Gold: csrf 109 (semgrep+sonar @ SecurityConfig hàng loạt service) · weak_random 32 · sensitive_exposure 26 · CWE-1004 25 · hardcoded_secret 11 · CWE-614 5. Cơ chế candidate→gold nâng cấp qua relabel hoạt động đúng (thấy candidate giảm khi analyze chạy).
+- **Negatives:** verified-clean **70 (GOLD)** + cheap-clean 111. **Kappa:** κ=-0.359 (19708 item) — nhất quán 3 repo (-0.32/-0.39/-0.47/-0.36).
+- Raw: findsecbugs 24366 · semgrep 9243 · sonar 5371 · bearer 1096 · horusec 247 · trufflehog 2.
+- **Export:** 276 thư mục (516MB) + dataset.jsonl **19708 dòng (103MB)** + commits.jsonl 276 dòng (kamei đủ 14 đặc trưng mọi commit).
+- **KẾT LUẬN CROSS-REPO (3 repo):** app thuần (train-ticket) build 92% → gold 208 + mixed 190; library Spring build ~13% → gold 26/0. **Chốt: chọn repo pilot dạng APP** (web app Java/Maven có SecurityConfig, Docker/k8s) để tối đa gold.
+
+### ⚠️ CRASH tầng ④ RELABEL + FIX BỀN (đã áp, CHƯA commit)
+- **Sự cố:** commit diff ~290MB chứa byte ngoài UTF-8 (0xd5, file GBK) → `enumerate_commits._git` (`text=True` strict) nổ `UnicodeDecodeError` → pipeline exit 1 (analyze đã xong, không mất gì nhờ raw-trong-DB).
+- **Fix:** `errors="replace"` tại `_git()` + `repo_pool.checkout` + `tools/base.docker_run`. (`kamei.py` vốn đã đúng từ đầu.) Resume relabel→kappa→export qua chính commit đó OK.
 
 ---
 

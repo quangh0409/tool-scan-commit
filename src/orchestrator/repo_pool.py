@@ -60,12 +60,12 @@ class RepoPool:
         # -f: artefact build sót lại (untracked) trong clone tái sử dụng có thể
         # đụng độ file của commit đích -> checkout trần bị git từ chối.
         cmd = ["git", "-C", str(clone), "checkout", "-qf", "--detach", sha]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
         if r.returncode != 0:
             # còn kẹt (vd file untracked chắn thư mục) -> dọn sạch rồi thử lại lần cuối
             subprocess.run(["git", "-C", str(clone), "clean", "-fdxq"],
                            capture_output=True, text=True)
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, errors="replace")
 
     def cleanup(self) -> None:
         shutil.rmtree(self.base, ignore_errors=True)

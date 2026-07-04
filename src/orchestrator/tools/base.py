@@ -46,7 +46,7 @@ def docker_run(args: list[str], timeout: int = 600) -> subprocess.CompletedProce
     cmd = ["docker", *args]
     if os.environ.get("ORCH_DOCKER_SG") == "1":
         cmd = ["sg", "docker", "-c", " ".join(shlex.quote(c) for c in cmd)]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
 
 
 def image_digest(image: str) -> str | None:
