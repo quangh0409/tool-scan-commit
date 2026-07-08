@@ -80,6 +80,9 @@ STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
 # Số clone-pool xử lý commit ĐỒNG THỜI. Mỗi worker xử trọn 1 commit -> tối đa SCAN_WORKERS
 # (hoặc SCAN_WORKERS×#tool nếu INTRA_PARALLEL) container cùng lúc. Đặt ~ số vCPU, chừa RAM.
 SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
+# Init git submodule sau mỗi checkout trong clone pool (repo kiểu skywalking cần
+# submodule protocol để build). Repo không có .gitmodules -> no-op, không tốn gì.
+SUBMODULES = int(os.environ.get("ORCH_SUBMODULES", "1"))
 # Tool trong 1 commit: A(0)=TUẦN TỰ, B(1)=SONG SONG. Tách theo tầng.
 # Tầng RẺ mặc định B (đo được nhanh hơn ~14%, tool nhẹ). Tầng ĐẮT mặc định A (tool còn nặng/skeleton).
 CHEAP_INTRA_PARALLEL = int(os.environ.get("ORCH_CHEAP_INTRA_PARALLEL", "1"))

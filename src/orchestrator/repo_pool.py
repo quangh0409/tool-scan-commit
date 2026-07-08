@@ -66,6 +66,20 @@ class RepoPool:
             subprocess.run(["git", "-C", str(clone), "clean", "-fdxq"],
                            capture_output=True, text=True)
             subprocess.run(cmd, check=True, capture_output=True, text=True, errors="replace")
+        self._init_submodules(clone)
+
+    def _init_submodules(self, clone: Path) -> None:
+        # Repo kiểu skywalking để protocol/UI trong submodule; thiếu nó thì build tầng
+        # đắt fail hàng loạt. Store submodule nằm ở .git/modules/ và clone được TÁI SỬ
+        # DỤNG qua nhiều commit -> chỉ tốn mạng lần đầu mỗi clone, sau đó gần như free.
+        # Lỗi ở đây KHÔNG chặn checkout: thiếu submodule thì để build tự quyết sống/chết.
+        if not config.SUBMODULES or not (clone / ".gitmodules").exists():
+            return
+        subprocess.run(["git", "-C", str(clone), "submodule", "sync", "--recursive"],
+                       capture_output=True, text=True, errors="replace")
+        subprocess.run(["git", "-C", str(clone), "submodule", "update", "--init",
+                        "--recursive", "--jobs", "4"],
+                       capture_output=True, text=True, errors="replace")
 
     def cleanup(self) -> None:
         shutil.rmtree(self.base, ignore_errors=True)
