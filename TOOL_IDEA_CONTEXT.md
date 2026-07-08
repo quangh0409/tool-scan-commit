@@ -25,20 +25,27 @@ Một **orchestrator**: input = **1 link GitHub** → duyệt từng commit → 
 | SQL Injection | CWE-89 | CodeQL, Semgrep, FindSecBugs |
 | XSS / Path traversal / SSRF | CWE-79 / 22 / 918 | CodeQL, Semgrep, Sonar |
 
-## 4. Schema dataset (output mỗi dòng)
+## 4. Schema dataset (đã chốt 2026-07 — CẤU TRÚC 2 MỨC)
 
-Field người dùng yêu cầu + bổ sung để dataset dùng được:
+Dataset xuất ra **2 file/repo**, phục vụ 2 granularity khác nhau:
+
+**(a) `dataset.jsonl` — 1 dòng = 1 CỤM finding đồng thuận** (chỉ commit có finding):
 
 ```
 repo, commit_id, parent_commit, commit_message, author_date,
-file_path, s_line, e_line, function,
-tool, rule_id, severity,
-cwe[], owasp, cve(null | enrichment),
-lines_added, lines_deleted,
-code_snippet,
-n_tools_ran, n_tools_agree, agreeing_tools[], agreement_ratio,
-confidence, silver_label
+file_path, s_line, e_line, function, s_detail_line[],
+cwe[], owasp, cve(null | enrichment), category(code/secret/crypto/infra/info/other),
+label(gold|silver|candidate), tier(cheap|expensive|mixed),
+n_tools_ran, n_tools_agree, n_cheap, n_expensive, agreeing_tools[], eligible[],
+confidence, finding_in_diff(0/1),
+diff_parsed{added,deleted}, code_before_url, code_after_url,
+lines_added, lines_deleted, kamei{14 đặc trưng}
 ```
+
+**(b) `commits.jsonl` — 1 dòng = 1 COMMIT** (đủ MỌI commit, kể cả 0-finding):
+`commit_id, repo, author, author_date, 14 đặc trưng Kamei, labels{}, role, negative_level(verified-clean|cheap-clean|null)` — dùng trực tiếp cho JIT defect prediction commit-level.
+
+Kèm theo mỗi commit 1 thư mục export: raw output từng tool (SARIF/XML/JSON) + `<tool>.findings.json` + `label.json` + `summary.json` — audit/tái lập 100%.
 
 ## 5. Bộ tool (BẮT BUỘC đủ — để đảm bảo chất lượng)
 
@@ -52,6 +59,8 @@ confidence, silver_label
 | **Bearer / Insider / Horusec** | source | ✅ | ✅ | ✅ | ✅ | Không |
 
 Bổ sung Tầng rẻ: **gitleaks, trufflehog** (bắt secret).
+
+**Bộ tool THỰC TẾ đã chốt (sau khi cắm & đo):** tầng rẻ = gitleaks, trufflehog, semgrep, bearer, horusec (5 tool); tầng đắt = FindSecBugs (~7s/commit), SonarQube (~22s/commit), CodeQL (~6.7'/commit, suite tối giản, công tắc `USE_CODEQL` — mặc định TẮT khi chạy full-history, bật chọn lọc để tăng gold). Snyk Code/Insider KHÔNG dùng (Snyk cần account/tier; Insider trùng vai Horusec).
 
 ## 6. BA ĐÍNH CHÍNH QUAN TRỌNG (đã thống nhất)
 
@@ -81,6 +90,15 @@ Chục nghìn commit
 ```
 
 **Núm điều khiển chi phí = top-K/ngưỡng ở Tầng ③.**
+
+### 7b. Quyết định nhãn & chất lượng (đã chốt qua 4 run thật, 2026-07 — chi tiết ở `RULE_GAN_NHAN.md`)
+
+- **Nhãn 3 mức cross-tier:** `gold` (≥2 tool độc lập đồng thuận, có tầng đắt tham gia — GOLD KHÔNG bắt buộc CodeQL, FindSecBugs+Sonar đủ) · `silver` (1 tool đắt) · `candidate` (chỉ tầng rẻ). Kiến trúc **lưu RAW từng-tool → recompute**: `relabel` gán nhãn lại từ `raw_findings` trong ~30s, không quét lại; analyze thêm tool → nhãn TỰ nâng cấp.
+- **Negative 2 cấp:** `verified-clean` (qua tầng đắt vẫn sạch = GOLD negative — chạy `--include-clean`) · `cheap-clean` (chỉ qua tầng rẻ = silver negative). Đây là điểm khác biệt của dataset so với các bộ JIT công khai.
+- **`finding_in_diff` là trục phân positive/negative:** tool đắt quét whole-file nên phơi cả NỢ CŨ; chỉ finding nằm trên dòng commit thêm (in_diff=1) mới tính là "commit TẠO lỗi". Negative_level cũng xét theo trục này.
+- **Lọc nhiễu trước consensus:** `NOISE_CWE` (mặc định CWE-117 — FindSecBugs log-injection FP hàng loạt) loại khỏi vote, raw vẫn giữ.
+- **κ Fleiss ÂM là ĐẶC ĐIỂM hệ thống, không phải lỗi:** 4 repo đều κ ∈ [−0.26, −0.47] — các tool SAST phủ BỔ SUNG nhau (co-location dưới ngẫu nhiên). Hệ quả: đồng thuận hiếm nên gold quý; tăng recall = tăng SỐ tool, không phải tinh chỉnh 1 tool. κ được tính & công bố kèm mỗi dataset.
+- **1 repo = 1 DB riêng (`ORCH_SQLITE`) + 1 thư mục export riêng.** KHÔNG trộn repo trong 1 DB (relabel/select sẽ trộn commit).
 
 **Vì sao không mất chất lượng:** chất lượng *nhãn* đến từ nhiều tool đồng thuận trên CÙNG đoạn code, không phải từ việc quét hết mọi commit. Cái bị bỏ là commit "chắc chắn sạch". Rủi ro "lỗi chỉ CodeQL bắt được" được vá bằng nhánh ③(b) fix-commit.
 
@@ -131,15 +149,24 @@ Lưu: dataset (SQLite/Parquet) → THẲNG trên Persistent Disk của VM (KHÔN
 - Chuẩn hoá về **SARIF 2.1.0**; adapter riêng cho FindSecBugs (SpotBugs XML), Bearer, Horusec (JSON).
 - **Matcher/Consensus:** cụm finding theo `(file chuẩn hoá, CWE, line ±W)` → đếm vote.
 
-## 11. Repo test (pilot)
+## 11. Chọn repo — TIÊU CHÍ ĐÃ KIỂM CHỨNG CHÉO (chốt 2026-07, thay kế hoạch "mở rộng Jenkins/Spring Cloud" cũ)
 
-`https://github.com/FudanSELab/train-ticket` — ~40+ microservice Spring Boot, Maven đa-module, + chút TS/Python. **KHÔNG nhỏ.** Pilot chỉ chạy ~50–100 commit đầu để kiểm thử pipeline, rồi mới mở rộng sang Jenkins/Spring Cloud.
+Bài học từ 4 repo full-history (train-ticket, mall-swarm, spring-cloud-stream, spring-cloud-kubernetes):
+
+- **CHỌN APP THUẦN, KHÔNG chọn library.** App (train-ticket 92%, mall-swarm 54% build ok → gold 208/23) thắng áp đảo library Spring (30%/13% build ok → gold 26/0). Library kiểu Spring neo parent/dep `*-SNAPSHOT` nội bộ đã bị xoá khỏi registry → phần lớn lịch sử **không thể build lại bất kể JDK** — giới hạn *data-availability của hệ sinh thái*, không phải bug pipeline.
+- **Tiêu chí thẩm định TRƯỚC khi chạy (chi phí ~0):**
+  1. App Java/Maven tự chứa; `git show <sha-cũ>:pom.xml` KHÔNG neo SNAPSHOT nội bộ.
+  2. Nhiều service có `SecurityConfig` (grep đếm được) — nguồn gold chủ đạo thực nghiệm là CSRF/CWE-352 + sensitive_exposure + crypto yếu.
+  3. Đang phát triển gần đây (dependency closure còn sống trên Maven Central).
+- **Thời lượng tham chiếu:** repo app ~300–500 commit ≈ 3–4h end-to-end trên e2-standard-8 (CodeQL tắt).
+- Repo library vẫn CÓ giá trị phụ: nguồn verified-clean lớn (stream: 1004) — nhưng không phải nơi lấy gold positive.
 
 ## 12. Lộ trình build (tăng dần — TẤT CẢ trên VM cloud)
 
 > Toàn bộ làm trên VM cloud (§8). Local chỉ bật/tắt VM + xem kết quả.
 
-0. **Dựng VM + môi trường:** tạo `e2-standard-8`, cài Docker, clone repo dự án (chứa 2 file context này) lên VM, chạy Claude Code trên VM.
-1. **Skeleton + source-only pipeline** (git enumerate → gitleaks/trufflehog/Semgrep/Bearer/Horusec qua Docker → normalize → consensus → SQLite). Test trên ~50 commit train-ticket. *Chứng minh end-to-end.*
-2. Thêm **CodeQL/FindSecBugs/Sonar dạng Docker job** ngay trên cùng VM (Maven build + tạo DB) để chỉnh adapter SARIF.
-3. **Quét full + mở rộng repo** (Jenkins/Spring Cloud). Dataset lưu thẳng trên Persistent Disk VM, STOP VM khi xong (đừng delete).
+0. ✅ **Dựng VM + môi trường:** tạo `e2-standard-8`, cài Docker, clone repo dự án (chứa 2 file context này) lên VM, chạy Claude Code trên VM.
+1. ✅ **Skeleton + source-only pipeline** (git enumerate → gitleaks/trufflehog/Semgrep/Bearer/Horusec qua Docker → normalize → consensus → SQLite). *Đã chứng minh end-to-end.*
+2. ✅ **CodeQL/FindSecBugs/Sonar dạng Docker job** trên cùng VM (Maven build + auto-detect JDK per-commit).
+3. ✅ **Quét full-history 4 repo** (xem `SESSION_CONTEXT.md`). Hướng mở rộng ĐÃ ĐỔI: theo tiêu chí app thuần §11, KHÔNG theo kế hoạch Jenkins/Spring Cloud cũ.
+4. **Kế tiếp (giai đoạn kiểm định):** kiểm tay GOLD set (§6.3) đo precision → công bố; CodeQL chọn lọc trên buggy app để tăng gold; repo app #5.
