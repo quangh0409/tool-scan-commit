@@ -31,13 +31,21 @@ def _m2_cache() -> Path:
 
 
 def changed_modules(clone_dir: Path, commit_id: str) -> list[str]:
-    """Module top-level (thư mục có pom.xml) mà commit chạm tới -> để `-pl`."""
+    """Module Maven mà commit chạm tới -> để `-pl` (đường dẫn tương đối, mvn chấp nhận).
+
+    Leo từ file bị đổi lên POM GẦN NHẤT (không phải thư mục cấp 1): monorepo lồng nhau
+    kiểu skywalking có cấp 1 (`oap-server`) chỉ là pom aggregator — `-pl` aggregator
+    KHÔNG build con -> mvn rc=0 nhưng 0 classes, FindSecBugs/Sonar trắng tay.
+    Repo phẳng (train-ticket/giraph): pom gần nhất = thư mục cấp 1, y hệt logic cũ."""
     ci = enm.get_commit_info(clone_dir, commit_id)
     mods = set()
     for f in ci.changed_files:
-        top = f.split("/", 1)[0]
-        if top and (clone_dir / top / "pom.xml").exists():
-            mods.add(top)
+        p = Path(f).parent
+        while p != Path("."):
+            if (clone_dir / p / "pom.xml").exists():
+                mods.add(p.as_posix())
+                break
+            p = p.parent
     return sorted(mods)
 
 
