@@ -118,6 +118,13 @@ CREATE TABLE IF NOT EXISTS commit_features (
     created_at TEXT
 );
 
+-- Mốc RESUME tầng rẻ: commit đã quét TRỌN (ghi CUỐI _scan_one_commit).
+-- KHÔNG dùng scanned_files làm mốc: commit 0-file-code không có row nào ở đó.
+CREATE TABLE IF NOT EXISTS scan_done (
+    commit_id TEXT PRIMARY KEY,
+    finished_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS expensive_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     commit_id TEXT, tool TEXT, phase TEXT,    -- build | analyze
@@ -331,6 +338,36 @@ class SQLiteStore:
     def scanned_commit_ids(self) -> list[str]:
         return [r[0] for r in self.conn.execute(
             "SELECT DISTINCT commit_id FROM scanned_files")]
+
+    def mark_scan_done(self, commit_id: str) -> None:
+        """Đánh dấu commit đã quét TRỌN tầng rẻ (mốc resume)."""
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO scan_done (commit_id, finished_at) "
+                "VALUES (?, datetime('now'))", [commit_id])
+            self.conn.commit()
+
+    def scan_done_ids(self) -> set[str]:
+        """Commit đã quét xong tầng rẻ. Union scanned_files để phủ DB tạo TRƯỚC khi có
+        bảng scan_done (run cũ bị kill: commit có row file = chắc chắn đã xong —
+        scanned_files là ghi CUỐI của _scan_one_commit thời đó)."""
+        done = {r[0] for r in self.conn.execute("SELECT commit_id FROM scan_done")}
+        done |= {r[0] for r in self.conn.execute(
+            "SELECT DISTINCT commit_id FROM scanned_files")}
+        return done
+
+    def reset_cheap_scan(self, commit_id: str) -> None:
+        """Xoá dấu vết tầng RẺ của 1 commit trước khi quét lại (row lửng do kill giữa
+        chừng) -> re-scan idempotent, không nhân đôi. Không đụng raw tier=expensive;
+        findings do relabel_commit ghi đè nên không cần xoá ở đây."""
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM raw_findings WHERE commit_id=? AND tier='cheap'", [commit_id])
+            self.conn.execute(
+                "DELETE FROM raw_output WHERE commit_id=? AND tier='cheap'", [commit_id])
+            self.conn.execute(
+                "DELETE FROM scanned_files WHERE commit_id=?", [commit_id])
+            self.conn.commit()
 
     def finding_class_rows(self) -> list[tuple]:
         """(commit_id, cwe, cve, finding_in_diff) mọi finding — để phân loại buggy/clean.

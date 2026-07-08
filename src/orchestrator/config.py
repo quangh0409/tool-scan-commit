@@ -80,6 +80,9 @@ STORE_FULL_FILE = os.environ.get("ORCH_STORE_FULL_FILE") == "1"
 # Số clone-pool xử lý commit ĐỒNG THỜI. Mỗi worker xử trọn 1 commit -> tối đa SCAN_WORKERS
 # (hoặc SCAN_WORKERS×#tool nếu INTRA_PARALLEL) container cùng lúc. Đặt ~ số vCPU, chừa RAM.
 SCAN_WORKERS = int(os.environ.get("ORCH_SCAN_WORKERS", "4"))
+# Resume tầng rẻ: bỏ qua commit đã có mốc scan_done (quét TRỌN ở run trước).
+# Tắt (=0) để ép quét lại từ đầu (reset_cheap_scan vẫn đảm bảo không nhân đôi row).
+SCAN_RESUME = int(os.environ.get("ORCH_SCAN_RESUME", "1"))
 # Init git submodule sau mỗi checkout trong clone pool (repo kiểu skywalking cần
 # submodule protocol để build). Repo không có .gitmodules -> no-op, không tốn gì.
 SUBMODULES = int(os.environ.get("ORCH_SUBMODULES", "1"))

@@ -56,6 +56,8 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     n_wrote, n_clean). Chạy trong 1 worker — 5 tool TUẦN TỰ ở đây; song song nằm ở
     CẤP COMMIT (nhiều worker). (Commit khổng lồ đã bị lọc ở coarse_filter trước khi tới đây.)"""
     n_tools = len(tools)
+    # re-scan idempotent: xoá row lửng tầng rẻ nếu commit này từng bị kill giữa chừng
+    store.reset_cheap_scan(ci.commit_id)
     changed = [f for f in ci.code_files if (clone / f).exists()]
 
     def _safe(t):
@@ -96,6 +98,8 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     } for f in changed]
     store.insert_scanned_files(scanned_records)
     clean = sum(1 for f in changed if f not in files_with_finding)
+
+    store.mark_scan_done(ci.commit_id)   # mốc resume — ghi CUỐI CÙNG, sau mọi insert
 
     status = (f"[{ci.commit_id[:8]}] {len(changed)} file đổi | "
               f"{len(all_findings)} findings -> {len(rows)} cụm")
@@ -142,6 +146,17 @@ def cmd_scan(args):
         store.upsert_commit_features(args.repo, feats)
         print(f"Kamei: 14 đặc trưng cho {len(feats)}/{len(todo)} commit "
               f"({_t.time() - t0:.1f}s)")
+
+    # RESUME (ORCH_SCAN_RESUME=1 mặc định): bỏ commit đã quét TRỌN ở run trước —
+    # run bị kill giữa chừng không mất công cũ. Commit dở dang không có mốc scan_done
+    # -> quét lại, reset_cheap_scan xoá row lửng trước nên không nhân đôi.
+    # (Kamei ở TRÊN vẫn tính đủ mọi commit — upsert idempotent, cần state full-history.)
+    if config.SCAN_RESUME:
+        done = store.scan_done_ids()
+        n_skip = sum(1 for ci in todo if ci.commit_id in done)
+        if n_skip:
+            todo = [ci for ci in todo if ci.commit_id not in done]
+            print(f"RESUME: bỏ qua {n_skip} commit đã quét xong ở run trước")
 
     workers = max(1, min(config.SCAN_WORKERS, len(todo) or 1))
     pool = RepoPool(repo_dir, workers)
