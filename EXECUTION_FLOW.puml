@@ -1,0 +1,142 @@
+@startuml
+' Luồng tổng quan tool: input = 1 link GitHub -> output = ground-truth dataset
+' Render: plantuml EXECUTION_FLOW.puml  (hoặc docker plantuml/plantuml)
+
+title Luồng tổng quan: 1 link GitHub → Ground-truth dataset (nhãn CWE-class)
+
+skinparam defaultFontName sans-serif
+skinparam ActivityBackgroundColor #FCFCFB
+skinparam ActivityBorderColor #52514E
+skinparam ArrowColor #2A78D6
+skinparam PartitionBorderColor #2A78D6
+skinparam PartitionFontStyle bold
+skinparam NoteBackgroundColor #FFF8E7
+skinparam shadowing false
+
+start
+:INPUT: 1 link GitHub repo
+(vd: github.com/macrozheng/mall-swarm);
+
+partition "① ENUMERATE + LỌC THÔ + KAMEI  (git thuần, tuần tự)" {
+  :clone/update repo
+  liệt kê toàn bộ commit (--max 0 = hết);
+  :coarse_filter: bỏ merge / no-file / toàn-nhị-phân;
+  :tính 14 đặc trưng Kamei cho MỌI commit
+  (1 lượt git log --numstat, CŨ → MỚI);
+  note right
+    ⏱ 464 commit = 1.2s
+    bảng **commit_features**
+  end note
+}
+
+partition "② TẦNG RẺ — SCAN  (song song 4 worker × 5 tool, KHÔNG build)" {
+  fork
+    :gitleaks
+    (secret, git-diff);
+  fork again
+    :trufflehog
+    (secret, git-diff);
+  fork again
+    :semgrep
+    (code, file đổi);
+  fork again
+    :bearer
+    (code, file đổi);
+  fork again
+    :horusec
+    (code, file đổi);
+  end fork
+  :lưu RAW từng tool → **raw_findings** + **raw_output**;
+  :gộp cụm sơ bộ → **findings** (label=candidate)
+  file 0-finding → **scanned_files** (mẫu negative);
+  note right
+    ⏱ ~425–645 commit/giờ
+    quét DIFF, vài giây/commit
+  end note
+}
+
+partition "③ SELECT — chọn commit lên tầng đắt  (<1s)" {
+  if (commit có finding mang CWE/CVE?) then (BUGGY)
+    :vào hàng đợi **selected_commits**
+    (ứng viên POSITIVE);
+  else (CLEAN)
+    if (--include-clean?) then (có — chuẩn hiện tại)
+      :CŨNG vào hàng đợi
+      để XÁC MINH SẠCH;
+    else (không)
+      :giữ làm cheap-clean
+      (silver negative, miễn quét đắt);
+      kill
+    endif
+  endif
+}
+
+partition "④ TẦNG ĐẮT — ANALYZE  (song song 2 worker, tool tuần tự/commit)" {
+  :SonarQube server singleton (1 lần/run, ⏱54s);
+  repeat
+    :claim commit (nguyên tử) → checkout -qf
+    (fail → git clean -fdxq + retry);
+    :AUTO-DETECT JDK theo pom tại commit
+    → image temurin 8/11/17/21;
+    if (mvn build -pl <module đổi> -am ?) then (OK ⏱14–33s)
+      :FindSecBugs — quét bytecode ⏱7s;
+      :SonarQube — scan + API ⏱22s;
+      if (USE_CODEQL?) then (bật)
+        :CodeQL minimal-suite ⏱~6.7';
+      else (tắt — mặc định full-run)
+      endif
+      :lưu RAW đắt → relabel commit
+      → status = **done**;
+    else (fail)
+      :status = **build_failed**
+      (ghi lý do, KHÔNG chết run);
+    endif
+  repeat while (còn commit pending?) is (còn) not (hết)
+  :stop SonarQube server;
+  note right
+    ⏱ ~30s–1'/commit (không CodeQL)
+    lỗi 1 commit được CÔ LẬP;
+    crash → resume không mất dữ liệu
+  end note
+}
+
+partition "⑤ RELABEL — đồng thuận CROSS-TIER  (từ raw, KHÔNG quét lại)" {
+  :lọc nhiễu NOISE_CWE (vd CWE-117);
+  :gộp cụm mọi tool:
+  (file + nhóm-CWE + dòng ±3) → bỏ phiếu;
+  split
+    :**GOLD**;
+  split again
+    :**SILVER**;
+  split again
+    :**CANDIDATE**;
+  end split
+  :commit sạch → negative_level theo finding_in_diff:
+  **verified-clean** (GOLD negative) / **cheap-clean**;
+  note right
+    ⏱ ~30s / 39 commit
+    thêm tool → nhãn TỰ nâng cấp
+    (candidate → gold)
+  end note
+}
+
+partition "⑥ KAPPA + EXPORT" {
+  :Fleiss' kappa — độ đồng thuận liên-tool
+  (4 repo đo: κ ∈ [−0.26, −0.47] = tool BỔ SUNG nhau);
+  :export mỗi commit 1 thư mục:
+  <tool>.raw + <tool>.findings + label.json + summary.json;
+  :gộp dataset.jsonl (1 dòng = 1 CỤM)
+  + commits.jsonl (1 dòng = 1 COMMIT, đủ kamei);
+}
+
+:OUTPUT (mỗi repo 1 bộ riêng):
+• **data/dataset_<repo>.sqlite** — DB đầy đủ + raw audit
+• **data/export_<repo>/** — dataset.jsonl · commits.jsonl · thư mục raw/commit;
+note right
+  dataset 2 mức:
+  cụm-finding (SAST) & commit (JIT)
+  kèm confidence + κ + GOLD set
+end note
+
+stop
+@enduml

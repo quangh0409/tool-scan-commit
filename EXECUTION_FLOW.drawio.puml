@@ -1,0 +1,97 @@
+@startuml
+
+title Overall Flow: 1 GitHub Repository -> Ground-truth Dataset (CWE Class)
+
+start
+
+:Input GitHub repository URL;
+
+partition "1. ENUMERATE + COARSE FILTER + KAMEI" {
+  :Clone or update repository;
+  :Enumerate all commits;
+  :Remove merge commits,
+  binary-only commits,
+  empty commits;
+  :Compute 14 Kamei features
+  for every commit;
+}
+
+partition "2. CHEAP SCAN (4 workers x 5 tools)" {
+  fork
+    :Gitleaks;
+  fork again
+    :TruffleHog;
+  fork again
+    :Semgrep;
+  fork again
+    :Bearer;
+  fork again
+    :Horusec;
+  end fork
+  :Store raw findings;
+  :Cluster findings into candidates;
+  :Store clean files as negatives;
+}
+
+partition "3. SELECT COMMITS" {
+  if (Finding with CWE/CVE?) then (yes)
+    :Insert into selected_commits;
+  else (no)
+    if (Include clean commits?) then (yes)
+      :Insert into selected_commits
+      for verification;
+    else (no)
+      :Mark commit as cheap-clean;
+    endif
+  endif
+}
+
+partition "4. EXPENSIVE ANALYSIS" {
+  :Start SonarQube server;
+  repeat
+    :Claim next commit;
+    :Checkout commit;
+    :Detect JDK version from pom.xml;
+    if (Build successful?) then (yes)
+      :Run FindSecBugs;
+      :Run SonarQube;
+      if (CodeQL enabled?) then (yes)
+        :Run CodeQL;
+      endif
+      :Save raw outputs;
+      :Relabel commit;
+      :Status = done;
+    else (no)
+      :Status = build_failed;
+    endif
+  repeat while (More commits?) is (yes)
+  ->no;
+  :Stop SonarQube server;
+}
+
+partition "5. RELABEL (cross-tier consensus)" {
+  :Remove noisy CWEs (e.g. CWE-117);
+  :Merge findings by file,
+  CWE group, line +-3;
+  :Assign GOLD / SILVER / CANDIDATE;
+  :Assign verified-clean or
+  cheap-clean to clean commits;
+}
+
+partition "6. KAPPA + EXPORT" {
+  :Compute Fleiss Kappa;
+  :Export raw outputs per commit;
+  :Generate dataset.jsonl;
+  :Generate commits.jsonl;
+}
+
+:Output dataset.sqlite;
+
+:Output export directory:
+raw outputs, dataset.jsonl,
+commits.jsonl, label.json,
+summary.json;
+
+stop
+
+@enduml
