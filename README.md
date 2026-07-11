@@ -1,41 +1,138 @@
 # tool-scan-commit
 
-Orchestrator: 1 link GitHub → duyệt commit → nhiều tool SAST (Docker) → chuẩn hoá SARIF → bỏ phiếu đồng thuận → **ground-truth dataset** (mỗi dòng có `cwe` + `s_line` bắt buộc). Nhãn = CWE-class.
+Orchestrator xây **ground-truth dataset lỗ hổng bảo mật** từ lịch sử Git: 1 link GitHub →
+duyệt từng commit → chạy nhiều tool SAST (Docker) → chuẩn hoá về finding `(file, dòng, CWE, tool)`
+→ gom cụm + bỏ phiếu theo tầng → xuất dataset có nhãn **gold / silver / candidate** + mẫu âm
+**verified-clean / cheap-clean**. Nhãn = **CWE-class** (không phải CVE).
 
-📄 Ý tưởng/kiến trúc: `TOOL_IDEA_CONTEXT.md` · Tiến độ: `SESSION_CONTEXT.md` · Cách làm việc: `CLAUDE.md`.
+> **Đọc trước khi làm (bắt buộc cho Claude/AI mới):**
+> - `CLAUDE.md` — quy ước làm việc + môi trường VM + gotcha (đọc ĐẦU mỗi phiên).
+> - `TOOL_OUTLINE.md` — toàn cảnh pipeline cho người mới (input/output từng bước, quy tắc nhãn, giới hạn).
+> - `SESSION_CONTEXT.md` — tiến độ hiện tại / việc đang dở (phiên mới nhất ở TRÊN CÙNG).
+> - `TOOL_IDEA_CONTEXT.md` — quyết định kiến trúc.
 
-## Yêu cầu
-- Python 3.10+ (orchestrator chỉ dùng **stdlib**, không cần pip).
-- Docker (các tool SAST chạy trong container).
+---
 
-## Chạy thử (pilot — train-ticket)
+## 1. Yêu cầu môi trường
+- **Python 3.10+** — orchestrator chỉ dùng **stdlib**, KHÔNG cần pip install.
+- **Docker** (daemon active) — mọi tool SAST chạy trong container.
+- **Chạy CLI:** từ gốc repo với `PYTHONPATH=src` (mọi lệnh dưới đây theo mẫu này).
+- **Docker image cần có** (build/pull trước; tầng đắt cần chúng):
+  - `orch-findsecbugs:1.14.0` — build từ `docker/findsecbugs/` (SpotBugs + Find Security Bugs).
+  - `orch-codeql:2.25.6` — build từ `docker/codeql/` (chỉ cần nếu bật `--codeql 1`).
+  - `sonarqube:lts-community` + `sonarsource/sonar-scanner-cli` — pull sẵn.
+  - `maven:3.9-eclipse-temurin-{8,11,17,21}` — pull sẵn (auto-detect JDK theo pom mỗi commit).
+- **Gotcha (xem CLAUDE.md để đầy đủ):**
+  - Nếu `id` không thấy nhóm `docker` → bọc lệnh qua `sg docker -c "..."` HOẶC đặt `ORCH_DOCKER_SG=1`.
+  - SonarQube cần `sysctl vm.max_map_count>=262144` (cần sudo, reset khi reboot).
+  - `sudo` trên VM đòi mật khẩu → nhờ người dùng gõ `! <lệnh>` trong chat.
+
+---
+
+## 2. Chạy TRỌN pipeline (1 lệnh, 6 tầng)
 
 ```bash
-cd src
-
-# 1) Liệt kê + lọc thô commit (KHÔNG cần Docker)
-python -m orchestrator.cli enumerate https://github.com/FudanSELab/train-ticket --max 50
-
-# 2) Quét tool tầng rẻ -> consensus -> SQLite
-#    (thêm ORCH_DOCKER_SG=1 nếu tiến trình chưa thuộc nhóm docker)
-ORCH_DOCKER_SG=1 python -m orchestrator.cli scan https://github.com/FudanSELab/train-ticket --max 50
+cd /home/scanner/tool-scan-commit
+ORCH_SQLITE=data/dataset_<tên>.sqlite \
+ORCH_EXPENSIVE_WORKERS=4 \
+PYTHONPATH=src python3 -m orchestrator.cli pipeline <github_url> \
+    --max 0 --branch <nhánh> --codeql 0 --include-clean --out data/export_<tên>
 ```
 
-Output: `data/dataset.sqlite` (lưu thẳng trên VM, không GCS).
+- `--max 0` = quét TOÀN BỘ lịch sử (số dương = N commit mới nhất).
+- `--branch` = nhánh cần quét (xác minh bằng `git ls-remote` trước — nhiều repo dùng `master` chứ không `main`).
+- `--codeql 0` = tắt CodeQL (nhanh; mặc định bật, ~6-7'/commit). `--include-clean` = quét cả commit sạch ở tầng đắt để tạo **verified-clean GOLD negative**.
+- **QUAN TRỌNG — mỗi repo 1 DB + 1 export RIÊNG** (`ORCH_SQLITE` + `--out`). KHÔNG trộn repo trong 1 DB (relabel/select sẽ trộn commit).
 
-## Cấu trúc
+6 tầng chạy tuần tự: **① SCAN** (tool rẻ, toàn lịch sử) → **② SELECT** (chọn commit vào tầng đắt) →
+**③ ANALYZE** (build Maven + FindSecBugs + Sonar) → **④ RELABEL** (gộp cụm + gán nhãn) →
+**⑤ KAPPA** (Fleiss' kappa) → **⑥ EXPORT** (jsonl + audit).
 
+### Chạy nền độc lập phiên (khuyến nghị cho repo lớn — chạy nhiều giờ/ngày)
+```bash
+setsid nohup env ORCH_SQLITE=data/dataset_<tên>.sqlite ORCH_EXPENSIVE_WORKERS=4 PYTHONPATH=src \
+  python3 -m orchestrator.cli pipeline <url> --max 0 --branch <nhánh> --codeql 0 --include-clean \
+  --out data/export_<tên> >> data/pipeline_<tên>.log 2>&1 < /dev/null &
 ```
-src/orchestrator/
-  schema.py            # RawFinding + DatasetRow (ép cwe + s_line bắt buộc)
-  config.py            # đường dẫn, ngưỡng, repo pilot
-  enumerate_commits.py # Tầng ① git enumerate + lọc thô
-  tools/               # Tầng ②/④ wrapper Docker: base, gitleaks, semgrep
-  normalize/           # Tầng ⑤ adapter SARIF (FindSecBugs/Bearer/Horusec — Bước 2)
-  consensus/matcher.py # Tầng ⑥ gộp cụm + bỏ phiếu + confidence
-  storage/sqlite_store.py
-  cli.py               # entrypoint nối phễu
-```
+Theo dõi: `tail -f data/pipeline_<tên>.log` · kiểm tiến trình: `ps -ef | grep orchestrator.cli`.
 
-## Trạng thái
-Bước 1 — skeleton + pipeline source-only (gitleaks + semgrep). Xem `SESSION_CONTEXT.md`.
+---
+
+## 3. Resume khi pipeline dừng/chết (KHÔNG mất công cũ)
+
+Thiết kế bền: **scan** có mốc `scan_done` (env `ORCH_SCAN_RESUME=1` mặc định) bỏ qua commit đã quét;
+**analyze** dùng claim nguyên tử + `reset_stale_claims` → chạy lại chỉ vét phần còn thiếu. Nếu tiến trình
+`pipeline` chết giữa chừng, KHÔNG chạy lại `pipeline` (tránh scan lại) mà chạy tiếp bằng lệnh con:
+
+```bash
+# ví dụ resume từ tầng đắt trở đi:
+ORCH_SQLITE=data/dataset_<tên>.sqlite ORCH_EXPENSIVE_WORKERS=4 PYTHONPATH=src \
+  python3 -m orchestrator.cli analyze <url> --workers 4 --codeql 0
+ORCH_SQLITE=... PYTHONPATH=src python3 -m orchestrator.cli relabel <url>
+ORCH_SQLITE=... PYTHONPATH=src python3 -m orchestrator.cli kappa
+ORCH_SQLITE=... PYTHONPATH=src python3 -m orchestrator.cli export --out data/export_<tên>
+```
+Có sẵn `scripts/resume_skywalking.sh` làm mẫu (nối analyze→relabel→kappa→export).
+
+---
+
+## 4. Các lệnh con (chạy lẻ từng tầng)
+| Lệnh | Việc |
+|---|---|
+| `enumerate <url> --max N` | Liệt kê + lọc thô commit (KHÔNG cần Docker) |
+| `scan <url> --max N --branch B` | Tầng rẻ → consensus → SQLite (có resume) |
+| `select [--include-clean]` | Chọn commit buggy + clean vào hàng đợi đắt |
+| `analyze <url> --workers K --codeql 0/1` | Tầng đắt: build + FindSecBugs + Sonar (+CodeQL) |
+| `relabel <url>` | Gán nhãn LẠI từ raw (đổi ngưỡng/lọc nhiễu, ~vài phút, KHÔNG quét lại) |
+| `kappa` | Fleiss' kappa (độ đồng thuận tool) |
+| `features <url> --branch B` | Backfill 14 đặc trưng Kamei cho DB cũ |
+| `export --out DIR` | Xuất jsonl + thư mục audit mỗi commit |
+
+---
+
+## 5. Biến môi trường hay dùng
+| Env | Mặc định | Ý nghĩa |
+|---|---|---|
+| `ORCH_SQLITE` | `data/dataset.sqlite` | Đường dẫn DB (đặt RIÊNG mỗi repo) |
+| `ORCH_EXPENSIVE_WORKERS` | 2 | Số commit song song ở tầng đắt (~½ vCPU; 4 hợp cho e2-standard-8) |
+| `ORCH_SCAN_WORKERS` | 4 | Số commit song song ở tầng rẻ |
+| `ORCH_SCAN_RESUME` | 1 | Bỏ qua commit đã quét ở run trước |
+| `ORCH_SUBMODULES` | 1 | Init git submodule sau checkout (repo kiểu skywalking cần) |
+| `ORCH_JDK_AUTODETECT` | 1 | Chọn image Maven theo `<java.version>` của pom mỗi commit |
+| `ORCH_MAVEN_IMAGE` | temurin-8 | Image Maven fallback khi pom không khai JDK |
+| `SONAR_ADMIN_PW` | — | Mật khẩu admin Sonar (đổi từ admin/admin lần đầu qua API) |
+| `ORCH_DOCKER_SG` | 0 | =1 để bọc mọi lệnh docker qua `sg docker -c` (gotcha nhóm) |
+
+---
+
+## 6. Output
+```
+data/
+├── dataset_<tên>.sqlite       # DB: raw + findings + commit_features + selected + expensive_runs
+└── export_<tên>/
+    ├── dataset.jsonl          # 1 dòng = 1 CỤM finding (gold/silver/candidate) — gộp bằng scripts/merge_export.py
+    ├── commits.jsonl          # 1 dòng = 1 COMMIT (đủ cả 0-finding; kamei + negative_level) — cho JIT
+    └── <commit_sha>/          # audit: <tool>.raw.* + <tool>.findings.json + label.json + summary.json
+```
+`dataset.jsonl`/`commits.jsonl` được gộp từ các thư mục commit bằng **`scripts/merge_export.py`**.
+
+### Scripts phụ trợ (`scripts/`)
+- `merge_export.py` — gộp thư mục export → `dataset.jsonl` + `commits.jsonl`.
+- `build_gold_set.py` — tạo `gold_set/` (positive_gold.jsonl + negative_gold.jsonl + README) cho mỗi repo + `gold_set_all/` gộp toàn dự án.
+- `relabel_gold_w7.py` — relabel positive gold ở `LINE_WINDOW=7` (trên bản sao DB, không đụng dataset gốc W=3) — dùng cho repo Java (thân method dài, ±3 quá chặt).
+- `resume_skywalking.sh` — mẫu resume tầng đắt (nối analyze→relabel→kappa→export).
+
+---
+
+## 7. Chọn repo pilot (bài học thực nghiệm)
+- **Ưu tiên APP Java/Maven thuần** (có SecurityConfig, Docker/k8s) — build được nhiều → tầng đắt phủ rộng → nhiều gold. Ví dụ đã chạy: train-ticket (gold 208), mall-swarm, skywalking.
+- **Tránh library kiểu Spring** — dependency `*-SNAPSHOT` biến mất khỏi registry → phần lớn commit build-fail, tầng đắt chỉ phủ được đoạn gần đây.
+- **FindSecBugs chậm trên monorepo lớn** (skywalking: có commit tốn tới ~3h FindSecBugs) — cân nhắc `-effort:default` nếu cần tăng tốc (xem SESSION_CONTEXT).
+
+---
+
+## 8. Kết quả đã có (tham khảo quy mô)
+5 repo full-history đã xong (dataset trên Persistent Disk VM): train-ticket · mall-swarm ·
+spring-cloud-stream · spring-cloud-kubernetes · apache/giraph. Tổng gold ~277 (W=3), verified-clean
+~2.081. skywalking (repo #6, ~8.570 commit) đang chạy. Chi tiết số liệu: `SESSION_CONTEXT.md`.
+</content>
