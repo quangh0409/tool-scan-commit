@@ -14,7 +14,6 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from . import config, enumerate_commits as enm
 from .consensus.labeler import relabel_commit

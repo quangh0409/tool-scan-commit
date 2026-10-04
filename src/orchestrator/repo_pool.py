@@ -19,10 +19,23 @@ from __future__ import annotations
 import os
 import queue
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
 from . import config
+
+
+def _rmtree(path: Path) -> None:
+    """rmtree chịu được file read-only (.git/objects/pack/* trên Windows có cờ R ->
+    rmtree(ignore_errors=True) bỏ qua LẶNG LẼ, để rác pool_* tích dần)."""
+    def _onerr(fn, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            fn(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, onerror=_onerr)
 
 
 class RepoPool:
@@ -37,7 +50,7 @@ class RepoPool:
 
     def _setup(self) -> None:
         # dọn pool cũ rồi tạo K clone hardlink (rẻ) — sẵn sàng tái sử dụng.
-        shutil.rmtree(self.base, ignore_errors=True)
+        _rmtree(self.base)
         self.base.mkdir(parents=True, exist_ok=True)
         for i in range(self.size):
             dst = self.base / f"w{i}"
@@ -82,4 +95,4 @@ class RepoPool:
                        capture_output=True, text=True, errors="replace")
 
     def cleanup(self) -> None:
-        shutil.rmtree(self.base, ignore_errors=True)
+        _rmtree(self.base)

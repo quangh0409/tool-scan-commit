@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import time
 import urllib.request
@@ -24,14 +23,15 @@ import urllib.error
 from .. import config
 from ..schema import RawFinding, normalize_cwe
 from ..tools.base import docker_run
-from .base import BuildContext, ExpensiveTool
+from .base import BuildContext, ExpensiveTool, run_as_user
 from .build import changed_modules, _m2_cache
 
 IMAGE_SERVER = "sonarqube:lts-community"
 IMAGE_SCANNER = "sonarsource/sonar-scanner-cli"
 NETWORK = "orch-sonar-net"
 SERVER = "orch-sonar"
-HOST_API = "http://localhost:9000"
+# Port HOST map vào server (container luôn nghe 9000). Đổi qua ORCH_SONAR_PORT khi 9000 bị chiếm.
+HOST_API = f"http://127.0.0.1:{config.SONAR_HOST_PORT}"
 _CWE_RE = re.compile(r"CWE-(\d+)")
 _SEV = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}
 
@@ -68,8 +68,12 @@ class SonarTool(ExpensiveTool):
     def start_server(self) -> None:
         _sh(["network", "create", NETWORK], timeout=30)
         _sh(["rm", "-f", SERVER], timeout=30)
-        _sh(["run", "-d", "--name", SERVER, "--network", NETWORK, "-p", "9000:9000",
-             "-e", "SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true", IMAGE_SERVER], timeout=120)
+        proc = _sh(["run", "-d", "--name", SERVER, "--network", NETWORK,
+                    "-p", f"{config.SONAR_HOST_PORT}:9000",
+                    "-e", "SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true", IMAGE_SERVER], timeout=600)
+        if proc.returncode != 0:  # fail-fast (vd port host bị chiếm) thay vì chờ 6' vô ích
+            raise RuntimeError(f"docker run {SERVER} lỗi rc={proc.returncode}: "
+                               f"{(proc.stderr or proc.stdout or '')[-400:]}")
         # chờ UP (~1-2')
         for _ in range(120):
             try:
@@ -116,12 +120,12 @@ class SonarTool(ExpensiveTool):
                 if (ctx.clone_dir / m / "src/main/java").is_dir()]
         if not srcs:
             return []
-        bins = ",".join(str(d.relative_to(ctx.clone_dir)) for d in ctx.classes_dirs)
+        bins = ",".join(d.relative_to(ctx.clone_dir).as_posix() for d in ctx.classes_dirs)  # posix cho container
         key = f"tt-{ctx.commit_id[:12]}"
 
         proc = docker_run([
             "run", "--rm", "--network", NETWORK,
-            "-u", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+            *run_as_user(), "-e", "HOME=/tmp",
             "-e", "SONAR_USER_HOME=/tmp/.sonar", "-w", "/usr/src",
             "-v", f"{ctx.clone_dir}:/usr/src", "-v", f"{_m2_cache()}:/m2:ro",
             IMAGE_SCANNER,

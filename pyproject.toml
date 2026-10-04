@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["src", "scripts"]
+extend-exclude = ["data", "work", "docker"]
+
+[tool.ruff.lint]
+# Chỉ lint lỗi thật (pyflakes + lỗi cú pháp), không ép style.
+select = ["E9", "F"]
+# E7xx (nhiều lệnh một dòng, tên biến l/O/I) và E402 (import sau sys.path hack trong scripts/) là style có chủ ý — không lint.

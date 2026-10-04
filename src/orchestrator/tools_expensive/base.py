@@ -4,11 +4,21 @@ quét source thuần. Build chạy 1 LẦN/commit rồi 3 tool dùng chung (Mode
 """
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..schema import RawFinding
+
+
+def run_as_user() -> list[str]:
+    """Flag `-u uid:gid` cho `docker run` để file sinh ra thuộc user hiện tại (tránh file
+    root kẹt clone-pool trên VM Linux). Windows không có getuid và Docker Desktop đã map
+    quyền file host -> trả [] (không truyền -u)."""
+    if hasattr(os, "getuid"):
+        return ["-u", f"{os.getuid()}:{os.getgid()}"]
+    return []
 
 
 @dataclass

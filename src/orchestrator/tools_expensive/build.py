@@ -7,7 +7,6 @@ sau nhanh). Build FAIL là DỮ LIỆU (ctx.ok=False + error), KHÔNG raise.
 """
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import time
@@ -15,7 +14,7 @@ from pathlib import Path
 
 from .. import config, enumerate_commits as enm
 from ..tools.base import docker_run
-from .base import BuildContext
+from .base import BuildContext, run_as_user
 
 # JDK khai trong pom: <java.version>17</>, <maven.compiler.release|target|source>1.8</>
 _JAVA_VER_RE = re.compile(
@@ -89,7 +88,7 @@ def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
     # -> tránh kẹt clone-pool). HOME=/tmp + repo.local trong cache uid-owned.
     proc = docker_run([
         "run", "--rm",
-        "-u", f"{os.getuid()}:{os.getgid()}",
+        *run_as_user(),
         "-e", "HOME=/tmp",
         "-v", f"{clone_dir}:/work",
         "-v", f"{_m2_cache()}:/m2",

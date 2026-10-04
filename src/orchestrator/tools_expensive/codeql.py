@@ -13,13 +13,11 @@ from __future__ import annotations
 
 import json
 import re
-import time
-from pathlib import Path
 
 from .. import config
 from ..schema import RawFinding, normalize_cwe
 from ..tools.base import canon_path, docker_run
-from .base import BuildContext, ExpensiveTool
+from .base import BuildContext, ExpensiveTool, run_as_user
 from .build import changed_modules, _m2_cache
 
 IMAGE = "orch-codeql:2.25.6"
@@ -42,10 +40,6 @@ class CodeQLTool(ExpensiveTool):
     name = "codeql"
     image = IMAGE
 
-    def _uid(self) -> str:
-        import os
-        return f"{os.getuid()}:{os.getgid()}"
-
     def scan(self, ctx: BuildContext, raw_out: list | None = None) -> list[RawFinding]:
         mods = changed_modules(ctx.clone_dir, ctx.commit_id)
         pl = f" -pl {','.join(mods)} -am" if mods else ""
@@ -60,7 +54,7 @@ class CodeQLTool(ExpensiveTool):
             f"--ram={config.CODEQL_RAM_MB} --threads={config.CODEQL_THREADS}"
         )
         proc = docker_run([
-            "run", "--rm", "-u", self._uid(), "-e", "HOME=/tmp",
+            "run", "--rm", *run_as_user(), "-e", "HOME=/tmp",
             "-v", f"{ctx.clone_dir}:/work",
             "-v", f"{_m2_cache()}:/m2",
             "-w", "/work", IMAGE,

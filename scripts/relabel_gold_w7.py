@@ -8,7 +8,7 @@ ghi đè export_<repo>/gold_set/positive_gold.jsonl. negative_gold.jsonl KHÔNG 
 Chỉ xử lý repo APP có gold tăng khi nới window (mall-swarm/train-ticket/
 spring-cloud-stream). giraph & spring-cloud-kubernetes: W=7 == W=3 -> giữ nguyên.
 """
-import json, shutil, sys, tempfile, os
+import json, shutil, sys, tempfile
 from pathlib import Path
 
 BASE = Path("/home/scanner/tool-scan-commit")

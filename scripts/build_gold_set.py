@@ -9,7 +9,6 @@ Mỗi gold_set/ gồm:
 Chạy: python3 scripts/build_gold_set.py
 """
 import json
-import sys
 from pathlib import Path
 
 DATA = Path("/home/scanner/tool-scan-commit/data")
@@ -91,7 +90,7 @@ def build_one(exp: Path) -> dict:
     ds = exp / "dataset.jsonl"
     cm = exp / "commits.jsonl"
     if not ds.exists() or not cm.exists():
-        return {"skip": f"thiếu dataset/commits.jsonl"}
+        return {"skip": "thiếu dataset/commits.jsonl"}
 
     out = exp / "gold_set"
     out.mkdir(exist_ok=True)

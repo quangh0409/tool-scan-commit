@@ -13,7 +13,6 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from . import config
 from .storage.sqlite_store import SQLiteStore
 
 _JSON_COLS = ("cwe", "agreeing_tools", "s_detail_line", "diff_parsed", "kamei")

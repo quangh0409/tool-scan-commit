@@ -130,6 +130,8 @@ CODEQL_SUITE = os.environ.get(
     "ORCH_CODEQL_SUITE", "codeql/java-queries:codeql-suites/java-code-scanning.qls")
 # SonarQube: mật khẩu admin đặt QUA API lúc start_server (admin/admin chỉ dùng được lần đầu).
 SONAR_ADMIN_PW = os.environ.get("ORCH_SONAR_ADMIN_PW", "Orch_2026!")
+# Port HOST map vào SonarQube server (container nghe 9000). Đổi khi 9000 bị dịch vụ khác chiếm.
+SONAR_HOST_PORT = int(os.environ.get("ORCH_SONAR_PORT", "9000"))
 # Hàng 'building'/'analyzing' cũ hơn ngần này giây coi là chết -> reset 'pending' (resume sau STOP VM).
 STALE_CLAIM_SEC = int(os.environ.get("ORCH_STALE_CLAIM_SEC", "7200"))
 
