@@ -1,180 +1,116 @@
-# TASKS — Kế hoạch triển khai desktop app `secjit-scan.exe` (đủ 10 màn)
+# TASKS — Kế hoạch 1 NGÀY: desktop app `secjit-scan.exe` đủ 10 màn
 
-> Chốt 2026-10-04 với user. **Claude code toàn bộ**; user chỉ duyệt UI theo mốc, cung cấp máy, và chấm tay GOLD. Thời gian ước tính là **giờ làm việc của Claude** + **giờ máy chờ** (Docker build/scan) + **điểm dừng cần user**.
-> Trạng thái cập nhật vào `SESSION_CONTEXT.md`; quyết định phương pháp luận đã ghi `TOOL_IDEA_CONTEXT.md` §13. Review gốc: `REVIEW.md`.
+> Chốt 2026-10-04. **Claude code toàn bộ, user cho full quyền, máy bật liên tục, hạn 1 ngày, tối đa 5 agent chạy song song.** Ước tính gốc 85 giờ Claude (bản plan trước) được nén bằng 5 agent song song theo 2 đợt; Claude trưởng (phiên này) giữ vai tích hợp, chạy Docker, và nghiệm thu. Quyết định phương pháp luận: `TOOL_IDEA_CONTEXT.md` §13. Review gốc: `REVIEW.md`.
 
 ---
 
-## 0. Sáu quyết định đã chốt
+## 0. Thay đổi so với plan trước (theo trả lời user)
 
-| # | Câu hỏi | Quyết định | Ai |
+| Câu hỏi | Trả lời user | Hệ quả |
+|---|---|---|
+| 5 DB cũ | **Đã mất** | Bỏ P0.2 (đối soát). 5 dataset cũ phải **sinh lại** bằng cấu hình v1 sau (trên VM hoặc local). Số liệu trong `SESSION_CONTEXT.md` về 5 repo là lịch sử, không tái tạo được từ DB. `gold_set_all/` trong repo luận văn (nếu còn) chỉ là export jsonl, không relabel được. |
+| Rater 2 | Hỏi lại | Hôm nay làm **tính năng** chấm 2 rater + fallback intra-rater. Việc chấm 300 mẫu (5–8 giờ/người) **không nằm trong 1 ngày**. |
+| Máy sạch | **Chạy local trước** | Bỏ P6.2 máy sạch; test exe trên chính laptop user. Thêm `--preflight --json` để sau này chạy trên máy khác. |
+| Thời hạn & tài nguyên | **1 ngày, ≤ 5 agent, full quyền** | Kế hoạch dưới. Chỉ **Claude trưởng** được chạy Docker (tránh 2 run giẫm nhau và treo máy). Agent làm trong **worktree riêng**, trưởng merge. |
+
+---
+
+## 1. Định nghĩa "XONG" cuối ngày
+
+1. **10 màn chạy thật** trên laptop qua `secjit-scan.exe` (PyInstaller) **và** `python -m gui` (dev-mode): Preflight → Home → Wizard 1–5 → Dashboard → Results (Tổng quan / Finding / Commit / Kiểm tay / Xuất) → Settings. Mỗi màn có trạng thái loading / rỗng / lỗi theo `REVIEW.md` §III.A.
+2. **Nghiệm thu tái lập**: Run A = CLI `pipeline --profile` train-ticket `--max 30` (chạy sớm, cache lạnh); Run B = **từ exe** cùng profile vào DB mới (cache ấm). So `dataset.jsonl` A/B theo `cluster_key`: khớp, hoặc lệch chỉ ở commit nằm trong `tool_timeout`/`infra_error` của manifest. Kết quả → `RESULTS.md`.
+3. **Backend đủ**: 8 lỗi dữ liệu đã sửa; `run_meta` v2 + `run_manifest.json` + `SHA256SUMS`; `--since/--until/--from-sha/--to-sha`, `--tools/--expensive-tools`, `--profile`, `estimate`, `stats`, `sensitivity`, `stop`, `reset-claims`, `clean --dry-run`, `review sample/close`; runner nền tách rời + `progress.jsonl`; preflight 13 mục + 5 auto-fix.
+4. **Kiểm tay**: tạo được mẫu phân tầng có seed (200 + 100), màn chấm mù, đóng phiên ra precision + Wilson CI + Cohen κ (khi có 2 file rater). Chưa có số precision thật (user chấm sau).
+5. **Chất lượng**: `ruff` sạch; pytest unit + contract xanh; CI yml có; `README`/`GUIDE`/`METHODOLOGY`/`SESSION_CONTEXT` cập nhật; mọi thứ commit trên `dev`.
+
+**Không nằm trong ngày:** chấm tay thật; sinh lại 5 dataset cũ; máy sạch; chế độ VM qua SSH; ký code thương mại; CodeQL image (preflight có nút build nhưng không chạy hôm nay).
+
+---
+
+## 2. Lịch 1 ngày (giờ tính từ lúc bắt đầu, T0)
+
+```
+T0 ─ T+1   TRƯỞNG: đóng băng hợp đồng giao diện (CONTRACTS.md) + khung thư mục + fixture mock
+T+1 ─ T+6  ĐỢT 1 · 5 agent song song (worktree riêng, KHÔNG chạy Docker)
+T+6 ─ T+8  TRƯỞNG: merge 5 worktree, ruff/compile/pytest, smoke --max 5 (Docker ~40')
+T+8        TRƯỞNG: phóng RUN A (CLI --profile, --max 30, cache lạnh, ~3–4 h nền)
+T+8 ─ T+13 ĐỢT 2 · 5 agent song song (nối GUI↔backend thật, review GOLD, test+CI+exe, hoàn thiện, QA)
+T+13 ─ T+15 TRƯỞNG: merge, build exe, chạy 10 màn trên dev-mode + exe, sửa lỗi chặn
+T+15 ─ T+18 TRƯỞNG: RUN B từ exe (profile của A, cache ấm ~1,5–2 h nền) · song song: QA vòng 2 (1 agent)
+T+18 ─ T+20 TRƯỞNG: so A/B, RESULTS.md, stats/sensitivity trên DB --max 30, docs, commit cuối
+T+20 ─ T+24 Dự phòng (trượt ±30 %) · kịch bản demo 10 phút
+```
+
+**Điểm kiểm tra cứng** (nếu trượt → cắt theo §6): T+8 (đợt 1 merge xong), T+15 (exe chạy 10 màn), T+20 (RESULTS).
+
+---
+
+## 3. T0–T+1 · Hợp đồng giao diện (trưởng viết, agent tuân theo)
+
+File `CONTRACTS.md` gồm:
+
+- **`profile.json`**: `{schema:1, repo, branch, scope:{mode: time|count|sha|all, since, until, max, from_sha, to_sha}, include_clean, cheap_tools[], expensive_tools[], codeql, workers:{scan, expensive}, paths:{db, export, work}, sonar_port, experiment:{enabled, reason}|null, params_v1:{line_window:3, gold_min_expensive:2, gold_allow_1exp_1cheap:1, silver_min_cheap:2, noise_cwe:["CWE-117"]}}`.
+- **`progress.jsonl`**: mỗi dòng `{ts, run_id, phase: scan|select|analyze|relabel|kappa|export, event: start|item|done|error, done, total, worker, sha, status, msg}`.
+- **`runs.json`** (registry, `%LOCALAPPDATA%\secjit\runs.json`): `{runs:[{run_id, repo, branch, db, export, work, profile, started, finished, status: running|stopped|done|failed|interrupted, pid, summary:{gold, silver, candidate, verified_clean, cheap_clean, kappa}}]}`.
+- **`cluster_key`** = sha256(`repo|commit|file_path|cwe_group|s_line//LINE_WINDOW`) — khoá cho `gold_review` và so A/B.
+- **`run_meta` v2**: bảng `run_meta(id, tier: scan|analyze, started_at, finished_at, repo, branch, scope_json, config_snapshot_json, tools_json[{name, image, version, digest}], orchestrator_git_sha, app_version, experiment)`; bảng `kappa(run_id, scope, group, value, n)`.
+- **API GUI** (`gui/server.py`, localhost, header `X-Token`): `GET /api/preflight` · `POST /api/preflight/fix {item}` · `POST /api/repo/check {url}` · `POST /api/estimate {profile}` · `POST /api/run/start {profile}` · `POST /api/run/{id}/stop {force}` · `POST /api/run/{id}/resume` · `GET /api/runs` · `GET /api/run/{id}/progress` (SSE) · `GET /api/results/{id}/overview|findings|commits|export` · `GET /api/results/{id}/finding/{cluster_key}` · `POST /api/review/{id}/sample|verdict|close` · `GET/POST /api/settings/*` · `GET /api/storage` · `POST /api/clean {items, dry_run}`.
+- **Fixture mock**: `gui/fixtures/*.json` cho mọi endpoint (số liệu lấy từ run thật hôm 2026-10-04 + sửa sai nhãn mock theo REVIEW §I.4) để agent GUI làm độc lập backend.
+- **Khung thư mục**: `src/orchestrator/` (A1, A2) · `runner/`, `registry/`, `preflight/` (A3) · `gui/server.py`, `gui/web/{index.html, app.css, app.js, screens/*.js}` (A4, A5) · `tests/` (B3).
+- **Quy tắc merge**: mỗi agent 1 worktree `feat/<tên>`; chỉ sửa file trong vùng được giao; file chung (`cli.py`, `config.py`) chỉ A2 sửa, A1 gửi yêu cầu qua báo cáo; không chạy Docker; commit nhỏ, tiếng Việt.
+
+---
+
+## 4. ĐỢT 1 (T+1 → T+6) — 5 agent
+
+| Agent | Vùng file | Việc | Tiêu chí nghiệm thu |
 |---|---|---|---|
-| 1 | Phạm vi | **Phương án 3 — đủ 10 màn** như wireframe, bổ sung đủ trạng thái lỗi/rỗng/partial (REVIEW §III.A) | user |
-| 2 | Tiêu chí tái lập MVP | **train-ticket `--max 30` trên laptop Windows**: chạy từ exe → ra `profile.json` + `run_manifest.json`; chạy lại bằng CLI `--profile` → cùng số cụm gold/silver/candidate (lệch chỉ ở commit có `tool_timeout`, được liệt kê trong manifest). Full-history vẫn trên VM | user |
-| 3 | Chính sách tham số | **Cấu hình v1 "đăng ký trước" và khoá**: `LINE_WINDOW=3`, `GOLD_MIN_EXPENSIVE=2`, `GOLD_ALLOW_1EXP_1CHEAP=1`, `SILVER_MIN_CHEAP=2`, `NOISE_CWE={CWE-117}`; `VOTE_THRESHOLD` loại khỏi UI (legacy). Đổi tham số chỉ qua lệnh `sensitivity` chạy trên **bản sao** DB, hoặc "Chế độ thí nghiệm" bắt nhập lý do, gắn `experiment=true`, export sang `_exp_<tên>`, không bao giờ gộp vào `gold_set_all`. Báo cáo sensitivity (W∈{3,5,7}, 1E+1C∈{0,1}, NOISE on/off) là một mục bắt buộc của luận văn. *Cơ sở:* "researcher degrees of freedom" (Simmons, Nelson & Simonsohn 2011), HARKing (Kerr 1998), hướng dẫn thực nghiệm SE (Kitchenham et al. 2002), sensitivity analysis thay cho dò tay (Saltelli et al. 2008); khớp CLAUDE.md gốc §12.7, §12.9 | Claude |
-| 4 | Thuật ngữ "GOLD" | **Giữ tên cột nội bộ** `gold/silver/candidate` (tương thích 5 dataset + script), **thêm trường `evidence`** trong export và UI: `consensus` (mức máy) + `validation ∈ {unreviewed, TP, FP, unclear}`. Hiển thị luôn là "gold · đồng thuận máy" cho tới khi kiểm tay, "gold ✓ TP" sau kiểm. Trong paper: "consensus-gold" là **silver standard** theo nghĩa Rebholz-Schuhmann et al. 2010 (CALBC); chỉ "human-validated gold" được gọi gold standard. `verified-clean` hiển thị kèm "2 tool đắt không báo — không phải chứng minh sạch" (absence of evidence ≠ evidence of absence, CLAUDE.md gốc §12.2). *Cơ sở:* nhiễu nhãn tự động trong SE dataset (Herzig, Just & Zeller 2013; Herbold et al. 2022 về SZZ) | Claude |
-| 5 | Kiểm tay | **Có**, theo giao thức: mẫu **ngẫu nhiên phân tầng** theo CWE-group × tier, seed cố định ghi file; **n = 200 gold positive** (Wilson CI ≈ ±5,5 % tại p≈0,8) + **n = 100 verified-clean**; **chế độ mù** (ẩn nhãn, tên tool, số tool, precision); **2 rater** (user + 1 người cùng lab; nếu không có rater 2 → user chấm lần 2 cách ≥ 1 tuần làm intra-rater); Cohen κ (diễn giải Landis & Koch 1977; McHugh 2012); adjudication cho bất đồng; precision + Wilson CI (Brown, Cai & DasGupta 2001). File chấm công bố cùng dataset | user + Claude |
-| 6 | Sửa 8 lỗi dữ liệu trước | **Có, làm đầu tiên (P0)**, vì D1 (verified-clean giả) và D2 (`build_failed` do Docker tắt) ảnh hưởng tính đúng của 5 dataset đã có → phải **đối soát lại `negative_level` trên 5 DB cũ** và ghi delta vào `RESULTS.md` trước khi xây GUI | Claude |
+| **A1 data-core** | `storage/sqlite_store.py`, `export_dataset.py`, `tools_expensive/build.py`, `expensive_runner.py`, `tools_expensive/sonar.py`, `repo_pool.py`, `tools/base.py`, `scripts/merge_export.py` | 8 lỗi dữ liệu (D1 `skipped` khi 0 module + `n_expensive_ok`, `negative_level` ≥2 tool ok; D2 `infra_error` rc 125/127 + dừng sau 3 lỗi; D3 Sonar container/network theo `run_id` + lock DB; D4 fetch + tên clone `owner__repo` + kiểm origin; D5 export thư mục mới; D6 disk-full dừng; D7 `_rmtree`; D8 WAL); `--label orch.run=<id>` mọi `docker run`; `run_meta` v2 + bảng `kappa` + `user_version` migrate; `export` gộp merge + `run_manifest.json` + `SHA256SUMS` + trường `evidence`; gọi `progress.emit()` trong analyze | pytest cho negative_level/run_meta/manifest; `compileall`; không Docker |
+| **A2 cli-scope** | `cli.py`, `config.py`, `enumerate_commits.py`, `select_commits.py`, mới: `progress.py`, `profile.py`, `estimate.py`, `stats.py`, `sensitivity.py`, `control.py` (stop/reset-claims) | `--since/--until/--from-sha/--to-sha` (ép `--max 0`), `--tools/--expensive-tools` cho `pipeline`, `--profile` mọi subcommand + validate schema, `estimate` (đọc `speed.json`), `stats` (JSON/CSV/LaTeX, κ nhóm + pairwise, khối "giới hạn"), `sensitivity` (copy DB → relabel lưới), `stop` (stop-file + CTRL_BREAK/SIGTERM) + `reset-claims --run`, `clean` tách mục + `--dry-run`, experiment mode guard cho `ORCH_LINE_WINDOW`, bỏ VOTE_THRESHOLD khỏi run_meta hiển thị, `progress.emit()` trong scan | pytest contract: profile → argparse parse; env → config; `estimate` trên fixture; không Docker |
+| **A3 runner-registry-preflight** | mới: `runner/`, `registry/`, `preflight/`, `speed.py` | Tiến trình tách rời Windows (`CREATE_NEW_PROCESS_GROUP\|DETACHED_PROCESS`) + Linux, pid/stop/log-file, heartbeat, attach, phát hiện pid chết + DB `building` → gợi ý reset; `runs.json` + mutex single-instance + lock theo DB; 13 kiểm tra preflight (RAM Docker `MemTotal`, image build vs pull, `vm.max_map_count` WSL2, `:latest` chưa pin, file-sharing, proxy…) + 5 auto-fix (bật Docker + poll 90 s, port trống, pull/build có %, `core.longpaths`, hạ `CODEQL_RAM_MB`) + `preflight --json`; `speed.json` đo/đọc | pytest với docker giả (mock subprocess); chạy `preflight --json` thật trên laptop (chỉ đọc, không pull) |
+| **A4 gui-shell + màn 0–5** | `gui/server.py`, `gui/main.py`, `gui/web/*`, màn Preflight, Home, Wizard 1–5 | Server stdlib http + SSE + token, `--dev` mở trình duyệt, `--mock` dùng fixture; design system (token màu/kiểu wireframe, component btn/card/table/stepper/toast/dialog/empty/error/skeleton); 6 màn với **đủ trạng thái** (REVIEW §III.A), validate đầu vào (URL/ngày/N/SHA/đường dẫn/luồng), "Nâng cao" chỉ đọc + nút Chế độ thí nghiệm, lệnh CLI PowerShell + bash sinh từ profile | mở `--dev --mock`, đi hết 6 màn bằng Playwright (nếu có) hoặc kiểm HTML + JS không lỗi console |
+| **A5 màn 6–10 + Kiểm tay** | `gui/web/screens/{dashboard,results_*,settings,review}.js` + CSS riêng | Dashboard (3 thanh, worker, ETA, log lọc, ẩn nhãn tạm, Dừng an toàn/cưỡng bức, banner Docker tắt/đĩa đầy/infra_error, hộp đóng cửa sổ); Results 5 tab (Tổng quan với phễu/κ/giới hạn, Finding lọc + phân trang, Bằng chứng + raw + provenance + "gold · đồng thuận máy", Commit, Xuất); Settings 4 tab (Docker, Dung lượng + xem trước xoá, Profile, Ngôn ngữ); màn Kiểm tay mù + adjudication | như A4, trên fixture |
+
+**Trưởng trong đợt 1:** trả lời câu hỏi agent, viết `tests/conftest.py` + fixture DB nhỏ (từ scratch DB hôm 2026-10-04), chuẩn bị profile Run A.
 
 ---
 
-## 1. Kiến trúc chốt cho code
+## 5. ĐỢT 2 (T+8 → T+13) — 5 agent
 
-```
-secjit-scan.exe (PyInstaller onefile)
- ├─ gui/            pywebview (WebView2) + web UI tĩnh (HTML/CSS/JS thuần, không framework)
- ├─ gui/server.py   stdlib http.server + SSE (progress) · chỉ localhost, port ngẫu nhiên, token phiên
- ├─ runner/         tiến trình NỀN tách rời (CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS),
- │                  pid-file + stop-file + progress.jsonl; GUI đóng/mở lại vẫn attach
- ├─ registry        %LOCALAPPDATA%\secjit\runs.json (danh sách run, DB, export, profile, trạng thái)
- └─ src/orchestrator  (stdlib-only, GIỮ) + các CLI mới ở P0
-```
-
-- **GUI được có dependency** (pywebview, PyInstaller); **orchestrator vẫn stdlib-only**. Parquet **bỏ**, CSV bằng `csv` stdlib.
-- Mọi hành động GUI = 1 lệnh CLI có thật (`--profile`). Không fork logic nhãn vào GUI.
-- Mọi `docker run` gắn `--label orch.run=<run_id>` để tìm/dọn mồ côi.
-- SQLite bật `journal_mode=WAL`; GUI mở `mode=ro`.
+| Agent | Việc | Nghiệm thu |
+|---|---|---|
+| **B1 wire** | Nối `gui/server.py` vào backend thật (runner, registry, preflight, SQLite ro, `stats`, `estimate`, `clean --dry-run`); bỏ mock từng endpoint; test tích hợp bằng DB scratch + RUN A đang chạy (chỉ đọc) | Mọi endpoint trả dữ liệu thật; Dashboard hiện tiến độ RUN A đang chạy |
+| **B2 review** | Bảng `gold_review`, `review sample --seed --n-pos 200 --n-neg 100` phân tầng, map lại sau relabel, `review close` → precision + Wilson CI + Cohen κ + bất đồng; nối màn Kiểm tay; `build_gold_set.py` đọc bảng + bỏ hardcode `/home/scanner`; `relabel_gold_w7.py` thành `sensitivity` preset | pytest trên fixture; tạo mẫu từ DB scratch |
+| **B3 test-ci-exe** | pytest unit (posix path, URL normalize, negative_level, reset-claims, run_meta round-trip, `_rmtree` read-only, GBK, cluster_key) + contract; `.github/workflows/ci.yml` (windows + ubuntu); `secjit.spec` PyInstaller + build exe local + `--version`/`--preflight --json`/`--profile` headless | exe chạy được trên laptop, pytest xanh |
+| **B4 polish-docs** | Batch queue (tuần tự, 1 Sonar), toast Windows, gói chẩn đoán zip, i18n VI/EN đủ chuỗi, `ORCH_M2_VOLUME`; `README` (exe + CLI mới), `GUIDE` (env mới), `METHODOLOGY.md` (QĐ 3–5 + giao thức kiểm tay), `EXECUTION_FLOW` cập nhật | docs khớp code; i18n không thiếu khoá |
+| **B5 QA** | Đi checklist REVIEW §III.A–D trên `--dev` (backend thật): từng màn × trạng thái, 21 test case §III.B, edge case §III.C; báo lỗi theo mẫu (màn, bước, mong đợi, thực tế, file:dòng nghi ngờ) → trưởng phân cho B1/B4 sửa | Báo cáo QA vòng 1; vòng 2 ở T+15 |
 
 ---
 
-## 2. Các pha, task, ước tính
+## 6. Nếu trượt — thứ tự cắt (giữ "XONG" cốt lõi)
 
-Ký hiệu: **C** = giờ Claude làm việc thật (viết + tự test) · **M** = giờ máy chờ (Docker, build) · **U** = điểm dừng cần user (số lần, ~15–30 phút mỗi lần, trừ khi ghi khác).
-
-### P0 — Nền dữ liệu & CLI (điều kiện để GUI không hứa suông)
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P0.1 | Sửa 8 lỗi dữ liệu (REVIEW §I.3): D1 `status='skipped'` khi 0 module Java + cột `n_expensive_ok`, `negative_level` đòi ≥2 tool đắt ok; D2 phân biệt lỗi hạ tầng Docker (rc 125/127, "Cannot connect") → `status='infra_error'`, không ghi `build_failed`, dừng run sau 3 lỗi liên tiếp; D3 lock theo DB + Sonar container/network theo `run_id`; D4 `clone_or_update` fetch + tên clone `owner__repo` + kiểm `origin`; D5 export vào thư mục mới hoặc dọn có xác nhận; D6 bắt disk-full → dừng; D7 `cmd_clean` dùng `_rmtree`; D8 WAL | 4 | 0,5 | — |
-| P0.2 | **Đối soát 5 DB cũ** (train-ticket, mall-swarm, spring-cloud-stream, spring-cloud-kubernetes, giraph): chạy lại `negative_level` mới, ghi delta verified-clean → `RESULTS.md`. *Phụ thuộc:* user tải 5 DB từ VM về hoặc bật VM | 1 | 0,5 | 1 (lấy DB) |
-| P0.3 | `run_meta` v2: `config_snapshot` JSON toàn bộ `ORCH_*` hiệu lực, `branch`, `scope`, `include_clean`, `orchestrator_git_sha`, `app_version`, ghi riêng cho tầng `analyze` (image + digest FSB/Sonar/CodeQL/maven); κ lưu bảng `kappa`; `PRAGMA user_version` + migrate | 2 | — | — |
-| P0.4 | `export` sinh `dataset.jsonl` + `commits.jsonl` (gộp `merge_export.py`), `run_manifest.json` (profile, run_meta 2 tầng, κ, đếm nhãn, build_failed list, tool_timeout list), `SHA256SUMS`, trường `evidence` (QĐ 4) | 2 | — | — |
-| P0.5 | Phạm vi: `--since/--until` (committer-date, ghi run_meta), `--from-sha/--to-sha`, ép `--max 0` khi dùng; `estimate` subcommand (số commit sau lọc, ước tính từ bảng tốc độ đo trên máy `speed.json`) | 2 | — | — |
-| P0.6 | Chọn tool: `--tools` (rẻ) + `--expensive-tools` cho `pipeline`; cảnh báo đổi `eligible`/κ khi bỏ tool | 1 | — | — |
-| P0.7 | `--profile profile.json` cho mọi subcommand; `profile` schema + validate; `stop` subcommand (stop-file + CTRL_BREAK trên Windows / SIGTERM Linux) + `reset-claims --run <id>` (reset `building/analyzing` → pending, xoá raw đắt bán phần, dọn container theo label, gỡ network) | 3 | 1 | — |
-| P0.8 | `stats` subcommand (phễu, nhãn 3+2 mức, CWE-group × nhãn × tier × in_diff, per-repo, κ nhóm + pairwise, "giới hạn" tự sinh) → JSON + CSV + LaTeX; `sensitivity` subcommand (relabel trên bản sao DB theo lưới tham số) | 3 | 0,5 | — |
-| P0.9 | `clean` tách từng mục + `--dry-run` liệt kê; `ORCH_LINE_WINDOW` chỉ nhận trong experiment mode; bỏ `VOTE_THRESHOLD` khỏi run_meta hiển thị; progress `progress.jsonl` có schema (`phase, done, total, worker, sha, status, ts`) | 2 | — | — |
-| P0.10 | Smoke lại trên Windows `--max 5` train-ticket với toàn bộ P0 (scratch DB) + ruff + compile; cập nhật README/GUIDE | 1 | 1,5 | 1 (duyệt RESULTS P0.2) |
-| **Tổng P0** | | **21 h** | **4 h** | **2** |
-
-### P1 — Runner nền, registry, preflight engine
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P1.1 | `runner/`: spawn tiến trình tách rời, pid-file, stop-file, log-file, heartbeat; attach lại; phát hiện "pid chết nhưng DB còn building" → đề xuất `reset-claims` | 3 | 1 | — |
-| P1.2 | `registry`: `runs.json` (run_id, repo, branch, DB, export, work, profile, started/finished, status, pid, tóm tắt nhãn/κ cache) + single-instance mutex app + lock theo DB | 2 | — | — |
-| P1.3 | `preflight/`: 13 kiểm tra (REVIEW §II plan §2 + sửa: RAM Docker `docker info MemTotal` thay RAM host, image FSB/CodeQL = **build** từ `docker/`, `vm.max_map_count` trong WSL2, image `:latest` chưa pin, ổ chưa Docker file-sharing, proxy); 5 auto-fix (bật Docker + poll 90 s, chọn port trống, pull/build image có %, `core.longpaths`, hạ `CODEQL_RAM_MB`); `preflight --json` headless; `preflight.json` | 3 | 1 | — |
-| P1.4 | `speed.json`: đo tốc độ thật (s/commit rẻ, s/build cold/warm) từ mỗi run → nạp `estimate` | 1 | — | — |
-| **Tổng P1** | | **9 h** | **2 h** | **0** |
-
-### P2 — GUI khung + Preflight + Home + Wizard 1–5
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P2.1 | `gui/server.py` (stdlib http.server, SSE, API: preflight, repo-check, estimate, run start/stop/resume, registry, results query, settings), token phiên, chỉ localhost; `gui/main.py` pywebview; dev-mode mở trình duyệt thường để Claude test bằng Playwright/urllib | 3 | — | — |
-| P2.2 | Design system web UI (token màu/kiểu như wireframe, component: btn/card/table/stepper/toast/dialog/empty/error/loading) + i18n VI/EN khung | 2 | — | — |
-| P2.3 | **Preflight** đủ trạng thái: đang kiểm (spinner từng dòng), 3 mức, sửa thất bại + thử lại, tải có %/huỷ, "Tiếp tục dù ⚠️" xác nhận, log chẩn đoán | 1,5 | — | — |
-| P2.4 | **Home**: rỗng, Docker tắt, run nền chết → "Bị ngắt", DB mất, badge mức bằng chứng (gold đã kiểm x/y), "Tiếp tục" tự chọn tầng, "Chạy lại từ đầu" tách riêng có xác nhận, "Chạy lại cùng profile" | 1,5 | — | — |
-| P2.5 | **Wizard 1 Repo**: chuẩn hoá URL (tree/commit/pull/blob/.git/SSH→HTTPS), `ls-remote` có timeout, 401/403/404, clone nền + fetch, phát hiện pom/JDK/module + **check tiêu chí chọn repo** (SNAPSHOT pom cũ, đếm `SecurityConfig`), cảnh báo repo không Java → tắt tầng đắt, PAT qua env (không vào run_meta) | 2 | — | — |
-| P2.6 | **Wizard 2 Phạm vi**: 4 chế độ (thời gian / N / SHA / full), validate (từ>đến, N=0 cấm, SHA verify), biểu đồ mật độ tháng kéo-chọn, "chưa ước tính được" khi clone chưa xong, 0 commit chặn; bỏ checkbox "merge" (hiển thị cố định); thêm `CLEAN_PER_BUGGY`, `--require-in-diff` | 2 | — | — |
-| P2.7 | **Wizard 3 Tool**: badge tốc độ thật từ `speed.json`, image có/build/pull, cảnh báo bỏ tool phá consensus, luồng khoá theo CPU và RAM Docker, CodeQL tự hạ RAM; "Nâng cao" **chỉ đọc** cấu hình v1 + nút "Chế độ thí nghiệm" (lý do bắt buộc) | 1,5 | — | — |
-| P2.8 | **Wizard 4 Lưu**: validate đường dẫn (UNC cấm, OneDrive cảnh báo, quyền ghi, dài >260, trùng WORK/OUT), DB tồn tại → Resume/Đổi tên/Ghi đè(gõ tên + .bak), đĩa so ước tính ×1,5; bỏ Parquet; raw bắt buộc | 1,5 | — | — |
-| P2.9 | **Wizard 5 Xem lại**: ước tính cold/warm từ speed.json, lệnh CLI **PowerShell + bash** sinh từ profile và được `argparse` thật parse-check, lưu profile, "Chạy thử 3 commit" = 3 commit qua lọc có đụng Java vào **DB scratch** + màn kết quả thử | 1,5 | — | — |
-| P2.10 | Test GUI tự động (Playwright nếu có, else urllib + kiểm HTML) cho các trạng thái; sửa theo phản hồi user | 2 | — | **2** (duyệt Preflight+Home; duyệt Wizard) |
-| **Tổng P2** | | **18,5 h** | **0** | **2** |
-
-### P3 — Dashboard, Results (5 tab), Settings
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P3.1 | **Dashboard**: 3 thanh từ `progress.jsonl` + SQLite ro, worker + tool đang chạy, ETA từ speed thật, log lọc (structured), **ẩn nhãn tạm khi chạy** (chỉ đếm raw), Dừng an toàn/cưỡng bức + liệt kê đã dọn, phát hiện Docker tắt / disk đầy / ≥3 infra_error → tự tạm dừng + banner, đóng cửa sổ → hộp "Chạy nền/Dừng/Huỷ", đổi số luồng (dừng + tiếp tục), gói chẩn đoán | 3 | 1 | — |
-| P3.2 | **Results · Finding**: lọc nhãn/CWE-group/≥N tool/tier/`in_diff`/tìm, phân trang server-side, loading/rỗng/chưa relabel/run dở/DB đang ghi | 2 | — | — |
-| P3.3 | **Results · Bằng chứng** (panel): diff tô dòng, `eligible` + mẫu số, tool + rule + severity + message, **mở raw SARIF/XML**, dòng provenance (run, digest, W, luật gold), hiển thị "gold · đồng thuận máy / ✓ TP" (QĐ 4) | 2 | — | — |
-| P3.4 | **Results · Tổng quan**: phễu, nhãn 3+2 mức, CWE-group × nhãn, κ tổng/nhóm/pairwise + coverage 1/2/≥3 tool + đoạn giải thích chuẩn + κ W=3 vs W=7, precision kiểm tay (hoặc "n=0"), khối "Giới hạn dataset" tự sinh, xuất CSV/LaTeX (từ `stats`) | 2,5 | — | — |
-| P3.5 | **Results · Commit**: role, negative_level với `n_expensive_ok`, Kamei, build_failed lý do, nút `features` backfill, `relabel` lại (chỉ experiment mode) | 1,5 | — | — |
-| P3.6 | **Results · Xuất**: export mới (thư mục theo run_id), CSV, manifest, "Mở thư mục", cảnh báo thư mục cũ; chọn run từ registry | 1 | — | — |
-| P3.7 | **Settings**: Docker & tài nguyên (MemTotal, port, image digest, pin), Dung lượng (du nền + xem trước xoá qua `clean --dry-run`, khoá khi run sống, vùng cấm kết quả), Profile (lưu/tải/xoá), Ngôn ngữ, tab "Chế độ chạy" chỉ hiển thị Local (VM = sau MVP) | 2 | — | — |
-| P3.8 | Test + sửa theo phản hồi | 2 | 1 | **2** (Dashboard trên run thật; Results) |
-| **Tổng P3** | | **16 h** | **2 h** | **2** |
-
-### P4 — Kiểm tay GOLD (QĐ 5)
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P4.1 | Bảng `gold_review(cluster_key, sample_id, rater, verdict, note, at)` với khoá ổn định `hash(repo, commit, file, cwe_group, s_line//W)`; lệnh `review sample --seed --n-pos 200 --n-neg 100` phân tầng → `gold_sample_<seed>.json`; map lại sau relabel + cảnh báo lệch | 2 | — | — |
-| P4.2 | Màn **Kiểm tay** mù: ẩn nhãn/tool/số tool/precision; hiện code + diff + CWE claim + message đã ẩn tên tool; phím tắt TP/FP/?; tiến độ; tạm dừng/tiếp; chấm cả verified-clean (có lỗi bảo mật không?) | 2 | — | — |
-| P4.3 | Đóng phiên: precision + Wilson CI, Cohen κ 2 rater, danh sách bất đồng → màn adjudication; xuất `gold_review_<rater>.json`; `build_gold_set.py` đọc bảng, ghi precision vào README gold_set, bỏ hardcode `/home/scanner` | 2 | — | — |
-| P4.4 | **User chấm**: 200 + 100 mẫu ≈ 1–2 phút/mẫu → **5–8 giờ user** (rater 1) + rater 2 tương tự | 0,5 | — | **1 dài** (5–8 h/rater) |
-| **Tổng P4** | | **6,5 h** | **0** | **1 dài** |
-
-### P5 — Hoàn thiện 10 màn
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P5.1 | Hàng đợi batch (tuần tự tuyệt đối, 1 Sonar), màn hàng đợi | 2 | — | — |
-| P5.2 | Toast Windows (winotify hoặc PowerShell), tray thu nhỏ | 1 | — | — |
-| P5.3 | Cache Maven Docker volume `ORCH_M2_VOLUME` + đo lại speed | 1 | 1 | — |
-| P5.4 | i18n VI/EN đủ chuỗi; gói chẩn đoán zip (log, run_meta, docker info, profile, preflight.json) | 1,5 | — | — |
-| P5.5 | Cập nhật TOOL_IDEA §8–9 (đã làm §13), README (hướng dẫn exe), GUIDE (env mới), METHODOLOGY (QĐ 3–5) | 1,5 | — | — |
-| **Tổng P5** | | **7 h** | **1 h** | **0** |
-
-### P6 — Đóng gói & CI
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P6.1 | PyInstaller onefile + pywebview + nhúng `src/orchestrator`, `docker/`, web UI; `--version`, `--preflight --json`, `--profile` headless; self-signed sign; checksum | 2 | 0,5 | — |
-| P6.2 | Test **máy sạch** (VM Windows 11 không Docker/Git): đúng 2 ❌, không traceback, SmartScreen hướng dẫn. *Phụ thuộc:* user cấp VM hoặc máy sạch | 1 | 1 | **1** |
-| P6.3 | CI GitHub Actions `windows-latest`: ruff + unit (path posix, URL normalize, negative_level, reset-claims, run_meta round-trip, `_rmtree` read-only, GBK) + contract (profile→argparse, env→config) + build exe + `--preflight --json`; `ubuntu-latest` smoke rẻ + FSB | 2,5 | 0,5 | — |
-| **Tổng P6** | | **5,5 h** | **2 h** | **1** |
-
-### P7 — Nghiệm thu tái lập (QĐ 2)
-
-| Task | Nội dung | C | M | U |
-|---|---|---|---|---|
-| P7.1 | Run A: exe → train-ticket `master` `--max 30` `--include-clean`, 5 rẻ + FSB + Sonar, 2 luồng, trên laptop. Lần đầu cache lạnh | 0,5 | **3–4** | — |
-| P7.2 | Run B: `cli pipeline --profile <A>/profile.json` vào DB mới; so `dataset.jsonl` A/B theo cluster_key; lệch phải nằm trong `tool_timeout`/`infra_error` của manifest | 0,5 | **1,5–2** (cache ấm) | — |
-| P7.3 | Báo cáo nghiệm thu `RESULTS.md` (số nhãn A/B, κ, thời gian, lệch + lý do) + demo 10 phút kịch bản cho hội đồng | 1 | — | **1** (chạy demo cùng user) |
-| **Tổng P7** | | **2 h** | **5–6 h** | **1** |
+1. Bỏ batch queue, toast, tray, i18n EN (giữ VI).
+2. Bỏ biểu đồ mật độ kéo-chọn (giữ 4 chế độ phạm vi).
+3. Bỏ `sensitivity` UI (giữ CLI).
+4. Bỏ exe PyInstaller → giao `run_gui.bat` chạy `python -m gui` (vẫn đủ 10 màn). **Chỉ cắt nếu T+15 exe chưa chạy.**
+5. **Không cắt:** 8 lỗi dữ liệu, run_meta v2 + manifest, runner nền + Dừng an toàn, 10 màn, Run A/B, Kiểm tay (tính năng).
 
 ---
 
-## 3. Tổng hợp thời gian
+## 7. Rủi ro riêng của kế hoạch 1 ngày
 
-| | Giờ Claude (C) | Giờ máy chờ (M) | Điểm dừng user (U) |
-|---|---|---|---|
-| P0 Nền dữ liệu & CLI | 21 | 4 | 2 |
-| P1 Runner, registry, preflight | 9 | 2 | 0 |
-| P2 GUI khung + 7 màn đầu | 18,5 | 0 | 2 |
-| P3 Dashboard, Results, Settings | 16 | 2 | 2 |
-| P4 Kiểm tay GOLD | 6,5 | 0 | 1 (5–8 h/rater) |
-| P5 Hoàn thiện | 7 | 1 | 0 |
-| P6 Đóng gói, CI | 5,5 | 2 | 1 |
-| P7 Nghiệm thu | 2 | 5–6 | 1 |
-| **Tổng** | **≈ 85 h** | **≈ 17 h** | **9 điểm dừng + 1–2 phiên chấm dài** |
-
-**Quy ra lịch** (giả định mỗi phiên Claude ~4 giờ làm việc hiệu quả, máy chờ chạy nền song song với việc khác):
-
-- **≈ 21 phiên Claude.** 1 phiên/ngày → **4–5 tuần**; 2 phiên/ngày → **2,5–3 tuần**.
-- Đường tới hạn không phải code mà là: (a) P0.2 cần 5 DB từ VM, (b) 9 điểm duyệt UI của user, (c) 5–8 giờ chấm tay mỗi rater, (d) P6.2 cần máy sạch, (e) P7 ≈ 6 giờ máy.
-- Mốc có thể demo sớm: **sau P3** (≈ 11 phiên) đã có đủ Preflight → Wizard → Run → Results trên máy user; P4–P7 hoàn thiện phần học thuật và đóng gói.
-
-**Độ tin cậy ước tính:** ±30 %. Rủi ro làm trượt: pywebview/WebView2 trên máy user (chưa test), hành vi dừng tiến trình trên Windows (CTRL_BREAK qua process group), Docker Desktop tự tắt khi quá tải (đã gặp), và việc Claude không nhìn được GUI trực tiếp nên mỗi vòng sửa UI phụ thuộc ảnh chụp/phản hồi của user (vì vậy P2.1 có dev-mode mở trình duyệt để Claude tự test bằng Playwright nếu cài được).
+- **Merge 5 worktree**: giảm bằng vùng file tách bạch (§4) và hợp đồng §3; trưởng dành 2 giờ merge có chủ đích.
+- **Docker trên laptop**: chỉ trưởng chạy; tuần tự smoke → Run A → Run B; `ORCH_EXPENSIVE_WORKERS=2`; nếu Docker Desktop sập (đã gặp) → `infra_error` dừng, resume bằng `reset-claims`. Máy đã treo một lần khi build + Sonar + nhiều việc khác: trong lúc Run A/B, trưởng không chạy build khác.
+- **Claude không nhìn được GUI**: dev-mode mở trình duyệt + Playwright (kiểm `python -c "import playwright"`; nếu không có, `pip install playwright` + `playwright install chromium`, ~200 MB); fallback kiểm DOM/console qua Chrome DevTools Protocol; cuối ngày user duyệt 1 lượt.
+- **pywebview/WebView2 trên laptop**: kiểm `pip install pywebview` + WebView2 runtime ở T0; nếu lỗi → exe mở trình duyệt mặc định thay cửa sổ native (vẫn đủ 10 màn).
+- **Thời gian máy**: Run A 3–4 h + Run B 1,5–2 h + smoke 0,7 h ≈ 6 h nền, nằm trong lịch; nếu Run A > 5 h → giảm Run B còn `--max 15` cùng profile (ghi rõ trong RESULTS).
 
 ---
 
-## 4. Thứ tự làm & mốc duyệt
+## 8. Việc trưởng làm ngay (T0)
 
-```
-P0 ──► [U1: duyệt RESULTS đối soát 5 DB] ──► P1 ──► P2 ──► [U2 Preflight+Home] [U3 Wizard]
-   ──► P3 ──► [U4 Dashboard trên run thật] [U5 Results] ──► P4 ──► [U6 chấm tay 5–8 h × rater]
-   ──► P5 ──► P6 ──► [U7 máy sạch] ──► P7 ──► [U8 demo 10 phút] ──► bàn giao
-```
-
-Mỗi pha kết thúc bằng commit riêng trên `dev`, cập nhật `SESSION_CONTEXT.md`, và chạy ruff + smoke. Không mở pha sau khi pha trước còn lỗi chặn.
-
-## 5. Phụ thuộc cần user chuẩn bị (có thể làm ngay, song song P0)
-
-1. Tải 5 file `data/dataset_*.sqlite` từ VM về laptop (hoặc cho tôi biết đường dẫn) — cần cho P0.2.
-2. Xác nhận có rater 2 không (tên vai, không cần tên thật) — ảnh hưởng P4.3.
-3. Máy/VM Windows sạch cho P6.2 (có thể là Windows Sandbox).
-4. Giữ Docker Desktop mở khi tôi chạy P0.10, P3.8, P7; tránh chạy build nặng khác cùng lúc (máy đã treo một lần).
+1. Kiểm môi trường: Docker daemon, `pip install pywebview pyinstaller pytest playwright`, WebView2.
+2. Viết `CONTRACTS.md` + khung thư mục + `gui/fixtures/*.json` + `tests/fixtures/scratch.sqlite` (copy DB `tt_test.sqlite` hôm nay).
+3. Tạo 5 worktree `feat/a1-data-core` … `feat/a5-gui-screens-6-10` từ `dev`.
+4. Phóng 5 agent đợt 1 với prompt trỏ `CONTRACTS.md`, `REVIEW.md`, vùng file, tiêu chí nghiệm thu.
+5. Cập nhật `SESSION_CONTEXT.md` mỗi điểm kiểm tra T+8 / T+15 / T+20.
