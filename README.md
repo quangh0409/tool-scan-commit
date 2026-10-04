@@ -100,7 +100,7 @@ Có sẵn `scripts/resume_skywalking.sh` làm mẫu (nối analyze→relabel→k
 | `ORCH_SUBMODULES` | 1 | Init git submodule sau checkout (repo kiểu skywalking cần) |
 | `ORCH_JDK_AUTODETECT` | 1 | Chọn image Maven theo `<java.version>` của pom mỗi commit |
 | `ORCH_MAVEN_IMAGE` | temurin-8 | Image Maven fallback khi pom không khai JDK |
-| `SONAR_ADMIN_PW` | — | Mật khẩu admin Sonar (đổi từ admin/admin lần đầu qua API) |
+| `ORCH_SONAR_ADMIN_PW` | `Orch_2026!` | Mật khẩu admin Sonar (đổi từ admin/admin lần đầu qua API) |
 | `ORCH_DOCKER_SG` | 0 | =1 để bọc mọi lệnh docker qua `sg docker -c` (gotcha nhóm) |
 
 ---
