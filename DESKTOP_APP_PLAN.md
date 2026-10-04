@@ -1,6 +1,6 @@
 # DESKTOP_APP_PLAN — Bản `.exe` cho người dùng cuối (plan + thiết kế UI/UX)
 
-> Trạng thái: **BẢN NHÁP để user đánh giá** (2026-10-04). Chưa code. Sau khi chốt → chuyển quyết định sang `TOOL_IDEA_CONTEXT.md`, tiến độ sang `SESSION_CONTEXT.md`.
+> Trạng thái: **ĐÃ CHỐT 2026-10-04** (phương án đủ 10 màn). Quyết định → `TOOL_IDEA_CONTEXT.md` §13; kế hoạch + ước tính → `TASKS.md`; review 3 vai → `REVIEW.md`. Các mục trong file này bị REVIEW chỉ ra sai (Nâng cao sửa LINE_WINDOW/VOTE, checkbox merge/raw, Parquet, số ước tính, kiến trúc backend cùng tiến trình) **lấy theo TASKS.md**, không theo bản nháp này.
 > Nguồn ý tưởng gốc (user): 1 file `.exe` → check cấu hình máy → báo thiếu gì / mở GUI → nhập link GitHub → tự liệt kê branch → chọn nhánh, khoảng thời gian commit, tool rẻ/đắt, số luồng, nơi lưu kết quả.
 
 ---

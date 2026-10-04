@@ -170,3 +170,14 @@ Bài học từ 4 repo full-history (train-ticket, mall-swarm, spring-cloud-stre
 2. ✅ **CodeQL/FindSecBugs/Sonar dạng Docker job** trên cùng VM (Maven build + auto-detect JDK per-commit).
 3. ✅ **Quét full-history 4 repo** (xem `SESSION_CONTEXT.md`). Hướng mở rộng ĐÃ ĐỔI: theo tiêu chí app thuần §11, KHÔNG theo kế hoạch Jenkins/Spring Cloud cũ.
 4. **Kế tiếp (giai đoạn kiểm định):** kiểm tay GOLD set (§6.3) đo precision → công bố; CodeQL chọn lọc trên buggy app để tăng gold; repo app #5.
+
+## 13. DESKTOP APP `.exe` + CHÍNH SÁCH PHƯƠNG PHÁP LUẬN (chốt 2026-10-04 — SỬA §8–9)
+
+> **ĐỔI so với §8–9:** máy local Windows **được chạy pipeline** (Docker Desktop) cho mục đích smoke-test, demo và nghiệm thu tái lập `--max 30`; full-history vẫn trên VM. Lý do: cần bản `.exe` cho người dùng cuối + demo hội đồng; đã vá 4 lỗi portability Windows (SESSION 2026-10-04). Kế hoạch: `TASKS.md`; thiết kế: `DESKTOP_APP_PLAN.md`; review: `REVIEW.md`.
+
+- **Phạm vi:** đủ 10 màn (Preflight, Home, Wizard 5 bước, Dashboard, Results, Settings) + Kiểm tay GOLD. GUI = pywebview + web UI tĩnh + runner nền tách rời; orchestrator giữ stdlib-only; mọi hành động GUI = 1 lệnh CLI `--profile`.
+- **Tiêu chí tái lập MVP:** train-ticket `--max 30` trên laptop: chạy từ exe → `profile.json` + `run_manifest.json`; chạy lại bằng CLI `--profile` → cùng số cụm theo nhãn; lệch chỉ ở commit `tool_timeout`/`infra_error` được liệt kê trong manifest.
+- **Cấu hình v1 "đăng ký trước", KHOÁ:** `LINE_WINDOW=3`, `GOLD_MIN_EXPENSIVE=2`, `GOLD_ALLOW_1EXP_1CHEAP=1`, `SILVER_MIN_CHEAP=2`, `NOISE_CWE={CWE-117}`; `VOTE_THRESHOLD` legacy, bỏ khỏi UI. Đổi tham số **chỉ** qua `sensitivity` trên bản sao DB (lưới W∈{3,5,7}, 1E+1C∈{0,1}, NOISE on/off — mục bắt buộc của luận văn) hoặc "Chế độ thí nghiệm" (lý do bắt buộc, tag `experiment=true`, export `_exp_<tên>`, không gộp `gold_set_all`). Cơ sở: Simmons et al. 2011 (researcher degrees of freedom), Kerr 1998 (HARKing), Kitchenham et al. 2002, Saltelli et al. 2008; CLAUDE.md gốc §12.7/§12.9.
+- **Thuật ngữ:** giữ cột nội bộ `gold/silver/candidate`; thêm trường `evidence = {consensus, validation ∈ {unreviewed, TP, FP, unclear}}`. UI/paper: "gold · đồng thuận máy" (= silver standard, Rebholz-Schuhmann et al. 2010) cho tới khi kiểm tay; chỉ "gold ✓ TP" là gold standard. `verified-clean` luôn kèm "2 tool đắt không báo — không phải chứng minh sạch".
+- **Kiểm tay:** mẫu ngẫu nhiên phân tầng CWE-group × tier, seed cố định; n=200 gold positive + n=100 verified-clean; chế độ mù; 2 rater (fallback intra-rater cách ≥1 tuần); Cohen κ (Landis & Koch 1977; McHugh 2012); adjudication; precision + Wilson CI (Brown, Cai & DasGupta 2001). File chấm công bố cùng dataset.
+- **Sửa dữ liệu trước GUI (P0):** 8 lỗi ở `REVIEW.md` §I.3, đặc biệt verified-clean giả (commit 0 module Java, 1 tool ok) và `build_failed` giả khi Docker tắt → đối soát lại `negative_level` trên 5 DB đã có, ghi delta `RESULTS.md`.
