@@ -8,7 +8,7 @@
 
 | Câu hỏi | Trả lời user | Hệ quả |
 |---|---|---|
-| 5 DB cũ | **Đã mất** | Bỏ P0.2 (đối soát). 5 dataset cũ phải **sinh lại** bằng cấu hình v1 sau (trên VM hoặc local). Số liệu trong `SESSION_CONTEXT.md` về 5 repo là lịch sử, không tái tạo được từ DB. `gold_set_all/` trong repo luận văn (nếu còn) chỉ là export jsonl, không relabel được. |
+| 5 DB cũ | **Đã mất, KHÔNG sinh lại** | Bỏ P0.2 (đối soát). Số liệu 5 repo trong `SESSION_CONTEXT.md` giữ làm lịch sử. **Dữ liệu để test tool** = 3 run sinh hôm nay: (a) DB scratch train-ticket 3 commit (đã có, dùng làm fixture pytest + mock), (b) **Run A** train-ticket `--max 30` qua CLI, (c) **Run B** cùng profile từ exe. Ba run này đủ để test Home (danh sách, trạng thái dở/xong), dropdown Results, batch queue, so sánh A/B, `stats`, `sensitivity`, tạo mẫu kiểm tay. Không chạy thêm repo nào khác trong ngày. |
 | Rater 2 | Hỏi lại | Hôm nay làm **tính năng** chấm 2 rater + fallback intra-rater. Việc chấm 300 mẫu (5–8 giờ/người) **không nằm trong 1 ngày**. |
 | Máy sạch | **Chạy local trước** | Bỏ P6.2 máy sạch; test exe trên chính laptop user. Thêm `--preflight --json` để sau này chạy trên máy khác. |
 | Thời hạn & tài nguyên | **1 ngày, ≤ 5 agent, full quyền** | Kế hoạch dưới. Chỉ **Claude trưởng** được chạy Docker (tránh 2 run giẫm nhau và treo máy). Agent làm trong **worktree riêng**, trưởng merge. |
@@ -23,7 +23,9 @@
 4. **Kiểm tay**: tạo được mẫu phân tầng có seed (200 + 100), màn chấm mù, đóng phiên ra precision + Wilson CI + Cohen κ (khi có 2 file rater). Chưa có số precision thật (user chấm sau).
 5. **Chất lượng**: `ruff` sạch; pytest unit + contract xanh; CI yml có; `README`/`GUIDE`/`METHODOLOGY`/`SESSION_CONTEXT` cập nhật; mọi thứ commit trên `dev`.
 
-**Không nằm trong ngày:** chấm tay thật; sinh lại 5 dataset cũ; máy sạch; chế độ VM qua SSH; ký code thương mại; CodeQL image (preflight có nút build nhưng không chạy hôm nay).
+6. **Dữ liệu test đủ dùng**: registry có 3 run (scratch 3 commit · Run A · Run B); `stats`, `sensitivity`, `review sample` chạy được trên DB Run A; mọi màn có dữ liệu thật để xem, không còn mock.
+
+**Không nằm trong ngày:** chấm tay thật; sinh lại 5 dataset cũ (không cần); máy sạch; chế độ VM qua SSH; ký code thương mại; CodeQL image (preflight có nút build nhưng không chạy hôm nay).
 
 ---
 
