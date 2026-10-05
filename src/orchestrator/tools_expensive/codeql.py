@@ -17,7 +17,7 @@ import re
 from .. import config
 from ..schema import RawFinding, normalize_cwe
 from ..tools.base import canon_path, docker_run
-from .base import BuildContext, ExpensiveTool, run_as_user
+from .base import BuildContext, ExpensiveTool, ToolError, run_as_user
 from .build import changed_modules, _m2_cache
 
 IMAGE = "orch-codeql:2.25.6"
@@ -64,12 +64,14 @@ class CodeQLTool(ExpensiveTool):
         sarif = ctx.clone_dir / sarif_name
         if not sarif.exists():
             tail = (proc.stderr or proc.stdout or "")[-400:]
-            raise RuntimeError(f"codeql không ra SARIF (rc={proc.returncode}): {tail}")
-        sarif_text = sarif.read_text() or "{}"
+            raise ToolError(f"codeql không ra SARIF (rc={proc.returncode}): {tail}")
+        sarif_text = sarif.read_text(encoding="utf-8", errors="replace") or "{}"
         if raw_out is not None:
             raw_out.append(("sarif", sarif_text))
         try:
             data = json.loads(sarif_text)
+        except ValueError as e:
+            raise ToolError(f"codeql SARIF hỏng: {e}") from e
         finally:
             sarif.unlink(missing_ok=True)
 

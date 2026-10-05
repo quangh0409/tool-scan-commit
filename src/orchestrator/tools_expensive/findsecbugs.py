@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 from ..schema import RawFinding, normalize_cwe
 from ..tools.base import docker_run
-from .base import BuildContext, ExpensiveTool, run_as_user
+from .base import BuildContext, ExpensiveTool, ToolError, run_as_user
 from .. import config
 
 IMAGE = "orch-findsecbugs:1.14.0"
@@ -50,11 +50,14 @@ class FindSecBugsTool(ExpensiveTool):
         if not xml.exists() or xml.stat().st_size == 0:  # file 0 byte = tool crash (vd "No files to analyze")
             xml.unlink(missing_ok=True)
             tail = (proc.stderr or proc.stdout or "")[-400:]
-            raise RuntimeError(f"findsecbugs không ra XML (rc={proc.returncode}): {tail}")
+            # ToolError -> runner ghi tool_error; message có dấu hiệu Docker/đĩa -> infra_error
+            raise ToolError(f"findsecbugs không ra XML (rc={proc.returncode}): {tail}")
         if raw_out is not None:
-            raw_out.append(("xml", xml.read_text(errors="replace")))
+            raw_out.append(("xml", xml.read_text(encoding="utf-8", errors="replace")))
         try:
             root = ET.parse(xml).getroot()
+        except ET.ParseError as e:
+            raise ToolError(f"findsecbugs XML hỏng: {e}") from e
         finally:
             xml.unlink(missing_ok=True)
 

@@ -1,6 +1,10 @@
 """
 Khung tool TẦNG ĐẮT. Khác tầng rẻ: tool nhận 1 BuildContext (đã build sẵn) thay vì
 quét source thuần. Build chạy 1 LẦN/commit rồi 3 tool dùng chung (Model A).
+
+Trạng thái (CONTRACTS §1): BuildContext.status ∈ ok | skipped | build_failed | infra_error | tool_timeout.
+Tool raise ToolError (crash/parse lỗi/XML 0 byte) -> runner ghi `tool_error`; message chứa dấu hiệu
+Docker/đĩa -> runner nâng thành `infra_error`.
 """
 from __future__ import annotations
 
@@ -10,6 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..schema import RawFinding
+
+
+class ToolError(RuntimeError):
+    """Tool đắt crash / không ra output / parse lỗi (status `tool_error`)."""
 
 
 def run_as_user() -> list[str]:
@@ -32,6 +40,13 @@ class BuildContext:
     classes_dirs: list[Path] = field(default_factory=list)  # target/classes (FindSecBugs/Sonar)
     duration_sec: float = 0.0
     error: str | None = None
+    status: str = "ok"                     # ok | skipped | build_failed | infra_error | tool_timeout
+    image: str | None = None               # image maven đã dùng thật (run_meta.tools_json)
+    modules: list[str] = field(default_factory=list)
+
+    @property
+    def skipped(self) -> bool:
+        return self.status == "skipped"
 
 
 class ExpensiveTool(ABC):
