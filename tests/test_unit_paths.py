@@ -96,7 +96,9 @@ def test_cheap_tools_mount_posix_with_weird_host_path(orch_env, fake_docker, wei
     sides = _container_sides(fake_docker.calls)
     _assert_posix(sides)
     host_sides = [c[i + 1].rsplit(":", 1)[0] for c in fake_docker.calls for i, a in enumerate(c[:-1]) if a == "-v"]
-    assert any(WEIRD in h or "horusec_proj_" in h or "bearer" in h.lower() or "tmp" in h.lower() for h in host_sides), host_sides
+    # gitleaks/trufflehog mount clone (WEIRD); semgrep/bearer/horusec copy file đổi vào thư mục tạm
+    assert any(WEIRD in h or "_proj_" in h or "semgrep" in h.lower() or "bearer" in h.lower()
+               or "tmp" in h.lower() or "temp" in h.lower() for h in host_sides), host_sides
 
 
 def test_findsecbugs_targets_posix(orch_env, fake_docker, weird_repo):
