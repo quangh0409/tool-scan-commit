@@ -8,11 +8,14 @@ Cách gọi:
   secjit-scan.exe --cli <lệnh orchestrator.cli ...>        -> orchestrator.cli.main(...)
   secjit-scan.exe -m orchestrator.cli ...                   -> runpy (runner.start dùng chính exe làm "python")
   Mọi arg khác được chuyển cho gui.__main__ (--dev --mock --port --no-browser).
+  GUI: giữ mutex single-instance `secjit-gui`; khi server lên ghi %SECJIT_HOME%/gui.json {url, port, token, pid,
+  started} (exe noconsole không có stdout), xoá khi tắt. Chạy lần 2 → mở trình duyệt tới URL trong gui.json.
 
 Set PYTHONUTF8=1 + PYTHONIOENCODING=utf-8 + SECJIT_APP_VERSION trước khi import orchestrator.
 """
 from __future__ import annotations
 
+import json
 import os
 import runpy
 import sys
@@ -183,14 +186,109 @@ def run_headless(argv: list[str]) -> int:
     return {"done": EXIT_OK, "stopped": EXIT_STOPPED}.get(status, EXIT_RUNTIME)
 
 
-def run_gui(argv: list[str]) -> int:
+# ---------------------------------------------------------------- gui.json (exe noconsole không có stdout)
+
+def gui_info_path() -> Path:
+    import registry
+    return registry.home() / "gui.json"
+
+
+def write_gui_info(url: str, port: int, token: str, pid: int | None = None) -> Path:
+    import registry
+    p = gui_info_path()
+    registry.atomic_write_json(p, {"url": url, "port": int(port), "token": token, "pid": int(pid or os.getpid()),
+                                   "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "version": APP_VERSION})
+    return p
+
+
+def read_gui_info() -> dict | None:
     try:
+        with open(gui_info_path(), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) and d.get("url") else None
+    except (OSError, ValueError):
+        return None
+
+
+def clear_gui_info(only_pid: int | None = None) -> None:
+    info = read_gui_info()
+    if info is None:
+        return
+    if only_pid is not None and info.get("pid") not in (None, only_pid):
+        return
+    try:
+        gui_info_path().unlink()
+    except OSError:
+        pass
+
+
+def _reachable(url: str, timeout: float = 2.0) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return 200 <= r.status < 500
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _patch_server_for_gui_info(server_mod) -> None:
+    """Bọc GuiServer.serve_in_thread/stop để ghi/xoá gui.json (A4 chưa có hook on_ready — xem YÊU CẦU LIÊN AGENT)."""
+    cls = server_mod.GuiServer
+    if getattr(cls, "_secjit_gui_info", False):
+        return
+    orig_serve, orig_stop = cls.serve_in_thread, cls.stop
+
+    def serve_in_thread(self, *a, **k):
+        t = orig_serve(self, *a, **k)
+        try:
+            write_gui_info(self.url, self.port, self.token)
+        except Exception as e:  # noqa: BLE001
+            print(f"CẢNH BÁO: không ghi được gui.json: {e}", file=sys.stderr)
+        return t
+
+    def stop(self, *a, **k):
+        try:
+            return orig_stop(self, *a, **k)
+        finally:
+            clear_gui_info(only_pid=os.getpid())
+
+    cls.serve_in_thread, cls.stop, cls._secjit_gui_info = serve_in_thread, stop, True
+
+
+def open_existing_instance(open_browser=None) -> int:
+    """Instance khác đang giữ mutex: đọc gui.json → pid sống + URL trả lời → mở trình duyệt tới đó."""
+    import webbrowser
+    from runner import process as rp
+    info = read_gui_info()
+    if info and rp.alive(info.get("pid")) and _reachable(info["url"]):
+        print(f"SECJIT_GUI_URL={info['url']}", flush=True)
+        print("SecJIT Scan đang chạy (pid %s) — mở lại cửa sổ trong trình duyệt." % info["pid"], flush=True)
+        (open_browser or webbrowser.open)(info["url"])
+        return EXIT_OK
+    clear_gui_info()
+    print("SecJIT Scan có vẻ đang chạy (mutex secjit-gui bị giữ) nhưng không tìm thấy URL hoạt động trong gui.json. "
+          "Đóng cửa sổ cũ (hoặc kết thúc tiến trình) rồi thử lại.", file=sys.stderr)
+    return EXIT_RUNTIME
+
+
+def run_gui(argv: list[str], open_browser=None) -> int:
+    try:
+        from gui import server as gui_server
         from gui.__main__ import main as gui_main
     except Exception as e:  # noqa: BLE001 — bản build chưa có gui
         print(f"SecJIT Scan {APP_VERSION}: GUI chưa có trong bản build này ({type(e).__name__}: {e}).", file=sys.stderr)
         print(__doc__, file=sys.stderr)
         return EXIT_ARGS
-    return int(gui_main(argv) or 0)
+    import registry
+    lock = registry.locks.single_instance("secjit-gui")
+    if not lock.acquired:
+        return open_existing_instance(open_browser)
+    _patch_server_for_gui_info(gui_server)
+    try:
+        return int(gui_main(argv) or 0)
+    finally:
+        clear_gui_info(only_pid=os.getpid())
+        lock.release()
 
 
 def main(argv: list[str] | None = None) -> int:

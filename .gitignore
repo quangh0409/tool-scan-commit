@@ -19,3 +19,4 @@ venv/
 /dist/
 packaging/_version_build.txt
 *.spec.bak
+/release/
