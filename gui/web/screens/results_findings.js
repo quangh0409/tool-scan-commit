@@ -3,11 +3,14 @@
 // GET /api/results/:id/finding/:cluster_key ; GET /api/results/:id/raw?path= (404 -> toast)
 import { h, clear, makeT, fmt, partialNote, banner, tryApi, errStatus, errText, qs, debounce, select, field, resultsHeader, findRun } from './_util.js';
 
+let tr = (k, fb) => (fb === undefined ? k : fb);
+
 const SIZE = 20;
 const CWE_GROUPS = ['csrf', 'sensitive_exposure', 'crypto', 'hardcoded_secret', 'injection', 'xss', 'path_traversal', 'other'];
 let S = null;
 
 export async function render(root, ctx) {
+  tr = makeT(ctx);
   const C = ctx.components; const t = makeT(ctx);
   const id = ctx.params.id;
   S = { dead: false, ctx, C, t, id, filters: { label: '', cwe_group: '', min_tools: '', tier: '', in_diff: '', q: '' }, page: 1, data: null, loading: true, err: null, selected: ctx.params.cluster_key || null, detail: null, detailErr: null, detailLoading: false, run: null, missing: new Set() };
@@ -40,7 +43,7 @@ function draw() {
   const { root, C, t, ctx, id } = S;
   clear(root);
   root.append(resultsHeader(ctx, id, 'findings', S.run));
-  if (S.run && (S.run.status === 'running' || S.run.status === 'interrupted')) root.append(banner('warn', 'Kết quả tạm — thiếu tầng đắt', 'Run chưa xong/chưa relabel: nhãn hiện tại chỉ từ tool đã chạy và sẽ đổi sau relabel cuối.'));
+  if (S.run && (S.run.status === 'running' || S.run.status === 'interrupted')) root.append(banner('warn', tr('fd.banner.ket_qua_tam_thieu_tang_dat', 'Kết quả tạm — thiếu tầng đắt'), tr('fd.banner_body.run_chua_xong_chua_relabel_n', 'Run chưa xong/chưa relabel: nhãn hiện tại chỉ từ tool đã chạy và sẽ đổi sau relabel cuối.')));
   const pn = partialNote([...S.missing]); if (pn) root.append(pn);
 
   // filters
@@ -49,11 +52,11 @@ function draw() {
   const qIn = h('input', { type: 'search', class: 's-input', placeholder: 'file, commit, rule, CWE…', value: F.q, 'aria-label': 'Tìm' });
   qIn.addEventListener('input', debounce(() => { F.q = qIn.value.trim(); S.page = 1; load(); }, 300));
   const filters = h('div', { class: 's-filters' },
-    field('Nhãn', select([{ value: '', label: 'tất cả' }, { value: 'gold', label: 'gold' }, { value: 'silver', label: 'silver' }, { value: 'candidate', label: 'candidate' }], F.label, upd('label'), 'Nhãn')),
-    field('CWE-group', select([{ value: '', label: 'tất cả' }, ...CWE_GROUPS.map((g) => ({ value: g, label: g }))], F.cwe_group, upd('cwe_group'), 'CWE-group')),
-    field('Số tool đồng ý', select([{ value: '', label: 'bất kỳ' }, { value: '2', label: '≥ 2' }, { value: '3', label: '≥ 3' }], F.min_tools, upd('min_tools'), 'Số tool')),
-    field('Tier', select([{ value: '', label: 'tất cả' }, { value: 'cheap', label: 'cheap' }, { value: 'expensive', label: 'expensive' }, { value: 'mixed', label: 'mixed' }], F.tier, upd('tier'), 'Tier')),
-    field('in_diff', select([{ value: '', label: 'tất cả' }, { value: '1', label: 'chỉ trong diff' }, { value: '0', label: 'ngoài diff' }], F.in_diff, upd('in_diff'), 'in_diff')),
+    field('Nhãn', select([{ value: '', label: tr('fd.btn.tat_ca', 'tất cả') }, { value: 'gold', label: tr('fd.btn.gold', 'gold') }, { value: 'silver', label: tr('fd.btn.silver', 'silver') }, { value: 'candidate', label: tr('fd.btn.candidate', 'candidate') }], F.label, upd('label'), 'Nhãn')),
+    field('CWE-group', select([{ value: '', label: tr('fd.btn.tat_ca', 'tất cả') }, ...CWE_GROUPS.map((g) => ({ value: g, label: g }))], F.cwe_group, upd('cwe_group'), 'CWE-group')),
+    field('Số tool đồng ý', select([{ value: '', label: tr('fd.btn.bat_ky', 'bất kỳ') }, { value: '2', label: tr('fd.btn.2', '≥ 2') }, { value: '3', label: tr('fd.btn.3', '≥ 3') }], F.min_tools, upd('min_tools'), 'Số tool')),
+    field('Tier', select([{ value: '', label: tr('fd.btn.tat_ca', 'tất cả') }, { value: 'cheap', label: tr('fd.btn.cheap', 'cheap') }, { value: 'expensive', label: tr('fd.btn.expensive', 'expensive') }, { value: 'mixed', label: tr('fd.btn.mixed', 'mixed') }], F.tier, upd('tier'), 'Tier')),
+    field('in_diff', select([{ value: '', label: tr('fd.btn.tat_ca', 'tất cả') }, { value: '1', label: tr('fd.btn.chi_trong_diff', 'chỉ trong diff') }, { value: '0', label: tr('fd.btn.ngoai_diff', 'ngoài diff') }], F.in_diff, upd('in_diff'), 'in_diff')),
     h('div', { class: 's-field grow' }, h('label', { for: 'f-q', text: 'Tìm' }), qIn));
   qIn.id = 'f-q';
   root.append(filters);
@@ -68,11 +71,11 @@ function draw() {
     else {
       main.append(C.card(C.table({
         columns: [
-          { key: 'commit', label: 'commit', render: (r) => h('span', { class: 's-mono', text: fmt.sha(r.commit) }) },
-          { key: 'file_path', label: 'file : dòng', render: (r) => h('span', { class: 's-mono s-ellipsis', title: r.file_path, text: `${shortPath(r.file_path)} : ${r.s_line ?? '—'}` }) },
-          { key: 'cwe', label: 'CWE', render: (r) => h('span', {}, (r.cwe || []).join(', ') || '—', r.cwe_group ? h('span', { class: 's-muted s-small', text: ` · ${r.cwe_group}` }) : null) },
-          { key: 'tools', label: 'tool', render: (r) => r.tools ? h('span', { class: 's-tools' }, r.tools.map((x) => h('span', { class: 's-tag', text: x }))) : null },
-          { key: 'label', label: 'nhãn', render: (r) => r.label ? C.badgeLabel(r.label, r.evidence) : null },
+          { key: 'commit', label: tr('fd.btn.commit', 'commit'), render: (r) => h('span', { class: 's-mono', text: fmt.sha(r.commit) }) },
+          { key: 'file_path', label: tr('fd.btn.file_dong', 'file : dòng'), render: (r) => h('span', { class: 's-mono s-ellipsis', title: r.file_path, text: `${shortPath(r.file_path)} : ${r.s_line ?? '—'}` }) },
+          { key: 'cwe', label: tr('fd.btn.cwe', 'CWE'), render: (r) => h('span', {}, (r.cwe || []).join(', ') || '—', r.cwe_group ? h('span', { class: 's-muted s-small', text: ` · ${r.cwe_group}` }) : null) },
+          { key: 'tools', label: tr('fd.btn.tool', 'tool'), render: (r) => r.tools ? h('span', { class: 's-tools' }, r.tools.map((x) => h('span', { class: 's-tag', text: x }))) : null },
+          { key: 'label', label: tr('fd.btn.nhan', 'nhãn'), render: (r) => r.label ? C.badgeLabel(r.label, r.evidence) : null },
         ],
         rows, page: d.page || S.page, size: d.size || SIZE, total: d.total, onPage: (p) => { S.page = p; load(); },
         onRow: (r) => openDetail(r.cluster_key), rowKey: (r) => r.cluster_key, selected: S.selected,
@@ -83,9 +86,9 @@ function draw() {
 
   // side panel
   const side = h('aside', { class: 'side', 'aria-label': 'Bằng chứng' });
-  if (!S.selected) side.append(C.card(h('div', { class: 's-muted', text: 'Bấm một dòng để xem bằng chứng: diff tô dòng, tool/rule/message, raw, provenance.' }), { title: 'Bằng chứng' }));
-  else if (S.detailLoading) side.append(C.card(C.skeleton(6), { title: 'Bằng chứng' }));
-  else if (S.detailErr) side.append(C.card(C.errorBox(S.detailErr, () => openDetail(S.selected)), { title: 'Bằng chứng' }));
+  if (!S.selected) side.append(C.card(h('div', { class: 's-muted', text: 'Bấm một dòng để xem bằng chứng: diff tô dòng, tool/rule/message, raw, provenance.' }), { title: tr('fd.title.bang_chung', 'Bằng chứng') }));
+  else if (S.detailLoading) side.append(C.card(C.skeleton(6), { title: tr('fd.title.bang_chung', 'Bằng chứng') }));
+  else if (S.detailErr) side.append(C.card(C.errorBox(S.detailErr, () => openDetail(S.selected)), { title: tr('fd.title.bang_chung', 'Bằng chứng') }));
   else if (S.detail) side.append(detailCard(S.detail));
   split.append(side);
   root.append(split);
@@ -124,14 +127,14 @@ function detailCard(d) {
     el.append(h('div', { class: 's-small s-muted', text: 'Tô vàng (!) = dòng tool báo (s_line); xanh (+) = dòng thêm trong commit; đỏ (−) = dòng xoá.' }));
   }
   // eligible
-  if (d.eligible) el.append(h('div', { class: 's-small' }, h('strong', { text: 'Eligible: ' }), `${(d.eligible.tools || []).join(', ') || '—'} · mẫu số ${fmt.int(d.eligible.denominator)} tool — ${fmt.int(row.n_agree)}/${fmt.int(d.eligible.denominator)} đồng ý`));
+  if (d.eligible) el.append(h('div', { class: 's-small' }, h('strong', { text: tr('fd.text.eligible', 'Eligible: ') }), `${(d.eligible.tools || []).join(', ') || '—'} · mẫu số ${fmt.int(d.eligible.denominator)} tool — ${fmt.int(row.n_agree)}/${fmt.int(d.eligible.denominator)} đồng ý`));
   // tool messages
   if (d.tool_messages) {
     const box = h('div', { class: 's-stack', style: { gap: '0' } });
     for (const m of d.tool_messages) {
       box.append(h('div', { class: 's-toolmsg' },
         h('div', { class: 'hd' }, h('strong', { text: m.tool || '—' }), h('span', { class: 's-mono', text: m.rule_id || '' }), m.severity ? h('span', { class: 's-tag', text: m.severity }) : null, h('span', { class: 's-spacer' }),
-          C.btn({ label: 'Mở raw', small: true, disabled: !m.raw_path, title: m.raw_path || 'không có raw_path', onClick: () => openRaw(m) })),
+          C.btn({ label: tr('fd.btn.mo_raw', 'Mở raw'), small: true, disabled: !m.raw_path, title: m.raw_path || 'không có raw_path', onClick: () => openRaw(m) })),
         h('div', { class: 's-small', text: m.message || '' })));
     }
     el.append(box);
@@ -140,13 +143,13 @@ function detailCard(d) {
   if (d.provenance) {
     const p = d.provenance;
     el.append(h('div', { class: 's-provenance' },
-      h('div', {}, h('strong', { text: 'Provenance · ' }), `run ${p.run_id || '—'} · W=${p.line_window ?? '—'} · luật gold: ${p.gold_rule || '—'}`),
+      h('div', {}, h('strong', { text: tr('fd.text.provenance', 'Provenance · ') }), `run ${p.run_id || '—'} · W=${p.line_window ?? '—'} · luật gold: ${p.gold_rule || '—'}`),
       h('div', { class: 's-mono' }, (p.tools_json || []).map((tj) => h('div', { text: `${tj.name}: ${tj.image || '—'}${tj.digest ? ' @ ' + tj.digest : ''}` })))));
   }
   el.append(h('div', { class: 's-row' },
-    C.btn({ label: 'Kiểm tay cụm này', small: true, onClick: () => ctx.navigate(`#/review/${id}`) }),
-    C.btn({ label: 'Đóng', small: true, onClick: () => { S.selected = null; S.detail = null; draw(); } })));
-  return C.card(el, { title: 'Bằng chứng' });
+    C.btn({ label: tr('fd.btn.kiem_tay_cum_nay', 'Kiểm tay cụm này'), small: true, onClick: () => ctx.navigate(`#/review/${id}`) }),
+    C.btn({ label: tr('fd.btn.dong', 'Đóng'), small: true, onClick: () => { S.selected = null; S.detail = null; draw(); } })));
+  return C.card(el, { title: tr('fd.title.bang_chung', 'Bằng chứng') });
 }
 
 async function openRaw(m) {
@@ -156,5 +159,5 @@ async function openRaw(m) {
   if (!S || S.dead) return;
   if (!r.ok) { C.toast(errStatus(r.err) === 404 ? `Chưa có raw ${m.raw_path} (backend chưa phục vụ /raw hoặc file đã bị dọn)` : errText(r.err), 'warn'); return; }
   const txt = typeof r.data === 'string' ? r.data : JSON.stringify(r.data, null, 2);
-  C.dialog({ title: `Raw · ${m.tool} · ${m.raw_path}`, body: h('pre', { class: 's-mono', style: { maxHeight: '60vh', overflow: 'auto', whiteSpace: 'pre-wrap' }, text: txt.slice(0, 20000) }), confirmText: 'Đóng', onConfirm: () => {} });
+  C.dialog({ title: `Raw · ${m.tool} · ${m.raw_path}`, body: h('pre', { class: 's-mono', style: { maxHeight: '60vh', overflow: 'auto', whiteSpace: 'pre-wrap' }, text: txt.slice(0, 20000) }), confirmText: tr('fd.btn.dong', 'Đóng'), onConfirm: () => {} });
 }
