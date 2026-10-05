@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -62,12 +63,36 @@ def _git(repo_dir: Path, *args: str) -> str:
     return out.stdout
 
 
-def clone_or_update(repo_url: str, dest: Path | None = None) -> Path:
-    """Clone repo target vào WORK_DIR (nếu chưa có)."""
+def _origin_matches(repo_dir: Path, repo_url: str) -> bool:
+    from .keys import canon_repo
+    try:
+        org = _git(repo_dir, "remote", "get-url", "origin").strip()
+    except subprocess.CalledProcessError:
+        return False
+    return bool(org) and canon_repo(org).lower() == canon_repo(repo_url).lower()
+
+
+def clone_or_update(repo_url: str, dest: Path | None = None, fetch: bool = True) -> Path:
+    """Clone repo target vào WORK_DIR/<owner__repo> (keys.repo_slug) nếu chưa có; đã có -> `git fetch --all --prune`.
+    Tương thích: thư mục tên cũ WORK_DIR/<repo> vẫn dùng được NẾU origin khớp (tránh trùng tên khác org)."""
+    from .keys import repo_slug
     config.ensure_dirs()
-    name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
-    dest = dest or (config.WORK_DIR / name)
+    if dest is None:
+        slug_dir = config.WORK_DIR / repo_slug(repo_url)
+        legacy = config.WORK_DIR / repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+        if (slug_dir / ".git").exists():
+            dest = slug_dir
+        elif legacy != slug_dir and (legacy / ".git").exists() and _origin_matches(legacy, repo_url):
+            dest = legacy
+        else:
+            dest = slug_dir
     if (dest / ".git").exists():
+        if fetch:
+            try:
+                _git(dest, "fetch", "--all", "--prune", "--quiet")
+            except subprocess.CalledProcessError as e:
+                print(f"[clone] CẢNH BÁO: fetch thất bại ({(e.stderr or '').strip()[:120]}) -> dùng clone hiện có",
+                      file=sys.stderr)
         return dest
     subprocess.run(["git", "clone", repo_url, str(dest)], check=True)
     return dest

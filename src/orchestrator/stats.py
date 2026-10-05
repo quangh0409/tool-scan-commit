@@ -115,7 +115,14 @@ def _kappa(conn, tabs: set[str], run_id: str | None) -> dict:
                 elif scope in key:
                     out[key[scope]].append({"group": grp, "value": value, "n": n})
             return out
-    res = kp.compute_all(_RoStore(conn))
+    db_path = Path(conn.execute("PRAGMA database_list").fetchone()[2])
+    try:                                   # A1: SQLiteStore(path, readonly=True) — không lock, không migrate
+        ro = SQLiteStore(db_path, readonly=True)
+    except TypeError:
+        ro = _RoStore(conn)
+    res = kp.compute_all(ro)
+    if isinstance(ro, SQLiteStore):
+        ro.close()
     res["run_id"] = None
     return res
 

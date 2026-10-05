@@ -137,42 +137,44 @@ def stop_cleanup(run_id: str) -> dict:
             res["networks"] = nets
     except (OSError, subprocess.SubprocessError) as e:
         res["errors"].append(f"docker không chạy được: {e}")
+    # reset-claims theo run (DB từ env ORCH_SQLITE — runner truyền env profile khi gọi stop-cleanup)
+    db = Path(config.SQLITE_PATH)
+    if db.exists():
+        try:
+            res["reset_claims"] = reset_claims(db, run_id=run_id)["reset"]
+        except Exception as e:  # noqa: BLE001 — DB đang bị run sống giữ lock, v.v.
+            res["errors"].append(f"reset-claims: {e}")
+    else:
+        res["reset_claims"] = None
     return res
 
 
 # ----------------------------------------------------------------------------- reset-claims
 def reset_claims(db: Path, run_id: str | None = None, all_stale: bool = False) -> dict:
-    """building/analyzing -> pending + xoá raw đắt bán phần. Lọc theo run_id qua expensive_runs.run_id
-    (cột A1) nếu có và không --all-stale; DB cũ không có cột -> mọi hàng building/analyzing."""
-    import sqlite3
-    conn = sqlite3.connect(str(db))
+    """building/analyzing -> pending + xoá raw đắt bán phần (raw_output/raw_findings tier=expensive) qua
+    `store.reset_claims(run_id)` của A1 (claimed_by dạng `<run_id>:wN`; None/--all-stale = tất cả).
+    expensive_runs GIỮ (telemetry — quyết định A1). Store giữ lock DB -> run đang sống trên DB đó -> RuntimeError."""
+    from .storage.sqlite_store import SQLiteStore
+    rid = None if all_stale else (run_id or None)
+    store = SQLiteStore(Path(db))
     try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(expensive_runs)")}
-        sql = "SELECT commit_id FROM selected_commits WHERE status IN ('building','analyzing')"
-        params: list = []
-        filtered = False
-        if run_id and not all_stale and "run_id" in cols:
-            sql += " AND (commit_id IN (SELECT commit_id FROM expensive_runs WHERE run_id=?) OR claimed_by LIKE ?)"
-            params = [run_id, f"{run_id}%"]
-            filtered = True
-        cids = [r[0] for r in conn.execute(sql, params)]
-        deleted = {"raw_output": 0, "raw_findings": 0, "expensive_runs": 0}
-        if cids:
-            q = ",".join("?" * len(cids))
-            deleted["raw_output"] = conn.execute(
-                f"DELETE FROM raw_output WHERE tier='expensive' AND commit_id IN ({q})", cids).rowcount
-            deleted["raw_findings"] = conn.execute(
-                f"DELETE FROM raw_findings WHERE tier='expensive' AND commit_id IN ({q})", cids).rowcount
-            deleted["expensive_runs"] = conn.execute(
-                f"DELETE FROM expensive_runs WHERE commit_id IN ({q})", cids).rowcount
-            conn.execute(
-                f"UPDATE selected_commits SET status='pending', claimed_by=NULL, claimed_at=NULL "
-                f"WHERE commit_id IN ({q})", cids)
-            conn.commit()
-        return {"db": str(db), "run_id": run_id, "filtered_by_run": filtered, "all_stale": all_stale,
-                "reset": len(cids), "commits": cids, "deleted": deleted}
+        q = "SELECT commit_id FROM selected_commits WHERE status IN ('building','analyzing')"
+        args: list = []
+        if rid:
+            q += " AND claimed_by LIKE ?"
+            args = [f"{rid}:%"]
+        cids = [r[0] for r in store.conn.execute(q, args)]
+        fn = getattr(store, "reset_claims", None)
+        if fn is not None:
+            n = fn(rid)
+        else:                                   # store cũ: tự làm 3 bước
+            for cid in cids:
+                store.reset_expensive_raw(cid)
+                store.set_commit_status(cid, "pending")
+            n = len(cids)
+        return {"db": str(db), "run_id": rid, "all_stale": all_stale, "reset": n, "commits": cids}
     finally:
-        conn.close()
+        store.close()
 
 
 # ----------------------------------------------------------------------------- clean

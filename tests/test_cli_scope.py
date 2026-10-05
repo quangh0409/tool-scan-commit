@@ -339,7 +339,7 @@ def test_reset_claims_on_scratch_db(orch_env, scratch_db):
     from orchestrator import control
     cid = "313886e99befb94be6cd45f085c98e0019f59829"
     conn = sqlite3.connect(scratch_db)
-    conn.execute("UPDATE selected_commits SET status='building', claimed_by='w0', claimed_at=datetime('now') "
+    conn.execute("UPDATE selected_commits SET status='building', claimed_by='run-x:w0', claimed_at=datetime('now') "
                  "WHERE commit_id=?", [cid])
     conn.execute("INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) VALUES (?,?,?,?,?,'')",
                  [cid, "findsecbugs", "expensive", "xml", "<x/>"])
@@ -350,12 +350,14 @@ def test_reset_claims_on_scratch_db(orch_env, scratch_db):
     n_cheap_raw = conn.execute("SELECT COUNT(*) FROM raw_findings WHERE tier='cheap'").fetchone()[0]
     conn.commit(); conn.close()
 
-    res = control.reset_claims(scratch_db, run_id="run-x")      # DB cũ không có expensive_runs.run_id -> mọi hàng
-    assert res["reset"] == 1 and res["filtered_by_run"] is False
-    assert res["deleted"] == {"raw_output": 1, "raw_findings": 1, "expensive_runs": 1}
+    assert control.reset_claims(scratch_db, run_id="run-khac")["reset"] == 0   # claim của run khác: không đụng
+    res = control.reset_claims(scratch_db, run_id="run-x")
+    assert res["reset"] == 1 and res["commits"] == [cid] and res["run_id"] == "run-x"
     conn = sqlite3.connect(scratch_db)
     assert conn.execute("SELECT status, claimed_by FROM selected_commits").fetchone() == ("pending", None)
     assert conn.execute("SELECT COUNT(*) FROM raw_findings").fetchone()[0] == n_cheap_raw   # raw rẻ giữ nguyên
+    assert conn.execute("SELECT COUNT(*) FROM raw_output WHERE tier='expensive'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM expensive_runs").fetchone()[0] == 1          # telemetry giữ (A1)
     conn.close()
     assert control.reset_claims(scratch_db, all_stale=True)["reset"] == 0
 
@@ -371,6 +373,9 @@ def test_stop_creates_stop_file_and_cleanup_uses_docker(orch_env, tmp_path, fake
     assert Path(res["stop_file"]).exists() and res["killed"] is None and not res["errors"]
     cl = control.stop_cleanup("run-1")
     assert cl["containers"] == ["abc123", "def456"] and cl["networks"] == ["net1"] and not cl["errors"]
+    assert cl["reset_claims"] == 0                              # DB scratch (ORCH_SQLITE) không có claim của run-1
+    from orchestrator import cli
+    assert cli.main(["stop-cleanup", "--run", "run-1", "--json"]) == 0     # không có gì dọn vẫn exit 0
     cmds = [" ".join(c) for c in fake_docker.calls]
     assert any("--filter label=orch.run=run-1" in c for c in cmds)
     assert any(c.startswith("docker rm -f abc123 def456") for c in cmds)
@@ -427,9 +432,7 @@ def test_kappa_compute_all_and_save(orch_env, scratch_db):
     res = kp.compute_all(store)
     assert res["n"] == 17 and {"total", "by_category", "by_group", "pairs"} <= set(res)
     assert all(set(r) == {"group", "value", "n"} for r in res["pairs"]) and res["pairs"]
-    assert kp.save_all(store, res, "run-t") == 0           # chưa có bảng kappa (A1) -> không ghi
-    store.conn.execute("CREATE TABLE kappa (run_id TEXT, scope TEXT, grp TEXT, value REAL, n INTEGER, computed_at TEXT)")
-    n = kp.save_all(store, res, "run-t")
+    n = kp.save_all(store, res, "run-t")                   # A1: store.save_kappa + bảng kappa (schema v2)
     assert n == 1 + len(res["by_category"]) + len(res["by_group"]) + len(res["pairs"])
     assert store.conn.execute("SELECT COUNT(*) FROM kappa WHERE run_id='run-t' AND scope='pair'").fetchone()[0] \
         == len(res["pairs"])
@@ -550,7 +553,8 @@ def test_scan_writes_run_meta_v2_without_vote_threshold(orch_env, monkeypatch, t
     cli = _patch_scan(monkeypatch, tmp_path, 1)
     captured = {}
     from orchestrator.storage.sqlite_store import SQLiteStore
-    monkeypatch.setattr(SQLiteStore, "insert_run_meta", lambda self, meta: captured.update(meta))
+    monkeypatch.setattr(SQLiteStore, "insert_run_meta",
+                        lambda self, tier=None, **fields: captured.update({"tier": tier, **fields}))
     rc = cli.main(["scan", "https://github.com/o/r", "--since", "2024-01-01", "--branch", "main"])
     assert rc == 0
     assert "vote_threshold" not in captured
@@ -559,7 +563,7 @@ def test_scan_writes_run_meta_v2_without_vote_threshold(orch_env, monkeypatch, t
                                                   "from_sha": None, "to_sha": None, "date_field": "committer"}
     snap = json.loads(captured["config_snapshot_json"])
     assert snap["params_v1"]["line_window"] == 3 and "ORCH_SQLITE" in snap["env"]
-    assert captured["experiment"] == 0 and captured["tools"][0]["name"] == "semgrep"
+    assert captured["experiment"] == 0 and json.loads(captured["tools_json"])[0]["name"] == "semgrep"
 
 
 def test_pipeline_passes_tools_and_scope_down(orch_env, monkeypatch):
@@ -585,3 +589,25 @@ def test_pipeline_passes_tools_and_scope_down(orch_env, monkeypatch):
     monkeypatch.setattr(cli, "cmd_select", lambda ns: 3)
     assert cli.main(["pipeline", "https://github.com/o/r", "--max", "3"]) == 3
     assert [s[0] for s in seen] == ["cmd_scan"]
+
+
+# ----------------------------------------------------------------------------- clone_or_update: slug + legacy + fetch
+def test_clone_or_update_prefers_slug_then_legacy_with_matching_origin(orch_env, tiny_repo, tmp_path, capsys):
+    from orchestrator import config, enumerate_commits as enm
+    r, _ = tiny_repo
+    work = tmp_path / "w"
+    work.mkdir()
+    config.WORK_DIR = work
+    url = "https://github.com/o/r"
+    legacy = work / "r"
+    _git(tmp_path, "clone", "-q", str(r), str(legacy))
+    _git(legacy, "remote", "set-url", "origin", url)
+    assert enm._origin_matches(legacy, url) and enm._origin_matches(legacy, "https://github.com/O/R.git")
+    assert not enm._origin_matches(legacy, "https://github.com/other/r")
+    # chưa có slug dir, legacy khớp origin -> dùng legacy (fetch tới URL giả thất bại -> chỉ cảnh báo)
+    assert enm.clone_or_update(url) == legacy
+    assert "fetch thất bại" in capsys.readouterr().err
+    # slug dir xuất hiện -> ưu tiên slug
+    slug = work / "o__r"
+    _git(tmp_path, "clone", "-q", str(r), str(slug))
+    assert enm.clone_or_update(url, fetch=False) == slug

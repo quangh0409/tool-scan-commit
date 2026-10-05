@@ -175,6 +175,15 @@ def _run_meta(args, tier: str, scope: dict, tools: list) -> dict:
     }
 
 
+def _insert_run_meta(store, meta: dict):
+    """A1 store mới: insert_run_meta(tier, **fields); store cũ: insert_run_meta(dict). Thử mới trước."""
+    fields = {k: v for k, v in meta.items() if k not in ("tier", "scope", "tools", "max_commits", "line_window")}
+    try:
+        return store.insert_run_meta(meta["tier"], **fields)
+    except TypeError:
+        return store.insert_run_meta(meta)
+
+
 # --------------------------------------------------------------------------------------
 # enumerate / scan
 # --------------------------------------------------------------------------------------
@@ -257,7 +266,7 @@ def cmd_scan(args):
 
     if not args.no_meta:
         print("Thu thập version/digest tool...")
-        store.insert_run_meta(_run_meta(args, "scan", scope, [
+        _insert_run_meta(store, _run_meta(args, "scan", scope, [
             {"name": t.name, "version": t.version(), "digest": t.digest()} for t in tools]))
 
     todo, skipped_big = [], []
@@ -293,7 +302,7 @@ def cmd_scan(args):
         store.close()
         return EXIT_OK
 
-    pool = RepoPool(repo_dir, workers)
+    pool = RepoPool(repo_dir, workers, repo=args.repo)
 
     def _process(ci):
         clone = pool.acquire()
@@ -394,11 +403,14 @@ def cmd_analyze(args):
     if args.codeql is not None:
         config.USE_CODEQL = args.codeql
     tools = _expensive_tool_names(args)
-    res = expensive_runner.analyze(args.repo, workers=args.workers, dry_run=bool(args.dry_run), tools=tools)
+    res = expensive_runner.analyze(args.repo, workers=args.workers, dry_run=bool(args.dry_run), tools=tools,
+                                   branch=getattr(args, "branch", None))
     _out(args, res, f"\nXong: done={res.get('done', 0)} build_failed={res.get('build_failed', 0)} "
-                    f"| {res.get('workers')} worker, tool {res.get('tools')}\n"
+                    f"skipped={res.get('skipped', 0)} infra_error={res.get('infra_error', 0)} "
+                    f"tool_timeout={res.get('tool_timeout', 0)} | {res.get('workers')} worker, tool {res.get('tools')}\n"
                     f"selected_commits status: {res.get('status_counts')}")
     if res.get("stopped"):
+        print(f"⏹ analyze DỪNG: {res.get('stop_reason') or 'stop-file'}", file=sys.stderr)
         return EXIT_STOP
     return EXIT_OK
 
@@ -435,7 +447,7 @@ def cmd_kappa(args):
     progress.emit(phase="kappa", event="start")
     store = SQLiteStore()
     res = kp.compute_all(store)
-    n_saved = kp.save_all(store, res, config.RUN_ID)
+    n_saved = kp.save_all(store, res, progress.run_id())
     store.close()
     lines = [f"Fleiss' kappa TỔNG: {_fmt_k(res['total'])}  ({kp._label(res['total'])}) | {res['n']} item ≥2 rater",
              "theo CATEGORY:"]
@@ -445,9 +457,9 @@ def cmd_kappa(args):
     lines += [f"  {r['group']:18} κ={_fmt_k(r['value']):>7}  n={r['n']}" for r in res["by_group"]]
     lines.append("theo CẶP TOOL:")
     lines += [f"  {r['group']:22} κ={_fmt_k(r['value']):>7}  n={r['n']}" for r in res["pairs"]]
-    lines.append(f"(đã lưu {n_saved} dòng vào bảng kappa, run_id={config.RUN_ID})" if n_saved
+    lines.append(f"(đã lưu {n_saved} dòng vào bảng kappa, run_id={progress.run_id()})" if n_saved
                  else "(bảng kappa chưa có — chỉ in; A1 tạo bảng ở schema v2)")
-    _out(args, {**res, "saved": n_saved, "run_id": config.RUN_ID}, "\n".join(lines))
+    _out(args, {**res, "saved": n_saved, "run_id": progress.run_id()}, "\n".join(lines))
     progress.emit(phase="kappa", event="done", done=res["n"], total=res["n"])
     return EXIT_OK
 
@@ -482,8 +494,15 @@ def cmd_export(args):
     from .storage.sqlite_store import SQLiteStore
     progress.emit(phase="export", event="start")
     store = SQLiteStore()
-    res = export_dataset.export_all(store, Path(args.out or config.EXPORT_DIR))
+    out_dir = Path(args.out or config.EXPORT_DIR)
+    try:
+        res = export_dataset.export_all(store, out_dir, profile=getattr(args, "profile_data", None),
+                                        run_id=progress.run_id())
+    except TypeError:                       # export cũ chưa nhận profile/run_id
+        res = export_dataset.export_all(store, out_dir)
     store.close()
+    if str(res.get("out", out_dir)) != str(out_dir):
+        _warn(f"export: đích {out_dir} không rỗng -> ghi sang thư mục mới {res['out']}")
     _out(args, res, f"Export {res.get('commits')} commit | {res.get('raw_files')} file raw -> {res.get('out')}\n"
                     f"negatives: {res.get('negatives', {})} (verified-clean = qua tầng đắt; cheap-clean = chỉ rẻ)")
     progress.emit(phase="export", event="done", done=res.get("commits"), total=res.get("commits"))
@@ -596,7 +615,7 @@ def cmd_stop_cleanup(args):
     from . import control
     res = control.stop_cleanup(args.run)
     _out(args, res, f"stop-cleanup run={args.run}: containers={res['containers']} networks={res['networks']} "
-                    f"| errors={res['errors']}")
+                    f"| reset-claims={res.get('reset_claims')} | errors={res['errors']}")
     return EXIT_OK if not res["errors"] else EXIT_RUNTIME
 
 
@@ -607,8 +626,8 @@ def cmd_reset_claims(args):
         raise CliError(f"DB không tồn tại: {db}")
     res = control.reset_claims(db, run_id=args.run, all_stale=args.all_stale)
     _out(args, res, f"reset-claims: {res['reset']} commit building/analyzing -> pending "
-                    f"| xoá raw đắt bán phần: raw_output={res['deleted']['raw_output']} "
-                    f"raw_findings={res['deleted']['raw_findings']} expensive_runs={res['deleted']['expensive_runs']}")
+                    f"(run={res['run_id'] or 'TẤT CẢ'}) | xoá raw đắt bán phần của {len(res['commits'])} commit "
+                    f"(expensive_runs giữ làm telemetry — A1 store.reset_claims)")
     return EXIT_OK
 
 
@@ -677,6 +696,7 @@ def build_parser() -> argparse.ArgumentParser:
     pa = sub.add_parser("analyze", parents=[parent], help="TẦNG ĐẮT: selected_commits -> build + CodeQL/FSB/Sonar")
     pa.add_argument("repo")
     pa.add_argument("--workers", type=int, default=config.EXPENSIVE_WORKERS)
+    pa.add_argument("--branch", default=None, help="nhánh (truyền cho runner để fetch/verify)")
     pa.add_argument("--expensive-tools", dest="expensive_tools", default=None,
                     help=f"tool đắt a,b (mặc định ORCH_EXPENSIVE_TOOLS={config.EXPENSIVE_TOOLS})")
     pa.add_argument("--tools", default=None, help="(alias cũ của --expensive-tools)")
