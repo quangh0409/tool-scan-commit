@@ -76,14 +76,19 @@ export const STATUS_CLASS = {
   running: 'accent', stopped: 'muted', failed: 'bad', interrupted: 'warn',
 };
 export const STATUS_LABEL = {
-  ok: 'ok', done: 'xong', skipped: 'skipped · không có module Java', build_failed: 'build_failed · lỗi dữ liệu',
-  infra_error: 'infra_error · lỗi hạ tầng', tool_timeout: 'tool_timeout', tool_error: 'tool_error',
+  ok: 'ok', done: 'xong', skipped: 'skipped', build_failed: 'build_failed', infra_error: 'infra_error',
+  tool_timeout: 'tool_timeout', tool_error: 'tool_error',
   pending: 'chờ', building: 'đang build', analyzing: 'đang phân tích', running: 'đang chạy', stopped: 'đã dừng',
   failed: 'thất bại', interrupted: 'bị ngắt',
 };
+export const STATUS_HINT = {
+  skipped: 'không có module Java → không build; không tính verified-clean', build_failed: 'Maven rc≠0 vì dữ liệu (dependency mất, compile lỗi)',
+  infra_error: 'lỗi hạ tầng (Docker/đĩa/mạng) — commit về pending, không đếm là dữ liệu', tool_timeout: 'một tool vượt timeout',
+  tool_error: 'tool crash/parse lỗi', interrupted: 'tiến trình nền chết khi DB còn building/analyzing',
+};
 export function statusTag(status) {
   const s = status || 'unknown';
-  return h('span', { class: `s-tag st-${STATUS_CLASS[s] || 'muted'}`, title: s, text: STATUS_LABEL[s] || s });
+  return h('span', { class: `s-tag st-${STATUS_CLASS[s] || 'muted'}`, title: STATUS_HINT[s] || s, text: STATUS_LABEL[s] || s });
 }
 
 /** Ghi chú "partial": backend trả thiếu trường. */
