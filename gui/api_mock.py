@@ -18,7 +18,8 @@ import threading
 import time
 
 from . import FIXTURES_DIR
-from .server import ApiError, Binary, Request, SseFile
+from .errors import ApiError
+from .server import Binary, Request, SseFile, Text
 
 MOCK_LOADING_SEC = 20.0
 
@@ -265,6 +266,28 @@ class MockApi:
         if "csv" in fmts:
             files += ["dataset.csv", "commits.csv"]
         return {"export_dir": "D:\\secjit\\results\\export_FudanSELab__train-ticket_master_20261005", "files": files}
+
+    def results_raw(self, req: Request):
+        self._gate(req)
+        path = req.query.get("path") or ""
+        if not path or "missing" in path:
+            raise ApiError(404, "not_found", f"Không có raw {path}", "File đã bị dọn hoặc backend chưa phục vụ /raw")
+        return Text(f"# raw giả lập cho {path}\n" + json.dumps(_fx("finding.json").get("tool_messages", []), ensure_ascii=False, indent=2))
+
+    def results_features(self, req: Request):
+        self._gate(req)
+        return {"ok": True, "computed": 27, "detail": "Kamei 14 đặc trưng (mock)"}
+
+    def results_relabel(self, req: Request):
+        self._gate(req)
+        return {"ok": True, "relabeled": 27, "gold": 2, "silver": 11, "candidate": 17}
+
+    def open_path(self, req: Request):
+        self._gate(req)
+        p = (req.body or {}).get("path") or req.query.get("path") or ""
+        if not p:
+            raise ApiError(404, "not_found", "Thiếu path", "")
+        return {"ok": True, "path": p}
 
     def review_sample(self, req: Request):
         self._gate(req)

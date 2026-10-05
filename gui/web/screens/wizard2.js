@@ -123,6 +123,8 @@ async function runEstimate() {
   } catch (e) {
     if (!alive || seq !== estSeq) return;
     drawEstimate(null, e);
+    // backend đang clone nền -> thử lại sau 5 s (đến khi rời màn)
+    if (e.code === 'clone_pending') setTimeout(() => { if (alive && seq === estSeq) runEstimate(); }, 5000);
   }
 }
 

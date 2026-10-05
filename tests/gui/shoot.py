@@ -33,6 +33,19 @@ PLAN: dict[str, list[str]] = {
     "wizard/3": ["", "partial"],
     "wizard/4": ["", "error", "partial"],
     "wizard/5": ["", "loading", "error", "partial"],
+    # ---- màn 6–10 của A5 chạy trong khung thật (router/ctx của A4) trên server mock ----
+    "run/r-20261005-A": ["", "loading", "error", "empty", "partial"],
+    "run/r-20261005-int": [""],
+    "results/r-20261005-A/overview": ["", "loading", "error", "empty", "partial"],
+    "results/r-20261005-A/findings": ["", "error", "empty", "partial"],
+    "results/r-20261005-A/commits": ["", "error", "empty"],
+    "results/r-20261005-A/export": ["", "error"],
+    "review/r-20261005-A": ["", "error", "empty"],
+    "settings/docker": ["", "error"],
+    "settings/storage": ["", "error", "empty"],
+    "settings/profiles": ["", "empty"],
+    "settings/language": [""],
+    "settings/mode": [""],
 }
 
 # Profile mẫu seed vào sessionStorage để wizard 2–5 có dữ liệu (CONTRACTS §2)
@@ -78,9 +91,10 @@ def seed_script(route: str, state: str) -> str:
     return "\n".join(lines)
 
 
-def start_server() -> tuple[subprocess.Popen, str]:
+def start_server(real: bool = False) -> tuple[subprocess.Popen, str]:
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-    proc = subprocess.Popen([sys.executable, "-m", "gui", "--mock", "--no-browser", "--dev"], cwd=str(ROOT), env=env,
+    argv = [sys.executable, "-m", "gui", "--no-browser", "--dev"] + ([] if real else ["--mock"])
+    proc = subprocess.Popen(argv, cwd=str(ROOT), env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     url = ""
     deadline = time.time() + 20
@@ -107,6 +121,9 @@ def main(argv=None) -> int:
     ap.add_argument("--mock", action="store_true", help="(luôn mock; cờ giữ cho tương thích CONTRACTS §10)")
     ap.add_argument("--keep-going", action="store_true", help="không dừng ở lỗi console")
     ap.add_argument("--height", type=int, default=900, help="chiều cao viewport (mặc định 900; tăng để thấy phần dưới)")
+    ap.add_argument("--real", action="store_true", help="server thật (không --mock); set SECJIT_HOME trước để trỏ registry giả")
+    ap.add_argument("--no-seed", action="store_true", help="không seed sessionStorage (dùng dữ liệu thật)")
+    ap.add_argument("--wait", type=int, default=15000, help="ms chờ body[data-ready] (real preflight cần ~60000)")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -114,7 +131,7 @@ def main(argv=None) -> int:
 
     from playwright.sync_api import sync_playwright
 
-    proc, url = start_server()
+    proc, url = start_server(real=a.real)
     base, _, token = url.partition("?t=")
     shots: list[str] = []
     errors: list[str] = []
@@ -125,7 +142,8 @@ def main(argv=None) -> int:
                 for state in PLAN.get(route, [""]):
                     ctx = browser.new_context(viewport={"width": 1280, "height": a.height}, locale="vi-VN", device_scale_factor=1)
                     page = ctx.new_page()
-                    page.add_init_script(seed_script(route, state))
+                    if not a.no_seed:
+                        page.add_init_script(seed_script(route, state))
                     cons: list[str] = []
                     page.on("console", lambda m, c=cons: c.append(f"{m.type}: {m.text}") if m.type == "error" else None)
                     page.on("pageerror", lambda e, c=cons: c.append(f"pageerror: {e}"))
@@ -133,14 +151,22 @@ def main(argv=None) -> int:
                     page.goto(f"{base}?t={token}#/{route}{q}", wait_until="domcontentloaded")
                     if state == "loading":
                         page.wait_for_timeout(900)
+                    elif route.startswith("run/"):
+                        # dashboard: SSE replay + draw vài lượt
+                        page.wait_for_timeout(2500)
                     else:
                         try:
-                            page.wait_for_selector("body[data-ready='1']", timeout=15000)
+                            page.wait_for_selector("body[data-ready='1']", timeout=a.wait)
                             page.wait_for_timeout(500)   # chờ các request phụ (estimate/shell debounce)
-                            page.wait_for_load_state("networkidle", timeout=5000)
                         except Exception as e:  # noqa: BLE001
                             cons.append(f"timeout: không thấy data-ready ({type(e).__name__})")
-                    name = f"{route.replace('/', '-')}{'--' + state if state else ''}.png"
+                        try:
+                            # request nền (preflight thật/storage) có thể còn treo — không coi là lỗi
+                            page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", route.replace("/", "-"))
+                    name = f"{safe}{'--' + state if state else ''}.png"
                     page.screenshot(path=str(out / name), full_page=True)
                     shots.append(name)
                     bad = [c for c in cons if not (state == "error" and "Failed to load resource" in c)]

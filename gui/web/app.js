@@ -25,14 +25,14 @@ export const ROUTES = [
   { path: 'results/:id/commits',       screen: 'results_commits',    chrome: 'app',    title: 'route.results',  nav: 'home' },
   { path: 'results/:id/export',        screen: 'results_export',     chrome: 'app',    title: 'route.results',  nav: 'home' },
   { path: 'review/:id',                screen: 'review',             chrome: 'app',    title: 'route.review',   nav: 'home' },
-  { path: 'settings',                  redirect: 'settings/general' },
+  { path: 'settings',                  redirect: 'settings/docker' },
   { path: 'settings/:tab',             screen: 'settings',           chrome: 'app',    title: 'route.settings', nav: 'settings' },
 ];
 
 export const NAV = [
   { id: 'home',      href: '#/home',             label: 'nav.home',      icon: '⌂' },
   { id: 'new',       href: '#/wizard/1',         label: 'nav.new',       icon: '＋' },
-  { id: 'settings',  href: '#/settings/general', label: 'nav.settings',  icon: '⚙' },
+  { id: 'settings',  href: '#/settings/docker',  label: 'nav.settings',  icon: '⚙' },
   { id: 'preflight', href: '#/preflight',        label: 'nav.preflight', icon: '✓' },
 ];
 
@@ -62,12 +62,24 @@ export class ApiError extends Error {
   constructor(status, code, message, hint) {
     super(message || code || `HTTP ${status}`);
     this.status = status; this.code = code || 'error'; this.hint = hint || '';
+    // §12 (A5): lỗi reject dạng {status, error:{code,message,hint}} — giữ cả hai hình dạng
+    this.error = { code: this.code, message: this.message, hint: this.hint, status };
   }
 }
 
-/** Gọi API JSON. Tự gắn X-Token, chuyển tiếp ?state= của route (mock QA), parse lỗi {error:{...}}. */
+/** URL tuyệt đối kèm token (cho <a download>, EventSource…). */
+export function apiUrl(path) {
+  const u = new URL(path, location.origin);
+  u.searchParams.set('t', TOKEN);
+  const st = currentRoute && currentRoute.query && currentRoute.query.state;
+  if (st && !u.searchParams.has('state')) u.searchParams.set('state', st);
+  return u.toString();
+}
+
+/** Gọi API JSON. Tự gắn X-Token, chuyển tiếp ?state= của route (mock QA), parse lỗi {error:{...}}.
+ *  opts.raw=true -> trả text thô (vd /raw?path=). */
 export async function api(path, opts = {}) {
-  const { method = 'GET', body, query, timeout = 60000, signal } = opts;
+  const { method = 'GET', body, query, timeout = 60000, signal, raw = false } = opts;
   const url = new URL(path, location.origin);
   if (query) for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
   const st = currentRoute && currentRoute.query && currentRoute.query.state;
@@ -89,8 +101,9 @@ export async function api(path, opts = {}) {
   const ctype = res.headers.get('Content-Type') || '';
   if (!ctype.includes('json')) {
     if (!res.ok) throw new ApiError(res.status, 'http_' + res.status, res.statusText, '');
-    return res;
+    return raw ? await res.text() : res;
   }
+  if (raw) return await res.text();
   let data = null;
   try { data = await res.json(); } catch (_) { data = null; }
   if (!res.ok) {
@@ -101,17 +114,16 @@ export async function api(path, opts = {}) {
   return data;
 }
 
-/** SSE: EventSource không gửi header -> dùng ?t=. Trả {close()}. */
+/** SSE: EventSource không gửi header -> dùng ?t=. Trả closer() (gọi được như hàm, có .close() và .source). */
 export function sse(path, onMessage, { onEnd, onError } = {}) {
-  const url = new URL(path, location.origin);
-  url.searchParams.set('t', TOKEN);
-  const st = currentRoute && currentRoute.query && currentRoute.query.state;
-  if (st) url.searchParams.set('state', st);
-  const es = new EventSource(url);
+  const es = new EventSource(apiUrl(path));
   es.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch (_) { onMessage({ raw: ev.data }); } };
   es.addEventListener('end', () => { es.close(); if (onEnd) onEnd(); });
   es.onerror = (ev) => { if (onError) onError(ev); };
-  return { close: () => es.close(), source: es };
+  const closer = () => es.close();
+  closer.close = closer;
+  closer.source = es;
+  return closer;
 }
 
 // ====================================================================================
@@ -126,6 +138,8 @@ export async function loadI18n() {
   for (const l of ['vi', 'en']) {
     try { DICT[l] = await (await fetch(`i18n/${l}.json`, { cache: 'no-cache' })).json(); } catch (_) { DICT[l] = {}; }
   }
+  // chuỗi màn 6–10 (A5): khoá phẳng, gộp vào VI (EN rơi về VI)
+  try { Object.assign(DICT.vi, await (await fetch('i18n/vi_screens.json', { cache: 'no-cache' })).json()); } catch (_) { /* không có */ }
   try { LANG = localStorage.getItem(LANG_KEY) || 'vi'; } catch (_) { LANG = 'vi'; }
 }
 export function setLang(l) {
@@ -210,16 +224,23 @@ export function card({ title, subtitle, actions, body, footer, cls, list } = {})
   return el;
 }
 
-export function table({ columns, rows, page = 1, size = 20, total, onPage, rowKey, emptyMsg, cls }) {
+/** table: thêm onRow/rowKey/selected/emptyMsg theo §12 (A5). Bấm/Enter dòng -> onRow(row). */
+export function table({ columns, rows, page = 1, size = 20, total, onPage, onRow, rowKey, selected, emptyMsg, cls }) {
   const wrap = h('div', { class: ['tbl-wrap', cls || ''].join(' ') });
   const tbl = h('table', { class: 'tbl' });
-  tbl.append(h('thead', {}, h('tr', {}, columns.map(c => h('th', { class: c.num ? 'num' : '', style: c.width ? { width: c.width } : undefined }, t(c.label))))));
+  tbl.append(h('thead', {}, h('tr', {}, columns.map(c => h('th', { scope: 'col', class: c.num ? 'num' : '', style: c.width ? { width: c.width } : undefined }, t(c.label))))));
   const tb = h('tbody');
   if (!rows || !rows.length) {
     tb.append(h('tr', {}, h('td', { colspan: columns.length }, empty(emptyMsg || t('empty.rows')))));
   } else {
     for (const r of rows) {
-      const tr = h('tr', { 'data-key': rowKey ? rowKey(r) : undefined });
+      const key = rowKey ? rowKey(r) : undefined;
+      const tr = h('tr', { 'data-key': key, class: [onRow ? 'clickable' : '', selected !== undefined && key === selected ? 'sel' : ''].join(' ').trim() || undefined });
+      if (onRow) {
+        tr.tabIndex = 0; tr.setAttribute('role', 'button');
+        tr.addEventListener('click', () => onRow(r));
+        tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRow(r); } });
+      }
       for (const c of columns) {
         const v = c.render ? c.render(r) : r[c.key];
         tr.append(h('td', { class: [c.num ? 'num' : '', c.cls || ''].join(' ') }, v === undefined || v === null ? '—' : v));
@@ -312,6 +333,52 @@ export function dialog({ title, body, confirmText, cancelText, typedConfirm, dan
     setTimeout(() => { const f = typed || (fields && inputs[fields[0].name]) || ok; f.focus(); }, 0);
   });
 }
+
+/** dialogEl — chữ ký A5/_shim (§12): {title, body, confirmText, typedConfirm, onConfirm, cancelText, kind} -> <dialog> native.
+ *  returnValue 'ok' | 'cancel'; onConfirm throw -> toast lỗi, dialog mở lại nút. */
+export function dialogEl({ title, body, confirmText, typedConfirm, onConfirm, cancelText, kind = 'primary' } = {}) {
+  const dlg = h('dialog', { class: 'dlg-native' });
+  const inner = h('div', { class: 'dlg card' }, h('div', { class: 'card-h' }, h('h2', {}, title || '')));
+  const bodyEl = h('div', { class: 'card-b' });
+  if (body) bodyEl.append(typeof body === 'string' ? h('p', {}, body) : body);
+  let input = null;
+  if (typedConfirm) {
+    input = h('input', { class: 'input mono', id: 'dlg-typed-' + Math.random().toString(36).slice(2, 8), autocomplete: 'off', spellcheck: 'false' });
+    bodyEl.append(h('label', { class: 'field', for: input.id }, h('span', {}, t('dialog.type_to_confirm', { text: typedConfirm })), input));
+  }
+  const ok = btn(confirmText || t('ok'), { kind: kind === 'danger' ? 'danger' : 'primary', disabled: !!typedConfirm });
+  const cancel = btn(cancelText || t('cancel'), { onClick: () => dlg.close('cancel') });
+  if (input) input.addEventListener('input', () => { ok.disabled = input.value.trim() !== typedConfirm; });
+  ok.addEventListener('click', async () => {
+    ok.disabled = true;
+    try { await (onConfirm && onConfirm(input ? input.value : undefined)); dlg.close('ok'); }
+    catch (e) { ok.disabled = false; toast((e && (e.message || (e.error && e.error.message))) || String(e), 'bad'); }
+  });
+  inner.append(bodyEl, h('div', { class: 'card-f' }, cancel, ok));
+  dlg.append(inner);
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); dlg.close('cancel'); });
+  document.body.append(dlg);
+  dlg.showModal();
+  setTimeout(() => (input || ok).focus(), 0);
+  return dlg;
+}
+
+/** ctx.components — chữ ký A5 (_shim.js / CONTRACTS §12) bọc component của khung này. */
+export const components = {
+  btn({ label, kind = 'default', onClick, disabled = false, small = false, title, ariaLabel, href } = {}) {
+    return btn(label, { kind: kind === 'default' ? '' : kind, onClick, disabled, small, title, ariaLabel, href });
+  },
+  card(children, { title, extraClass, subtitle, actions } = {}) {
+    const kids = [].concat(children === undefined || children === null ? [] : children).flat(Infinity).filter(x => x !== null && x !== undefined && x !== false);
+    return card({ title, subtitle, actions, body: kids.length ? h('div', { class: 'stack' }, kids) : undefined, cls: extraClass });
+  },
+  table(opts) { return table(Object.assign({}, opts, { columns: (opts.columns || []).map(c => Object.assign({}, c, { label: c.label })) })); },
+  toast(msg, kind = 'info') { return toast(msg, kind === 'error' ? 'bad' : kind); },
+  dialog: dialogEl,
+  empty(msg) { return empty(msg || t('empty.rows')); },
+  errorBox, skeleton, badgeLabel, notice, progress, h,
+};
 
 export function empty(msg, { action, icon } = {}) {
   return h('div', { class: 'empty' }, h('div', { class: 'ico', 'aria-hidden': 'true' }, icon || '○'), h('p', {}, msg), action || null);
@@ -543,7 +610,13 @@ export async function route() {
   if (!path) { location.replace('#/' + (preflightCache.get() && preflightCache.get().ready ? 'home' : 'preflight')); return; }
   const m = matchRoute(path);
   const main = document.getElementById('main');
-  if (currentScreen && currentScreen.destroy) { try { currentScreen.destroy(); } catch (_) { /* ignore */ } }
+  if (currentScreen) {
+    // Hoãn destroy() sang SAU lượt dispatch hashchange hiện tại: màn (vd dashboard A5) có thể đăng ký
+    // listener hashchange riêng để hỏi "Chạy nền / Huỷ" — gỡ listener ngay sẽ nuốt mất hộp thoại đó.
+    await new Promise(r => setTimeout(r, 0));
+    if (seq !== renderSeq) return;
+    if (currentScreen.destroy) { try { currentScreen.destroy(); } catch (_) { /* ignore */ } }
+  }
   currentScreen = null;
   if (!m) {
     currentRoute = { path, params: {}, query };
@@ -580,7 +653,8 @@ export async function route() {
   if (seq !== renderSeq) return;
   clear(main);
   currentScreen = mod;
-  const ctx = { params: m.params, query, state: query.state || '', navigate, api, t, route: m.route };
+  const ctx = { params: m.params, query, state: query.state || '', navigate, api, t, route: m.route,
+    sse, url: apiUrl, components, lang: LANG };
   try {
     await mod.render(main, ctx);
   } catch (e) {
@@ -607,5 +681,5 @@ async function boot() {
   await route();
   refreshPreflight().catch(() => {});
 }
-window.SecJIT = { api, sse, t, h, btn, card, table, stepper, toast, dialog, empty, errorBox, skeleton, badgeLabel, badgeStatus, notice, progress, wiz, fmt, navigate, ROUTES, preflightCache, refreshPreflight, copyText };
+window.SecJIT = { api, apiUrl, sse, t, h, btn, card, table, stepper, toast, dialog, dialogEl, components, empty, errorBox, skeleton, badgeLabel, badgeStatus, notice, progress, wiz, fmt, navigate, ROUTES, preflightCache, refreshPreflight, copyText };
 boot();
