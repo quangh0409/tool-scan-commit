@@ -14,7 +14,8 @@ from pathlib import Path
 from . import keys
 
 EXPLAIN_KEYS = ("tool_timeout", "infra_error", "skipped")
-_ALL_EXPLAIN = EXPLAIN_KEYS + ("build_failed",)
+# manifest A1 có thêm tool_error[] và cheap_infra_error[] ({commit, tool, tier}); build_failed[] từ selected_commits
+_ALL_EXPLAIN = EXPLAIN_KEYS + ("build_failed", "tool_error", "cheap_infra_error")
 
 
 def _row_key(row: dict, line_window: int | None = None) -> str:
@@ -100,6 +101,11 @@ def _load_db(db: Path) -> dict:
             for cid, st in conn.execute("SELECT DISTINCT commit_id, status FROM expensive_runs"):
                 if st in explain:
                     explain[st].add(cid)
+        if "scan_tool_errors" in tabs:
+            for cid, kind in conn.execute("SELECT DISTINCT commit_id, kind FROM scan_tool_errors"):
+                key = "cheap_infra_error" if kind == "infra_error" else ("tool_error" if kind == "tool_error" else kind)
+                if key in explain:
+                    explain[key].add(cid)
         if "selected_commits" in tabs:
             for (cid,) in conn.execute("SELECT commit_id FROM selected_commits WHERE status='build_failed'"):
                 explain["build_failed"].add(cid)
@@ -149,7 +155,7 @@ def compare(a: str | Path, b: str | Path) -> dict:
         "label_changed": [{"cluster_key": k, "a": A["rows"][k]["label"], "b": B["rows"][k]["label"],
                            "commit": A["rows"][k]["commit"], "file_path": A["rows"][k]["file_path"]}
                           for k in changed],
-        "explained_by": {k: explained[k] for k in EXPLAIN_KEYS} | {"build_failed": explained["build_failed"]},
+        "explained_by": {k: explained[k] for k in _ALL_EXPLAIN},
         "unexplained": unexplained,
         "diffs": diff_rows,
         "ok": not unexplained,

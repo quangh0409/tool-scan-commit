@@ -851,3 +851,63 @@ def test_stats_limits_cross_tool_sentence_on_smoke(orch_env, tmp_path):
     # DB scratch (chỉ tool rẻ) -> không có câu đó
     ov2 = stats.overview(ROOT / "tests" / "fixtures" / "scratch.db")
     assert ov2["cross_tool"]["expensive_tools_seen"] == [] and not any("neo cùng một lỗi" in s for s in ov2["limits"])
+
+
+# ----------------------------------------------------------------------------- anchor_gap đo thật + compare lý do mới
+def test_anchor_gap_measured_on_smoke(orch_env, tmp_path):
+    import shutil
+    from orchestrator import stats
+    db = tmp_path / "smoke.sqlite"
+    shutil.copy(ROOT / "tests" / "fixtures" / "smoke_v2.db", db)
+    ov = stats.overview(db)
+    ag = ov["cross_tool"]["anchor_gap"]
+    assert ag["pairs_same_file_group"] > 0 and ag["min"] >= 1 and ag["min"] <= ag["median"] <= ag["p90"]
+    by = {g["group"]: g for g in ag["by_group"]}
+    assert "csrf" in by and 40 <= by["csrf"]["min"] <= by["csrf"]["max"] <= 43
+    k915 = next((k for k in by if "915" in k), None)
+    assert k915 and 18 <= by[k915]["min"] <= by[k915]["max"] <= 33
+    assert ag["min"] >= 8 and ag["min"] > 7                                 # mọi cặp > W=7 -> không gộp được
+    sent = next(s for s in ov["limits"] if "neo cùng một lỗi" in s)
+    assert f"min {ag['min']}" in sent and f"trung vị {ag['median']}" in sent and "18–43" not in sent
+    # DB không có cặp FSB–Sonar -> anchor_gap rỗng, không có câu
+    ov2 = stats.overview(ROOT / "tests" / "fixtures" / "scratch.db")
+    assert ov2["cross_tool"]["anchor_gap"]["pairs_same_file_group"] == 0 and ov2["cross_tool"]["anchor_gap"]["min"] is None
+    assert not any("neo cùng một lỗi" in s for s in ov2["limits"])
+
+
+def test_compare_explains_tool_error_and_cheap_infra_error(orch_env, tmp_path):
+    from orchestrator import compare
+    repo = "https://github.com/o/r"
+    mk = lambda i, label="silver": {"repo": repo, "commit_id": f"{i:040x}", "file_path": f"F{i}.java",  # noqa: E731
+                                    "cwe_group": "csrf", "s_line": 10, "label": label}
+    da, dbb = tmp_path / "A", tmp_path / "B"
+    da.mkdir(); dbb.mkdir()
+    (da / "dataset.jsonl").write_text("".join(json.dumps(mk(i)) + "\n" for i in range(4)), encoding="utf-8")
+    (dbb / "dataset.jsonl").write_text("", encoding="utf-8")
+    (da / "run_manifest.json").write_text(json.dumps({
+        "tool_error": [{"commit": f"{0:040x}", "tool": "semgrep", "tier": "cheap"}],
+        "cheap_infra_error": [{"commit": f"{1:040x}", "tool": "bearer", "tier": "cheap"}],
+        "infra_error": [f"{2:040x}"], "params_v1": {"line_window": 3}}), encoding="utf-8")
+    res = compare.compare(da, dbb)
+    assert res["explained_by"] == {"tool_timeout": 0, "infra_error": 1, "skipped": 0, "build_failed": 0,
+                                   "tool_error": 1, "cheap_infra_error": 1}
+    reasons = {d["commit"][:1]: d["reason"] for d in res["diffs"]}
+    assert reasons == {"0": "tool_error", "1": "cheap_infra_error", "2": "infra_error", "3": "unexplained"}
+    assert not res["ok"] and len(res["unexplained"]) == 1
+    md = compare.to_markdown(res)
+    assert "| tool_error | 1 |" in md and "| cheap_infra_error | 1 |" in md
+    # DB: scan_tool_errors -> tool_error / cheap_infra_error
+    import sqlite3
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    SQLiteStore(ROOT / "tests" / "fixtures" / "scratch.db", readonly=True).close()
+    import shutil
+    db = tmp_path / "s.sqlite"
+    shutil.copy(ROOT / "tests" / "fixtures" / "scratch.db", db)
+    SQLiteStore(db).close()
+    conn = sqlite3.connect(db)
+    cid = conn.execute("SELECT commit_id FROM findings LIMIT 1").fetchone()[0]
+    conn.execute("INSERT INTO scan_tool_errors (commit_id,tool,tier,kind,msg,at) VALUES (?,?,?,?,?,'')",
+                 [cid, "semgrep", "cheap", "infra_error", "x"])
+    conn.commit(); conn.close()
+    side = compare.load_side(db)
+    assert cid in side["explain"]["cheap_infra_error"]
