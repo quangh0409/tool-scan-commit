@@ -735,3 +735,63 @@ def test_kappa_ignores_raw_output_error_rows(orch_env, scratch_db):
     store.close()
     assert after == before                                      # không đổi mẫu số / không thêm cặp codeql|…
     assert not any("codeql" in p["group"] or "sonar" in p["group"] for p in after["pairs"])
+
+
+# ----------------------------------------------------------------------------- A5: select idempotent (resume), PROFILE_DRIVEN, stop-cleanup --json
+def test_select_idempotent_keeps_done_status(orch_env, scratch_db):
+    import sqlite3
+    from orchestrator import select_commits
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    cid = "313886e99befb94be6cd45f085c98e0019f59829"
+    SQLiteStore(scratch_db).close()                                      # migrate v2 (cột n_expensive_ok)
+    conn = sqlite3.connect(scratch_db)
+    conn.execute("UPDATE selected_commits SET status='done', build_status='ok', n_expensive_ok=2 WHERE commit_id=?", [cid])
+    conn.execute("INSERT INTO selected_commits (commit_id, role, status) VALUES ('0'||substr(?,2), 'buggy', 'done')", [cid])
+    conn.commit(); conn.close()
+    store = SQLiteStore(scratch_db)
+    r1 = select_commits.select(store, include_clean=False)              # nhánh KHÔNG include_clean (trước đây replace)
+    row = store.conn.execute("SELECT status, build_status, n_expensive_ok FROM selected_commits WHERE commit_id=?",
+                             [cid]).fetchone()
+    assert row == ("done", "ok", 2) and r1["added"] == 0 and r1["removed_stale"] == 1   # hàng giả ngoài universe bị bỏ
+    assert store.conn.execute("SELECT COUNT(*) FROM selected_commits").fetchone()[0] == 1
+    _u, _b, clean, _g = select_commits.classify(store)                  # số clean thật trong scratch (data-driven)
+    r2 = select_commits.select(store, include_clean=True)               # thêm clean, buggy done vẫn giữ
+    assert r2["added"] == len(clean) and r2["kept"] == 1 and r2["total_selected"] == 1 + len(clean)
+    assert store.conn.execute("SELECT status FROM selected_commits WHERE commit_id=?", [cid]).fetchone() == ("done",)
+    assert store.conn.execute("SELECT COUNT(*) FROM selected_commits WHERE status='pending' AND role='clean'").fetchone()[0]         == len(clean)
+    r3 = select_commits.select(store, include_clean=False)              # chạy lại không include_clean: giữ clean đã có
+    assert r3["added"] == 0 and r3["kept"] == 1 + len(clean) and r3["total_selected"] == 1 + len(clean)
+    # role đổi (giả lập clean -> buggy): giữ status, đổi role
+    store.conn.execute("UPDATE selected_commits SET role='clean', status='done' WHERE commit_id=?", [cid]); store.conn.commit()
+    select_commits.select(store, include_clean=False)
+    assert store.conn.execute("SELECT role, status FROM selected_commits WHERE commit_id=?", [cid]).fetchone() == ("buggy", "done")
+    store.close()
+    from orchestrator import cli
+    assert cli.main(["select", "--json"]) == 0
+
+
+def test_profile_driven_contains_every_stage_command():
+    from orchestrator import cli
+    assert {"pipeline", "scan", "enumerate", "select", "analyze", "relabel", "kappa", "features", "export"} \
+        <= set(cli.PROFILE_DRIVEN)
+
+
+def test_stop_cleanup_json_is_single_last_stdout_line(orch_env, fake_docker, capsys, tmp_path):
+    from orchestrator import cli, profile as prof
+    fake_docker.responses.append((lambda c: "ps" in c, (0, "c1\n", "")))
+    assert cli.main(["stop-cleanup", "--run", "r1", "--json"]) == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    data = json.loads(out[-1])
+    assert data["run_id"] == "r1" and data["containers"] == ["c1"] and "reset_claims" in data
+    for line in out[:-1]:
+        with pytest.raises(ValueError):
+            json.loads(line)                                             # JSON chỉ ở dòng cuối
+    # diagnostics chữ ký đủ: --run --out [--profile] [--work] --json
+    p = prof.default_profile("https://github.com/o/r", "main")
+    p["paths"] = {"db": str(tmp_path / "d.sqlite"), "export": str(tmp_path / "e"), "work": str(tmp_path / "w")}
+    pf = tmp_path / "p.json"
+    prof.save(p, pf)
+    assert cli.main(["diagnostics", "--run", "r1", "--out", str(tmp_path / "z.zip"), "--profile", str(pf),
+                     "--work", str(tmp_path / "w"), "--json"]) == 0
+    last = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert last["run_id"] == "r1" and "profile.json" in last["files"]

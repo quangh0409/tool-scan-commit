@@ -424,7 +424,8 @@ def cmd_select(args):
                   f"=> đã thêm (incremental) {res['total_selected']} commit vào hàng đợi."]
     else:
         lines += [f"  clean (0 CWE/CVE) -> NEGATIVE (không quét đắt): {res['negative_clean']}",
-                  f"=> selected_commits (hàng đợi đắt) = {res['total_selected']} commit buggy."]
+                  f"=> selected_commits (hàng đợi đắt) = {res['total_selected']} commit "
+                  f"(mới {res.get('added', 0)}, giữ {res.get('kept', 0)}, bỏ {res.get('removed_stale', 0)})."]
     _out(args, res, "\n".join(lines))
     progress.emit(phase="select", event="done", done=res["total_selected"], total=res["universe"])
     return EXIT_OK
