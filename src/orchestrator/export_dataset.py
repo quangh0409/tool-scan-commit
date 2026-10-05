@@ -86,15 +86,11 @@ def resolve_out_dir(out_dir: Path) -> Path:
     raise RuntimeError(f"quá nhiều thư mục export cạnh {out_dir}")
 
 
-def _validation(verdicts: list[str] | None) -> str:
-    """Gộp verdict nhiều rater -> TP|FP|unclear; không có -> unreviewed."""
-    if not verdicts:
-        return "unreviewed"
-    c = Counter(verdicts)
-    top = c.most_common()
-    if len(top) > 1 and top[0][1] == top[1][1]:
-        return "unclear"
-    return top[0][0]
+def _validation(pairs) -> str:
+    """Gộp verdict nhiều rater -> TP|FP|unclear; không có -> unreviewed.
+    Ưu tiên rater 'adjudicated' > đa số > hoà = unclear (review.validation_of)."""
+    from .review import validation_of
+    return validation_of(pairs)
 
 
 def enrich_row(row: dict, reviews: dict[str, list[str]] | None = None) -> dict:
