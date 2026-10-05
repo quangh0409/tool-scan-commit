@@ -260,7 +260,8 @@ def test_compare_two_fake_exports(orch_env, tmp_path):
     res = compare.compare(tmp_path / "A", tmp_path / "B")
     assert res["same"] == 0 and len(res["only_a"]) == 2 and len(res["only_b"]) == 1
     assert len(res["label_changed"]) == 1 and res["label_changed"][0]["a"] == "silver"
-    assert res["explained_by"] == {"tool_timeout": 1, "infra_error": 1, "skipped": 1, "build_failed": 0}
+    assert res["explained_by"] == {"tool_timeout": 1, "infra_error": 1, "skipped": 1, "build_failed": 0,
+                                   "tool_error": 0, "cheap_infra_error": 0}
     assert [u["commit"] for u in res["unexplained"]] == ["c" * 40] and res["ok"] is False
     md = compare.to_markdown(res)
     assert "LỆCH" in md and "cccccccc" in md
@@ -847,7 +848,7 @@ def test_stats_limits_cross_tool_sentence_on_smoke(orch_env, tmp_path):
     ov = stats.overview(db)
     ct = ov["cross_tool"]
     assert {"findsecbugs", "sonar"} <= set(ct["expensive_tools_seen"]) and ct["fsb_sonar_clusters"] == 0
-    assert any("neo cùng một lỗi" in s and "18–43 dòng" in s and "METHODOLOGY §8" in s for s in ov["limits"])
+    assert any("neo cùng một lỗi" in s and "trung vị" in s and "METHODOLOGY §8" in s for s in ov["limits"])
     # DB scratch (chỉ tool rẻ) -> không có câu đó
     ov2 = stats.overview(ROOT / "tests" / "fixtures" / "scratch.db")
     assert ov2["cross_tool"]["expensive_tools_seen"] == [] and not any("neo cùng một lỗi" in s for s in ov2["limits"])
@@ -891,7 +892,7 @@ def test_compare_explains_tool_error_and_cheap_infra_error(orch_env, tmp_path):
     res = compare.compare(da, dbb)
     assert res["explained_by"] == {"tool_timeout": 0, "infra_error": 1, "skipped": 0, "build_failed": 0,
                                    "tool_error": 1, "cheap_infra_error": 1}
-    reasons = {d["commit"][:1]: d["reason"] for d in res["diffs"]}
+    reasons = {d["commit"][-1]: d["reason"] for d in res["diffs"]}        # SHA zero-padded -> ký tự cuối = i
     assert reasons == {"0": "tool_error", "1": "cheap_infra_error", "2": "infra_error", "3": "unexplained"}
     assert not res["ok"] and len(res["unexplained"]) == 1
     md = compare.to_markdown(res)

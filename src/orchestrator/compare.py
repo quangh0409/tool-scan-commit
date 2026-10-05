@@ -89,8 +89,19 @@ def _load_db(db: Path) -> dict:
         tabs = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         lw = None
         if "run_meta" in tabs:
-            r = conn.execute("SELECT line_window FROM run_meta ORDER BY id DESC LIMIT 1").fetchone()
-            lw = int(r[0]) if r and r[0] else None
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(run_meta)")}
+            if "line_window" in cols:                                   # schema v1
+                r = conn.execute("SELECT line_window FROM run_meta ORDER BY id DESC LIMIT 1").fetchone()
+                lw = int(r[0]) if r and r[0] else None
+            elif "config_snapshot_json" in cols:                        # schema v2: params_v1 trong snapshot
+                for (snap,) in conn.execute("SELECT config_snapshot_json FROM run_meta ORDER BY id DESC"):
+                    try:
+                        v = ((json.loads(snap) or {}).get("params_v1") or {}).get("line_window")
+                    except (TypeError, ValueError):
+                        v = None
+                    if v:
+                        lw = int(v)
+                        break
         rows: dict[str, dict] = {}
         for repo, cid, fp, grp, s_line, label in conn.execute(
                 "SELECT repo, commit_id, file_path, cwe_group, s_line, label FROM findings"):
