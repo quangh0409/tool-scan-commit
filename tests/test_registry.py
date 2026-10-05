@@ -24,6 +24,17 @@ def test_path_under_home(home):
     assert registry.load() == {"runs": []}
 
 
+def test_conftest_isolates_real_registry(tmp_path):
+    """Lưới an toàn: KHÔNG có fixture nào khác, registry.home() vẫn phải nằm trong tmp (conftest `_isolate_secjit_home`)."""
+    import os
+    h = registry.home()
+    assert str(h).startswith(str(tmp_path)), f"registry.home()={h} không nằm trong tmp — test sẽ ghi registry THẬT"
+    real = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    assert not str(h).startswith(os.path.join(real, "secjit")), h
+    registry.upsert({"run_id": "isolated-check", "status": "done"})
+    assert (h / "runs.json").exists()
+
+
 def test_upsert_merge_and_atomic(home):
     r = registry.upsert({"run_id": "r1", "repo": "https://github.com/a/b", "db": "x.sqlite",
                          "work": "w", "pid": 123, "summary": {"a": 1}})
