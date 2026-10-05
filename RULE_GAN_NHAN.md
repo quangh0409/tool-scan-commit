@@ -123,6 +123,28 @@ Vì đã **lưu raw**, sau này có thể nâng cấp **không cần quét lại
 
 Ngoài ra **giữ bảng RAW** (mỗi finding per-tool 1 dòng) để tái tính & Fleiss' kappa.
 
+### 6.1 Trường `evidence` và kiểm tay (bổ sung 2026-10-05, CONTRACTS §4/§6)
+
+Mỗi dòng `dataset.jsonl` có thêm `cluster_key` (sha256 của `repo|commit|file|cwe_group|s_line//W`, ổn định qua
+relabel) và `evidence` tách **hai nguồn bằng chứng không được gộp**:
+
+| Trường | Giá trị | Nguồn |
+|---|---|---|
+| `evidence.consensus` | `gold` / `silver` / `candidate` | MÁY: thang nhãn §4 từ `agreeing_tools` (luật v1) |
+| `evidence.validation` | `unreviewed` / `TP` / `FP` / `unclear` | NGƯỜI: bảng `gold_review` (chấm mù, `orchestrator.review`) |
+
+- `TP` = nhãn máy **đúng** (cụm là lỗ hổng thật; với mục âm: commit thật sự sạch); `FP` = nhãn máy sai;
+  `unclear` = không kết luận được. Gộp nhiều rater: **`adjudicated` (sau hoà giải) > đa số > hoà = `unclear`**.
+- Người chấm **không thấy** nhãn, tên tool, số tool đồng thuận, tier (`review next` chỉ trả code ±8 dòng,
+  diff, CWE tuyên bố, message đã xoá tên tool/rule). Precision = TP/(TP+FP) kèm **Wilson 95 %**; đồng thuận
+  giữa 2 rater = **Cohen κ**; mẫu phân tầng `cwe_group × tier`, tái lập theo `seed`.
+- **Negative**: `negative_level = verified-clean` **chỉ khi `n_expensive_ok >= 2`** (≥2 tool đắt chạy xong
+  `status=ok` trên commit, không tính `skipped`/`tool_error`); commit chỉ đụng file không-Java hoặc chỉ 1 tool
+  đắt ok là `cheap-clean`. Mục âm trong kiểm tay có `cluster_key = neg:<commit>`.
+- **Wording hiển thị** (GUI/README, không được viết "đã xác minh" khi chưa chấm): `gold · đồng thuận máy`
+  (validation = unreviewed) · `gold ✓ TP` · `gold ✗ FP` · `gold ? unclear`; tương tự cho silver/candidate.
+  Số "precision gold" chỉ được báo kèm `n` và CI của mẫu đã chấm — không suy từ số tool đồng thuận.
+
 ---
 
 ## 7. Fleiss' KAPPA — độ tin cậy liên-tool (mức DATASET)

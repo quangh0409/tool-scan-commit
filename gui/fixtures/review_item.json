@@ -1,37 +1,54 @@
 {
   "cluster_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "sample_id": "s-42-20261005",
+  "stratum": "csrf|expensive",
+  "kind": "pos",
+  "commit": "313886e99befb94be6cd45f085c98e0019f59829",
+  "repo": "https://github.com/FudanSELab/train-ticket",
+  "file_path": "ts-auth-service/src/main/java/auth/config/SecurityConfig.java",
+  "s_line": 26,
+  "e_line": 26,
+  "s_detail_line": [26],
+  "cwe_claim": {"cwe": ["CWE-352"], "group": "csrf", "category": "code"},
+  "finding_in_diff": 1,
   "code_lines": [
-    {
-      "n": 22,
-      "text": "    @Override"
-    },
-    {
-      "n": 23,
-      "text": "    protected void configure(HttpSecurity http) throws Exception {"
-    },
-    {
-      "n": 24,
-      "text": "        http.cors().and()"
-    },
-    {
-      "n": 26,
-      "text": "            .csrf().disable()"
-    },
-    {
-      "n": 27,
-      "text": "            .authorizeRequests()"
-    }
+    {"n": 22, "text": "    @Override", "flag": false},
+    {"n": 23, "text": "    protected void configure(HttpSecurity http) throws Exception {", "flag": false},
+    {"n": 24, "text": "        http.cors().and()", "flag": false},
+    {"n": 26, "text": "            .csrf().disable()", "flag": true},
+    {"n": 27, "text": "            .authorizeRequests()", "flag": false}
   ],
   "diff_lines": [
-    {
-      "n": 26,
-      "kind": "flag",
-      "text": "            .csrf().disable()"
-    }
+    {"n": 22, "kind": "add", "text": "    @Override"},
+    {"n": 23, "kind": "add", "text": "    protected void configure(HttpSecurity http) throws Exception {"},
+    {"n": 24, "kind": "add", "text": "        http.cors().and()"},
+    {"n": 25, "kind": "del", "text": "            .csrf()"},
+    {"n": 26, "kind": "flag", "text": "            .csrf().disable()"},
+    {"n": 27, "kind": "add", "text": "            .authorizeRequests()"}
   ],
-  "cwe_claim": "CWE-352 Cross-Site Request Forgery",
   "messages_anon": [
-    "Disabling CSRF protection is unsafe for standard web applications."
+    "Disabling CSRF protections is security-sensitive",
+    "[tool]: Spring CSRF protection disabled ([rule])"
   ],
-  "remaining": 7
+  "code_after_url": "https://github.com/FudanSELab/train-ticket/blob/313886e99befb94be6cd45f085c98e0019f59829/ts-auth-service/src/main/java/auth/config/SecurityConfig.java",
+  "code_before_url": "https://github.com/FudanSELab/train-ticket/blob/9bdd9a28f0033e91dec4595d257da81cc7016e47/ts-auth-service/src/main/java/auth/config/SecurityConfig.java",
+  "remaining": 7,
+  "_neg_example": {
+    "cluster_key": "neg:4a9599f4a5b38ce56ae7b7f29a7da9beec87ed11",
+    "sample_id": "s-42-20261005",
+    "stratum": "verified-clean",
+    "kind": "neg",
+    "commit": "4a9599f4a5b38ce56ae7b7f29a7da9beec87ed11",
+    "repo": "https://github.com/FudanSELab/train-ticket",
+    "author_date": "2022-08-10T01:32:00+00:00",
+    "file_path": null,
+    "s_line": null,
+    "cwe_claim": {"cwe": [], "group": null, "category": null, "claim": "commit không tạo lỗ hổng mới (verified-clean)"},
+    "files": ["ts-order-service/src/main/java/order/service/OrderServiceImpl.java"],
+    "file_urls": ["https://github.com/FudanSELab/train-ticket/blob/4a9599f4a5b38ce56ae7b7f29a7da9beec87ed11/ts-order-service/src/main/java/order/service/OrderServiceImpl.java"],
+    "code_lines": [],
+    "diff_lines": [],
+    "messages_anon": [],
+    "remaining": 1
+  }
 }

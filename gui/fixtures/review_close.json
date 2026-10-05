@@ -1,28 +1,38 @@
 {
+  "sample_id": "s-42-20261005",
+  "n_items": 7,
+  "n_pos": 5,
+  "n_neg": 2,
+  "raters": ["ann", "ben", "adjudicated"],
+  "primary_rater": "ann",
+  "n_adjudicated": 1,
   "precision": {
-    "tp": 3,
-    "fp": 1,
-    "unclear": 0,
-    "n": 4,
-    "point": 0.75,
-    "ci_low": 0.3,
-    "ci_high": 0.95
+    "tp": 2, "fp": 2, "unclear": 1, "n": 4, "n_reviewed": 5,
+    "point": 0.5, "ci_low": 0.15, "ci_high": 0.85, "ci": "wilson95"
   },
-  "kappa_raters": {
-    "value": 0.5,
-    "n": 4,
-    "raters": [
-      "rater1",
-      "rater2"
-    ]
+  "neg_precision": {
+    "tp": 1, "fp": 1, "unclear": 0, "n": 2, "n_reviewed": 2,
+    "point": 0.5, "ci_low": 0.0945, "ci_high": 0.9055, "ci": "wilson95"
   },
+  "kappa_raters": {"value": 0.6875, "n": 5, "raters": ["ann", "ben"]},
   "disagreements": [
     {
       "cluster_key": "c3d4e5f60718293a4b5c6d7e8f90a1b2",
-      "verdicts": {
-        "rater1": "TP",
-        "rater2": "FP"
-      }
+      "kind": "pos",
+      "stratum": "xss|expensive",
+      "verdicts": {"ann": "TP", "ben": "FP", "adjudicated": "FP"}
     }
-  ]
+  ],
+  "by_stratum": [
+    {"stratum": "csrf|expensive", "kind": "pos", "n_sample": 1, "tp": 1, "fp": 0, "unclear": 0, "n": 1,
+     "n_reviewed": 1, "point": 1.0, "ci_low": 0.2065, "ci_high": 1.0, "ci": "wilson95"},
+    {"stratum": "sql_injection|mixed", "kind": "pos", "n_sample": 1, "tp": 0, "fp": 0, "unclear": 1, "n": 0,
+     "n_reviewed": 1, "point": null, "ci_low": null, "ci_high": null, "ci": "wilson95"},
+    {"stratum": "verified-clean", "kind": "neg", "n_sample": 2, "tp": 1, "fp": 1, "unclear": 0, "n": 2,
+     "n_reviewed": 2, "point": 0.5, "ci_low": 0.0945, "ci_high": 0.9055, "ci": "wilson95"},
+    {"stratum": "xss|expensive", "kind": "pos", "n_sample": 3, "tp": 1, "fp": 2, "unclear": 0, "n": 3,
+     "n_reviewed": 3, "point": 0.3333, "ci_low": 0.0617, "ci_high": 0.7923, "ci": "wilson95"}
+  ],
+  "unreviewed": 0,
+  "note": "TP = nhãn máy đúng; precision = TP/(TP+FP), unclear báo riêng; CI Wilson 95%."
 }
