@@ -7,6 +7,7 @@ Dùng:
   python -m orchestrator.cli pipeline <repo_url> [...] | pipeline --profile F
   python -m orchestrator.cli estimate|stats|sensitivity|compare|stop|stop-cleanup|reset-claims|clean ...
   python -m orchestrator.cli review sample|next|verdict|close ... | batch --queue Q.json | diagnostics --run ID --out Z.zip
+  python -m orchestrator.cli verify --db DB --export DIR [--json]      -> nghiệm thu CONTRACTS, exit 0/1
 
 `--profile F` (mọi subcommand): nạp profile.json, áp `profile.to_env()` vào os.environ,
 `config.reload()`, rồi dựng lại argv từ profile — mọi arg khác bị BỎ QUA (có cảnh báo).
@@ -592,6 +593,34 @@ def cmd_stats(args):
     return EXIT_OK
 
 
+def _load_verify_run():
+    """scripts/verify_run.py (A1) không phải package -> nạp qua importlib theo đường dẫn."""
+    import importlib.util
+    path = config.ROOT / "scripts" / "verify_run.py"
+    if not path.exists():
+        raise CliError(f"không thấy {path} (scripts/verify_run.py của A1)")
+    spec = importlib.util.spec_from_file_location("secjit_verify_run", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def cmd_verify(args):
+    """Nghiệm thu 1 run theo CONTRACTS (DB chỉ-đọc + export). Exit 0 PASS / 1 có FAIL."""
+    db = Path(args.db or config.SQLITE_PATH)
+    if not db.exists():
+        raise CliError(f"DB không tồn tại: {db}")
+    export = Path(args.export) if args.export else None
+    if export is not None and not export.exists():
+        raise CliError(f"export không tồn tại: {export}")
+    vr = _load_verify_run()
+    res = vr.run(db, export)
+    lines = [f"[{c['status']}] {c['id']:24} {c['detail']}" for c in res["checks"]]
+    lines.append(f"{'PASS' if res['pass'] else 'FAIL'}: {res['n_fail']} mục lỗi / {len(res['checks'])} mục")
+    _out(args, res, "\n".join(lines))
+    return EXIT_OK if res["pass"] else 1
+
+
 def cmd_sensitivity(args):
     from . import sensitivity
     db = Path(args.db)
@@ -832,6 +861,11 @@ def build_parser() -> argparse.ArgumentParser:
     pst.add_argument("--format", choices=("json", "csv", "latex"), default="json")
     pst.add_argument("--out", default=None, help="thư mục ghi file (csv: 1 file/bảng)")
     pst.set_defaults(func=cmd_stats)
+
+    pvf = sub.add_parser("verify", parents=[parent], help="nghiệm thu run theo CONTRACTS (scripts/verify_run.run)")
+    pvf.add_argument("--db", default=None)
+    pvf.add_argument("--export", default=None)
+    pvf.set_defaults(func=cmd_verify)
 
     pse = sub.add_parser("sensitivity", parents=[parent], help="lưới tham số trên BẢN SAO DB -> sensitivity.json/.md")
     pse.add_argument("--db", required=True)

@@ -32,9 +32,12 @@ duyệt từng commit → chạy nhiều tool SAST (Docker) → chuẩn hoá v�
 ## 2. Chạy TRỌN pipeline (1 lệnh, 6 tầng)
 
 ### 2.0 Chạy bằng GUI / exe (desktop) hoặc profile
-- **GUI (dev):** `python -m gui` (thêm `--mock` để xem màn với fixture, `--dev` cổng cố định) — pywebview + web UI tĩnh;
-  **exe:** `dist/secjit-scan.exe` (PyInstaller, A3) — fallback mở trình duyệt nếu pywebview lỗi. Mọi hành động GUI
-  = 1 lệnh CLI `pipeline --profile <profile.json>` chạy nền (`runner.start`), tiến độ qua `progress.jsonl`.
+- **GUI (dev):** `python -m gui` (thêm `--mock` để xem màn với fixture, `--dev` cổng cố định) — pywebview + web UI tĩnh.
+- **exe (PyInstaller, build `./build_exe.ps1 -Clean` → `dist/`):**
+  - `dist/secjit-scan.exe` (console): `--version` · `--preflight --json` · `--profile F` (chạy pipeline headless)
+    · `--cli <subcommand …>` (= `python -m orchestrator.cli …`) · `-m <module> …` (runpy) · `--dev` (GUI cổng cố định).
+  - `dist/secjit-scan-gui.exe` (noconsole, không stdout): `--port N` cố định; fallback mở trình duyệt nếu pywebview lỗi.
+  Mọi hành động GUI = 1 lệnh CLI `pipeline --profile <profile.json>` chạy nền (`runner.start`), tiến độ qua `progress.jsonl`.
 - **Profile:** `profile.json` (CONTRACTS.md §2) = repo + nhánh + phạm vi + tool + đường dẫn + `params_v1`.
   ```bash
   PYTHONPATH=src python -m orchestrator.cli pipeline --profile D:/secjit/profiles/train-ticket.json
@@ -76,6 +79,21 @@ Theo dõi: `tail -f data/pipeline_<tên>.log` · kiểm tiến trình: `ps -ef |
 
 ---
 
+### 2.2 Nghiệm thu tái lập (Run A ↔ Run B, train-ticket `--max 30`)
+```bash
+# Run A: CLI với profile
+PYTHONPATH=src python -m orchestrator.cli pipeline --profile D:/secjit/profiles/train-ticket.json
+# Run B: cùng profile từ exe (hoặc GUI "Chạy lại cùng profile")
+dist/secjit-scan.exe --profile D:/secjit/profiles/train-ticket.json
+# Kiểm từng run đúng CONTRACTS (DB chỉ-đọc + export): user_version, run_meta, enum status, n_expensive_ok,
+# nhãn tính lại theo luật v1, manifest/SHA256SUMS/cluster_key/evidence
+PYTHONPATH=src python -m orchestrator.cli verify --db <dbA> --export <exportA>
+PYTHONPATH=src python scripts/verify_run.py --db <dbB> --export <exportB> --json
+# So A/B theo cluster_key — exit 0 khi khớp hoặc lệch chỉ ở commit tool_timeout/infra_error/skipped của manifest
+PYTHONPATH=src python -m orchestrator.cli compare --a <exportA> --b <exportB> --format md
+```
+Tiêu chí: cùng số cụm theo nhãn; lệch chỉ ở commit được liệt kê trong `run_manifest.json`. Chi tiết: `METHODOLOGY.md` §6.
+
 ## 3. Resume khi pipeline dừng/chết (KHÔNG mất công cũ)
 
 Thiết kế bền: **scan** có mốc `scan_done` (env `ORCH_SCAN_RESUME=1` mặc định) bỏ qua commit đã quét;
@@ -115,7 +133,8 @@ không claim mới, exit **3**; `stop --run <id> --force` kill cây tiến trìn
 | `sensitivity --db DB --out DIR [--grid …]` | Lưới tham số gán nhãn trên **bản sao** DB (W∈{3,5,7}, 1E+1C, noise) |
 | `compare --a X --b Y [--format md]` | So 2 run theo `cluster_key`; lệch phải giải thích được bằng manifest (tool_timeout/infra_error/skipped) |
 | `stop --run ID [--force]` · `stop-cleanup --run ID` · `reset-claims --run ID` | Dừng an toàn / cưỡng bức, dọn container + network, nhả claim |
-| `clean <url> [--items clone,pool,m2,export:<dir>,db:<path>] [--dry-run]` | Dọn theo mục; **không còn `--all`**; export/db bắt buộc đường dẫn; từ chối khi DB/pool đang dùng |
+| `clean <url> [--items clone,pool,m2,m2volume,export:<dir>,db:<path>] [--dry-run]` | Dọn theo mục; **không còn `--all`**; `m2volume` = `docker volume rm secjit-m2` (dry-run hiện size từ `docker system df -v`); export/db bắt buộc đường dẫn; từ chối khi DB/pool đang dùng |
+| `verify --db DB [--export DIR]` | Nghiệm thu run theo CONTRACTS (= `scripts/verify_run.py`); exit 1 nếu có FAIL |
 | `review sample\|next\|verdict\|close --db DB …` | Kiểm tay GOLD mù (mẫu phân tầng, 2 rater, Cohen κ, Wilson CI) — METHODOLOGY.md §4 |
 | `batch --queue Q.json` | Chạy tuần tự nhiều profile (1 Sonar), `batch_state.json`, dừng theo `<Q>.stop` |
 | `diagnostics --run ID --out Z.zip` | Gói chẩn đoán (log, progress, run_meta, docker info/ps, preflight; che token/PAT) |
@@ -136,6 +155,7 @@ Mọi lệnh nhận `--json` và `--profile F`. Chi tiết: `GUIDE.md` §2.
 | `ORCH_MAVEN_IMAGE` | temurin-8 | Image Maven fallback khi pom không khai JDK |
 | `ORCH_SONAR_ADMIN_PW` | `Orch_2026!` | Mật khẩu admin Sonar (đổi từ admin/admin lần đầu qua API) |
 | `ORCH_DOCKER_SG` | 0 | =1 để bọc mọi lệnh docker qua `sg docker -c` (gotcha nhóm) |
+| `ORCH_DOCKER_BIN` | `docker` | Binary Docker (vd `podman`, hoặc đường dẫn đầy đủ khi `docker` không trong PATH của exe) |
 | `ORCH_CHEAP_TOOLS` / `ORCH_EXPENSIVE_TOOLS` | 5 tool rẻ / `codeql,findsecbugs,sonar` | Tool bật theo tầng (CLI `--tools` / `--expensive-tools`) |
 | `ORCH_RUN_ID` · `ORCH_PROGRESS_FILE` · `ORCH_STOP_FILE` | `local` · (rỗng) · (rỗng) | Định danh run, `progress.jsonl`, stop-file (runner nền đặt; CONTRACTS §3) |
 | `ORCH_EXPERIMENT` · `ORCH_EXPERIMENT_REASON` · `ORCH_LINE_WINDOW` | 0 · (rỗng) · 3 | Chế độ thí nghiệm; `ORCH_LINE_WINDOW` **chỉ** hiệu lực khi `ORCH_EXPERIMENT=1` (METHODOLOGY §3) |
