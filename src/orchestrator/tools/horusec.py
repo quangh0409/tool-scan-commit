@@ -89,7 +89,8 @@ class HorusecWrapper(ToolWrapper):
             report = out / "h.json"
             if not report.exists():
                 return []
-            report_text = report.read_text() or "{}"
+            # encoding tường minh: trong exe đóng gói không có PYTHONUTF8 -> mặc định cp1252 vỡ ('charmap')
+            report_text = report.read_text(encoding="utf-8", errors="replace") or "{}"
             if raw_out is not None:
                 raw_out.append(("json", report_text))
             try:

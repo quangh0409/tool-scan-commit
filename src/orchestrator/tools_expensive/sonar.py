@@ -39,12 +39,22 @@ NETWORK = NETWORK_PREFIX
 SERVER = SERVER_PREFIX
 
 
+def _host_slug(run_id: str) -> str:
+    """run_id -> đoạn tên hợp lệ cho hostname Docker (sonar-scanner dùng http://<container>:9000).
+
+    Lỗi thật Run B 2026-10-05: run_id `r-20261005-120433-FudanSELab__train-ticket` (chữ hoa + `__`)
+    -> scanner báo "unsupported URI". Hostname chỉ nhận [a-z0-9-], không bắt đầu/kết thúc bằng '-'.
+    """
+    s = re.sub(r"[^a-z0-9-]+", "-", (run_id or "local").lower()).strip("-")
+    return (s or "local")[:48].rstrip("-")
+
+
 def server_name(run_id: str | None = None) -> str:
-    return f"{SERVER_PREFIX}-{run_id or progress.run_id()}"
+    return f"{SERVER_PREFIX}-{_host_slug(run_id or progress.run_id())}"
 
 
 def network_name(run_id: str | None = None) -> str:
-    return f"{NETWORK_PREFIX}-{run_id or progress.run_id()}"
+    return f"{NETWORK_PREFIX}-{_host_slug(run_id or progress.run_id())}"
 
 
 def _host_api() -> str:

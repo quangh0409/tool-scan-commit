@@ -136,7 +136,16 @@ def orchestrator_git_sha() -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     out = (proc.stdout or "").strip()
-    return out if proc.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", out) else None
+    if proc.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", out):
+        return out
+    return _sha_from_app_version()
+
+
+def _sha_from_app_version() -> str | None:
+    """Exe đóng gói không có .git -> lấy sha từ SECJIT_APP_VERSION (packaging/version.py ghi lúc build,
+    dạng `<sha>` hoặc `<sha>-dirty`). Run B 2026-10-05 ghi None -> verify_run FAIL."""
+    v = os.environ.get("SECJIT_APP_VERSION", "").strip().split("-")[0]
+    return v if re.fullmatch(r"[0-9a-f]{7,40}", v) else None
 
 
 def app_version() -> str:
