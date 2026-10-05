@@ -63,7 +63,14 @@ không so trực tiếp với run đủ tool.
 ```bash
 python3 -m orchestrator.cli pipeline --profile D:/secjit/profiles/train-ticket.json
 python3 -m orchestrator.cli estimate --profile P.json --json     # ước tính phút/GB trước khi chạy
+# exe (build: ./build_exe.ps1 -Clean):
+dist/secjit-scan.exe --profile P.json                 # headless, = pipeline --profile
+dist/secjit-scan.exe --cli stats --db D.sqlite --json # mọi subcommand qua --cli
+dist/secjit-scan.exe --preflight --json | --version | -m orchestrator.cli compare --a A --b B
+dist/secjit-scan-gui.exe --port 8765                  # GUI noconsole (không stdout -> port cố định)
 ```
+**Nghiệm thu tái lập:** `verify --db <db> --export <export>` cho từng run, rồi `compare --a <exportA> --b <exportB> --format md`
+(README §2.2, METHODOLOGY §6).
 `--profile F` nhận ở **mọi** subcommand: áp `profile.to_env()` vào env **trước** khi đọc config, rồi dựng lại
 argv từ profile — **mọi arg khác bị bỏ qua** (có cảnh báo). Cấu trúc `profile.json`: CONTRACTS.md §2;
 `params_v1` khác v1 bắt buộc `experiment={"enabled":true,"reason":"…"}` (METHODOLOGY.md §3).
@@ -75,8 +82,10 @@ python3 -m orchestrator.cli clean $REPO --dry-run                         # li�
 python3 -m orchestrator.cli clean $REPO                                   # mặc định: clone + pool
 python3 -m orchestrator.cli clean $REPO --items clone,pool,m2             # + cache Maven .m2cache
 python3 -m orchestrator.cli clean $REPO --items export:data/export_x,db:data/dataset_x.sqlite
+python3 -m orchestrator.cli clean $REPO --items m2volume --dry-run    # named volume secjit-m2 (size từ docker system df -v)
 ```
-`--items` tách từng mục: `clone`, `pool`, `m2`, `export:<dir>`, `db:<path>` — **export/db bắt buộc chỉ rõ đường dẫn**
+`--items` tách từng mục: `clone`, `pool`, `m2` (bind mount `.m2cache`), `m2volume` (`docker volume rm secjit-m2`
+hoặc tên trong `ORCH_M2_VOLUME`), `export:<dir>`, `db:<path>` — **export/db bắt buộc chỉ rõ đường dẫn**
 (không còn `--all`/`--export`/`--db` xoá theo env mặc định — tránh xoá nhầm `data/export`). `clean` **từ chối** khi
 `<db>.lock` còn pid sống hoặc `pool_<pid>` thuộc tiến trình đang chạy. Dọn bằng `repo_pool.rmtree_force`
 (chịu file read-only Windows). `--json` in `{would_delete, deleted, errors}`.
@@ -96,6 +105,7 @@ python3 -m orchestrator.cli clean $REPO --items export:data/export_x,db:data/dat
 | `reset-claims [--run ID] [--all-stale] [--db DB]` | `building/analyzing` → `pending` + xoá raw đắt bán phần (`claimed_by '<run_id>:wN'`; `--all-stale` = mọi hàng) |
 | `review sample\|next\|verdict\|close --db DB …` | Kiểm tay GOLD mù: mẫu phân tầng seed cố định → chấm TP/FP/unclear → precision + Wilson + Cohen κ (METHODOLOGY §4) |
 | `batch --queue Q.json [--state F] [--stop-file F]` | Chạy **tuần tự** nhiều profile (`pipeline --profile` từng cái, 1 Sonar), `batch_state.json`, dừng theo `<Q>.stop` |
+| `verify --db DB [--export DIR] [--json]` | Nghiệm thu run theo CONTRACTS §1/§4/§6 (gọi `scripts/verify_run.run`): user_version, run_meta/tools_json, enum status, `n_expensive_ok`, nhãn tính lại luật v1, κ, manifest + SHA256SUMS + cluster_key/evidence; exit 1 nếu FAIL |
 | `diagnostics --run ID --out Z.zip [--profile F] [--work DIR]` | Gói chẩn đoán: run.log, progress.jsonl, meta, profile, run_meta/kappa (DB ro), `docker info/version/ps`, preflight.json, env (che token/PAT/mật khẩu) |
 
 **Exit code chuẩn (CONTRACTS §11):** `0` ok · `1` lỗi tham số (profile/scope/tool lạ/argparse) · `2` lỗi runtime
@@ -151,6 +161,7 @@ python3 -m orchestrator.cli features $REPO   # [--branch <nhánh đã scan>] ~gi
 | `ORCH_EXPORT_DIR` | `data/export` | thư mục export |
 | `ORCH_STORE_FULL_FILE` | `0` | `1` = lưu TOÀN VĂN code_before/after (nặng); mặc định chỉ permalink |
 | `ORCH_DOCKER_SG` | (tắt) | `1` = bọc docker qua `sg docker -c` (khi chưa vào nhóm docker) |
+| `ORCH_DOCKER_BIN` | `docker` | binary gọi Docker (`podman`, hoặc đường dẫn đầy đủ `C:\Program Files\Docker\Docker\resources\bin\docker.exe` khi PATH của exe thiếu) |
 | `ORCH_M2_VOLUME` | (rỗng = `0`) | Cache Maven `/m2` cho build/CodeQL/Sonar: `0` = bind mount `WORK_DIR/.m2cache`; **`1` = Docker named volume `secjit-m2`** (tự `docker volume create`; nhanh hơn bind mount trên Windows/WSL2, không cần file-sharing ổ đĩa); tên khác = volume tên đó. Không tạo được volume → cảnh báo + quay về bind mount. Dọn: `docker volume rm secjit-m2` (`clean --items m2` chỉ xoá bind mount) |
 
 ### 3.1b — 14 đặc trưng Kamei (JIT defect prediction)
@@ -202,6 +213,7 @@ CLI: `select --include-clean` (thêm clean để verify), `select --require-in-d
 |---|---|---|
 | `ORCH_EXPENSIVE_TOOLS` | `codeql,findsecbugs,sonar` | tool đắt bật (thứ tự chạy) — CLI `--expensive-tools` |
 | `ORCH_CHEAP_TOOLS` | `gitleaks,trufflehog,semgrep,bearer,horusec` | tool **rẻ** bật — CLI `--tools`; bỏ tool đổi mẫu số eligible/κ (cảnh báo) |
+| `ORCH_DOCKER_BIN` | `docker` | binary Docker cho mọi lệnh (`podman`/đường dẫn đầy đủ) — xem §3.1 |
 | `ORCH_INFRA_STOP_AFTER` | `3` | số `infra_error` LIÊN TIẾP (Docker tắt, đĩa đầy) trước khi run tự dừng (`event=stop`, exit 3) |
 | `ORCH_SONAR_PORT` | `9000` | port host map vào SonarQube (đổi `9100` khi 9000 bị chiếm — preflight tự dò) |
 | `ORCH_USE_CODEQL` | `1` | công tắc riêng CodeQL (nút thắt ~95% time). `0`=chỉ FindSecBugs+Sonar (~30s/commit) |

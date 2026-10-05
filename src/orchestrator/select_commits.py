@@ -56,9 +56,11 @@ def classify(store: SQLiteStore):
 
 
 def select(store: SQLiteStore, include_clean: bool = False) -> dict:
-    """Đẩy commit buggy (có CWE/CVE) vào hàng đợi tầng đắt.
-    include_clean=True: THÊM cả clean commit (role=clean) để tầng đắt verify -> verified-clean GOLD.
-      (dùng add_selected INSERT-OR-IGNORE -> không reset trạng thái commit đã done)."""
+    """Đẩy commit buggy (có CWE/CVE) vào hàng đợi tầng đắt — IDEMPOTENT cả hai nhánh (resume an toàn):
+      - commit mới -> thêm `pending`; hàng đã có GIỮ nguyên status/build_status/n_expensive_ok (không làm lại tầng đắt);
+      - role đổi (clean -> buggy sau relabel) -> cập nhật role/lý do, giữ status;
+      - chỉ XOÁ hàng không còn trong universe (commit đã quét rẻ) — vd DB bị reset_cheap_scan.
+    include_clean=True: THÊM cả clean commit (role=clean) để tầng đắt verify -> verified-clean GOLD."""
     universe, buggy, clean, gray = classify(store)
     now = datetime.datetime.now().isoformat(timespec="seconds")
 
@@ -73,20 +75,35 @@ def select(store: SQLiteStore, include_clean: bool = False) -> dict:
             "created_at": now,
         })
 
-    if include_clean:
-        clean_rows = [{"commit_id": cid, "role": "clean",
-                       "selection_reason": "negative-verify (FindSecBugs+Sonar)",
-                       "suspect_categories": [], "n_suspect_findings": 0,
-                       "created_at": now} for cid in sorted(clean)]
-        # incremental: giữ nguyên buggy đã done, chỉ thêm cái mới
-        added = store.add_selected(buggy_rows + clean_rows)
-        n_sel = added
-    else:
-        store.replace_selected(buggy_rows)
-        n_sel = len(buggy_rows)
+    clean_rows = [{"commit_id": cid, "role": "clean",
+                   "selection_reason": "negative-verify (FindSecBugs+Sonar)",
+                   "suspect_categories": [], "n_suspect_findings": 0,
+                   "created_at": now} for cid in sorted(clean)] if include_clean else []
+    rows = buggy_rows + clean_rows
+
+    existing = {r[0]: r[1] for r in store.conn.execute("SELECT commit_id, role FROM selected_commits")}
+    # 1) bỏ hàng không còn trong universe (không còn là commit đã quét rẻ)
+    stale = [cid for cid in existing if cid not in universe]
+    with store._lock:
+        for cid in stale:
+            store.conn.execute("DELETE FROM selected_commits WHERE commit_id=?", [cid])
+        # 2) role đổi -> cập nhật role/lý do, GIỮ status/build_status/n_expensive_ok
+        for r in rows:
+            if r["commit_id"] in existing and existing[r["commit_id"]] != r["role"]:
+                store.conn.execute(
+                    "UPDATE selected_commits SET role=?, selection_reason=?, suspect_categories=?, "
+                    "n_suspect_findings=? WHERE commit_id=?",
+                    [r["role"], r["selection_reason"], json.dumps(r["suspect_categories"]),
+                     r["n_suspect_findings"], r["commit_id"]])
+        store.conn.commit()
+    # 3) thêm commit mới (INSERT OR IGNORE -> không đụng hàng đã có)
+    new_rows = [r for r in rows if r["commit_id"] not in existing]
+    store.add_selected(new_rows)
+    n_total = store.conn.execute("SELECT COUNT(*) FROM selected_commits").fetchone()[0]
 
     return {
         "universe": len(universe), "buggy": len(buggy),
         "negative_clean": len(clean), "gray_excluded": len(gray),
-        "include_clean": include_clean, "total_selected": n_sel,
+        "include_clean": include_clean, "total_selected": n_total,
+        "added": len(new_rows), "kept": len(existing) - len(stale), "removed_stale": len(stale),
     }

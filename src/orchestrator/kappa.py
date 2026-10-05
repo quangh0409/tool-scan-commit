@@ -47,7 +47,9 @@ def collect(store, pairs: dict | None = None) -> tuple[list, dict, dict]:
     pairs (tuỳ chọn, dict rỗng truyền vào): được điền items theo CẶP tool 'a|b' (2 rater:
     cả hai đủ năng lực & đã chạy trên commit; n_yes = số tool trong cặp báo cụm)."""
     ran = defaultdict(set)
-    for cid, tool in store.conn.execute("SELECT commit_id, tool FROM raw_output"):
+    # fmt='error' = tool KHÔNG chạy được (timeout/infra/crash) -> không phải rater "không báo" (A1, CONTRACTS §1)
+    for cid, tool in store.conn.execute(
+            "SELECT commit_id, tool FROM raw_output WHERE COALESCE(fmt,'') != 'error'"):
         ran[cid].add(tool)
 
     allit: list = []
