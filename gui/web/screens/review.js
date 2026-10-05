@@ -36,6 +36,12 @@ function persist() { try { sessionStorage.setItem(SS_KEY(S.id), JSON.stringify({
 
 function draw() {
   if (!S || S.dead) return;
+  if (S.drawing) { S.redraw = true; return; }      // REV-3: không tái render lồng nhau (blur/change -> nextItem -> draw)
+  S.drawing = true;
+  try { drawInner(); } finally { if (S) { S.drawing = false; if (S.redraw) { S.redraw = false; queueMicrotask(() => draw()); } } }
+}
+
+function drawInner() {
   const { root, C, t, ctx, id } = S;
   clear(root);
   root.append(resultsHeader(ctx, id, 'review', S.run));
@@ -65,9 +71,11 @@ function stepSample() {
       if (!S || S.dead) return;
       S.busy = false;
       if (!r.ok) { C.toast(errText(r.err), 'error'); draw(); return; }
-      S.sample = r.data; S.sampleId = r.data.sample_id; persist(); draw();
+      if (r.data.empty) { S.sample = null; S.sampleId = null; S.emptyMsg = r.data.message || 'Chưa có cụm gold / verified-clean để kiểm tay.'; persist(); draw(); return; }
+      S.emptyMsg = null; S.sample = r.data; S.sampleId = r.data.sample_id; persist(); draw();
     } })));
   const parts = [C.card(form, { title: tr('rv.title.buoc_1_tao_mau', 'Bước 1 · Tạo mẫu') })];
+  if (S.emptyMsg) parts.push(C.empty(S.emptyMsg));
   if (S.sample) {
     const st = S.sample.strata;
     parts.push(C.card(h('div', { class: 's-stack' },
@@ -82,7 +90,11 @@ function stepSample() {
 function stepRate() {
   const { C } = S;
   const raterIn = h('input', { type: 'text', class: 's-input', value: S.rater, placeholder: 'vd. rater1 (tác giả), rater2 (đồng nghiệp)', 'aria-label': 'Người chấm' });
-  raterIn.addEventListener('change', () => { S.rater = raterIn.value.trim(); persist(); if (S.rater) nextItem(); else draw(); });
+  raterIn.addEventListener('change', () => {
+    const v = raterIn.value.trim();
+    if (v === S.rater && S.item) return;           // change lặp (fill + blur) -> không gọi nextItem 2 lần
+    S.rater = v; persist(); if (S.rater) nextItem(); else draw();
+  });
   const head = h('div', { class: 's-row' },
     h('span', { class: 's-tag s-mono', text: S.sampleId || '—' }),
     field('Người chấm (rater)', raterIn, 'lưu trong phiên; mỗi rater chấm độc lập'),

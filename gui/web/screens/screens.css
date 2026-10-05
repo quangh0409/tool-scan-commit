@@ -25,7 +25,9 @@
 .s-sub { color: var(--s-ink-3); font-size: 13px; }
 .s-stack { display: flex; flex-direction: column; gap: 10px; }
 .s-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
-.s-kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--s-line-2); }
+.s-kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--s-line-2); flex-wrap: wrap; min-width: 0; }
+.s-kv .s-tag, .s-kv .badge, .s-kv .sh-badge { white-space: normal; }   /* DASH-3: không tràn mép */
+.s-kv-k { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .s-kv-k { color: var(--s-ink-2); }
 .s-kv-v { text-align: right; }
 .s-note { background: #F2F7FB; border: 1px solid #B9D3E8; border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.55; color: var(--s-ink); }
@@ -122,7 +124,8 @@ tr.s-row-click:focus-visible { outline: 3px solid var(--s-accent); outline-offse
 .s-table-card .sh-table td { padding: 7px 8px; font-size: 13px; }
 .s-table-card .sh-table th { padding: 7px 8px; }
 .s-table-card .s-ellipsis { max-width: 180px; font-size: 12px; }
-.s-table-card .sh-badge { font-size: 11.5px; padding: 2px 7px; }
+.s-table-card .sh-badge, .s-table-card .badge { font-size: 11.5px; padding: 2px 7px; white-space: normal; }   /* FIND-1 */
+.s-table-card td:last-child { min-width: 170px; }
 .s-table-card .s-tools .s-tag { font-size: 11px; padding: 1px 6px; }
 .s-diff { font-family: var(--s-mono); font-size: 12.5px; line-height: 1.6; background: #F6F8FA; border-radius: 8px; padding: 8px 0; overflow-x: auto; }
 .s-diff .ln { display: flex; gap: 10px; padding: 0 12px; white-space: pre; }

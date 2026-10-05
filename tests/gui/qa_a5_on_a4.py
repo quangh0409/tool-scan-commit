@@ -275,7 +275,7 @@ def run(out: Path) -> int:
             q.click("button:has-text('Chạy')"); q.page.wait_for_timeout(2500)
             q.shot("flow-55-w5-run", f"W5 Chạy (mock) → #/run/<id>; dashboard run mới không có progress; hash={q.page.evaluate('location.hash')}")
             # ================= 3. màn A5 trong khung A4 =================
-            for route in ("run/r-20261005-A", "run/r-20261005-int", "results/r-20261005-A", "results/r-20261005-A/findings",
+            for route in ("run/r-20261005-A", "run/r-20261005-int", "run/r-20261004-scratch", "results/r-20261005-A", "results/r-20261005-A/findings",
                           "results/r-20261005-A/commits", "results/r-20261005-A/export", "review/r-20261005-A",
                           "settings", "settings/storage", "settings/profiles", "settings/language", "settings/mode"):
                 q.new_page()

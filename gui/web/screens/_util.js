@@ -26,7 +26,14 @@ export function append(el, children) {
   return el;
 }
 
-export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+export function clear(el) {
+  // replaceChildren() xoá nguyên tử — tránh 'removeChild: node is no longer a child' khi blur/change handler
+  // tái render giữa chừng (REV-3). Fallback: kiểm parentNode trước khi gỡ.
+  if (typeof el.replaceChildren === 'function') { el.replaceChildren(); return el; }
+  let c = el.firstChild;
+  while (c) { const nx = c.nextSibling; if (c.parentNode === el) el.removeChild(c); c = nx; }
+  return el;
+}
 
 // ----------------------------------------------------------------------------- tích hợp khung A4
 /** Bảo đảm screens.css được nạp khi index.html của A4 chưa import. */
