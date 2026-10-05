@@ -39,6 +39,26 @@ def test_version_prints(capsys):
     assert out.startswith("secjit-scan ") and launcher.APP_VERSION in out
 
 
+def test_stdio_line_buffered_for_run_log(tmp_path, monkeypatch):
+    """-m orchestrator.cli trong exe: stdout trỏ vào run.log phải line-buffered (exe bỏ qua PYTHONUNBUFFERED env)."""
+    import io
+    import runpy
+    log = open(tmp_path / "run.log", "w", encoding="utf-8")       # noqa: SIM115 — giả stdout của tiến trình con
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(log.buffer, encoding="utf-8"))
+    assert sys.stdout.line_buffering is False
+    seen = {}
+
+    def fake_run_module(mod, run_name=None, alter_sys=False):
+        print("dòng 1 trước khi tiến trình chết")       # không flush thủ công
+        seen["line_buffering"] = sys.stdout.line_buffering
+        seen["on_disk"] = (tmp_path / "run.log").read_text(encoding="utf-8")
+        raise SystemExit(0)
+    monkeypatch.setattr(runpy, "run_module", fake_run_module)
+    assert launcher.main(["-m", "orchestrator.cli", "pipeline"]) == 0
+    assert seen["line_buffering"] is True and sys.stdout.write_through is True
+    assert "dòng 1" in seen["on_disk"], "stdout chưa xuống file ngay sau print() → run.log sẽ 'đứng' trong exe"
+
+
 def test_get_version_sources(monkeypatch, tmp_path):
     monkeypatch.setenv("SECJIT_APP_VERSION", "v9.9")
     assert version.get_version() == "v9.9"
