@@ -160,3 +160,11 @@ clean      <repo> [--items clone,pool,m2,export:<dir>,db:<path>] [--dry-run]   (
 review     sample --db DB --seed N --n-pos 200 --n-neg 100 | close --db DB --sample-id ID [--raters a,b]
 ```
 Mọi lệnh in JSON khi `--json`. Exit code: 0 ok · 1 lỗi tham số · 2 lỗi runtime · 3 dừng theo stop-file.
+
+
+## 12. Hiệu chỉnh hợp đồng đã chấp nhận (trưởng, T+2)
+
+- §7 runner: chữ ký thật `runner.start(profile_path, run_id, work_dir, python_exe=sys.executable, extra_env=None) -> {pid, log, progress, stop, run_dir, meta, argv}`; `runner.stop(run_id, work_dir, force=False, timeout_s=10.0, python_exe=None, cleanup=None) -> {ok, stop_file, pid, alive_before, killed, alive_after, cleanup}`; `runner.attach(run_id, work_dir) -> {run_id, pid, alive, last_progress_line, interrupted, status, meta, log, run_dir, exists}`.
+- §7 registry: env `SECJIT_HOME` override `%LOCALAPPDATA%\secjit`; `registry.refresh_status()` trả danh sách run đổi trạng thái; `speed.json` thêm `buggy_ratio`, `updated`.
+- §8 preflight: `run()` trả thêm `codeql_ram_mb`, `sonar_port`, `fixed`, `elapsed_s`, `os`, `ts`; 6 auto-fix (thêm `max_map_count` và `lower_codeql_ram`).
+- §11 `stop-cleanup`: exit 0 kể cả khi không có gì để dọn; `--json`; `reset-claims` theo `claimed_by` của run.
