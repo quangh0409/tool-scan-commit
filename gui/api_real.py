@@ -174,6 +174,11 @@ class RealApi:
             raise not_implemented("preflight", "A3", "preflight.run(...) -> dict §8")
         s = self._settings()
         inc = (req.query.get("include_codeql") or "0") in ("1", "true")
+        if (req.query.get("light") or "0") in ("1", "true"):
+            # HM-2: Home mở -> chỉ kiểm docker_daemon (nhanh), không ghi đè kết quả preflight đầy đủ
+            res = pf.run(work_dir=s.get("work_dir"), sonar_port=s.get("sonar_port"), checks=["docker_daemon"])
+            res["light"] = True
+            return res
         res = pf.run(work_dir=s.get("work_dir"), sonar_port=s.get("sonar_port"), include_codeql=inc)
         self._last_preflight = res
         return res
@@ -380,8 +385,10 @@ class RealApi:
         res = f(dict(req.params), body)
         try:
             _registry().upsert({"run_id": res["run_id"], "smoke": bool(res.get("smoke")),
+                                "preflight_skipped": bool(body.get("preflight_skipped")),
                                 "summary": {"formats": body.get("formats") or ["jsonl"], "notify": bool(body.get("notify", True)),
-                                            "resume": bool(body.get("resume"))}})
+                                            "resume": bool(body.get("resume")), "smoke": bool(res.get("smoke")),
+                                            "preflight_skipped": bool(body.get("preflight_skipped"))}})
         except Exception:  # noqa: BLE001 — registry phụ, không làm hỏng start
             pass
         return res

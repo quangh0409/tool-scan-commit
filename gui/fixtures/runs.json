@@ -19,8 +19,10 @@
         "candidate": 17,
         "verified_clean": 0,
         "cheap_clean": 2,
-        "kappa": -0.5
-      }
+        "kappa": -0.5,
+        "smoke": true
+      },
+      "smoke": true
     },
     {
       "run_id": "r-20261005-A",

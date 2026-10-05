@@ -1,5 +1,5 @@
 /* Màn 0 — Preflight: 13 mục, 3 mức ok/fix/warn/bad, sửa từng mục / sửa tất cả, JSON chẩn đoán. */
-import { api, t, h, btn, card, toast, dialog, empty, errorBox, skeleton, notice, progress, clear, busy, preflightCache, navigate, fmt } from '../app.js';
+import { api, t, h, btn, card, toast, dialog, empty, errorBox, skeleton, notice, progress, clear, busy, preflightCache, navigate, fmt, wiz } from '../app.js';
 
 let alive = true;
 let data = null;
@@ -28,7 +28,7 @@ async function load(page, ctx) {
     if (!alive) return;
     clear(page);
     page.append(h('div', {}, h('h1', {}, t('pf.title'))), errorBox(e, () => load(page, ctx)),
-      h('div', { class: 'row end' }, btn(t('pf.skip_anyway'), { kind: 'ghost', onClick: () => confirmContinue(true) })));
+      h('div', { class: 'row end' }, skipButton()));
     return;
   }
   if (!alive) return;
@@ -49,17 +49,18 @@ function draw(page, ctx) {
   const partial = data && (data.docker_mem_gb === undefined || data.cpu === undefined || items.length < 13);
   page.append(h('div', {}, h('h1', {}, t('pf.title')), h('p', { class: 'lead' }, t('pf.lead'))));
 
+  // PF-1: rỗng -> chỉ hiện empty (không kèm banner partial)
+  if (!items.length) {
+    page.append(card({ body: empty(t('pf.empty'), { action: btn(t('pf.recheck'), { onClick: () => load(page, ctx) }) }) }),
+      h('div', { class: 'row end' }, skipButton()));
+    return;
+  }
   // tóm tắt tài nguyên
   page.append(h('div', { class: 'tiles' },
     tile(data.docker_mem_gb !== undefined ? `${fmt.num(data.docker_mem_gb)} GB` : '—', t('pf.docker_ram')),
     tile(data.cpu !== undefined ? `${data.cpu}` : '—', t('pf.cpu')),
     tile(String(c.ok), t('pf.n_ok')), tile(String(c.fix), t('pf.n_fix')), tile(String(c.warn), t('pf.n_warn')), tile(String(c.bad), t('pf.n_bad'))));
   if (partial) page.append(notice('warn', t('pf.partial')));
-
-  if (!items.length) {
-    page.append(card({ body: empty(t('pf.empty'), { action: btn(t('pf.recheck'), { onClick: () => load(page, ctx) }) }) }));
-    return;
-  }
   const list = h('div');
   for (const it of items) list.append(itemRow(it, page, ctx));
   page.append(card({ list: true, body: list }));
@@ -71,8 +72,21 @@ function draw(page, ctx) {
   const json = btn(t('pf.view_json'), { kind: 'ghost', onClick: () => dialog({ title: t('pf.view_json'), body: h('pre', { class: 'code' }, JSON.stringify(data, null, 2)), confirmText: t('close'), hideCancel: true }) });
   const cont = btn(t('continue') + ' ▸', { kind: 'primary', disabled: c.bad > 0, onClick: () => confirmContinue(c.warn > 0 || c.fix > 0) });
   const foot = h('div', { class: 'row between' }, h('div', { class: 'row gap-s' }, fixAll, recheck, json), cont);
-  if (c.bad > 0) foot.append(h('div', { class: 'err', style: { width: '100%', textAlign: 'right' } }, t('pf.blocked', { n: c.bad })));
+  // PF-2: mục ❌ không tự sửa (vd Git) -> vẫn có lối thoát: Bỏ qua kiểm tra (typed-confirm, ghi preflight_skipped)
+  if (c.bad > 0) foot.append(h('div', { class: 'row end', style: { width: '100%' } }, h('span', { class: 'err' }, t('pf.blocked', { n: c.bad })), skipButton()));
   page.append(foot);
+}
+
+function skipButton() {
+  return btn(t('pf.skip_anyway'), { kind: 'ghost', test: 'skip', onClick: async () => {
+    const ok = await dialog({ title: t('pf.skip_title'), body: h('div', {}, h('p', {}, t('pf.skip_body')), h('p', { class: 'muted small' }, t('pf.skip_note'))),
+      confirmText: t('pf.skip_confirm'), typedConfirm: 'BO QUA', danger: true });
+    if (!ok) return;
+    wiz.setMeta({ preflight_skipped: true });
+    preflightCache.set(Object.assign({}, data || { items: [] }, { ready: true, skipped: true }));
+    toast(t('pf.skipped_toast'), 'warn', 6000);
+    navigate('home');
+  } });
 }
 
 function tile(v, k) { return h('div', { class: 'tile' }, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k)); }
@@ -119,6 +133,11 @@ async function runFix(it, row, button, page, ctx, { silent = false } = {}) {
     it.level = 'ok'; it.fix_available = false;
     row.querySelector('.mark').className = 'mark ok'; row.querySelector('.mark').textContent = ICON.ok;
     row.querySelector('.tag').textContent = t('level.ok');
+    // PF-3: bỏ thanh tiến độ, ghi chi tiết mới vào dòng detail
+    const det = row.querySelector('.detail');
+    const finalDetail = prog.lastChild.textContent;
+    prog.remove();
+    if (det) det.textContent = finalDetail || det.textContent; else grow.append(h('div', { class: 'detail' }, finalDetail));
     if (button) button.remove();
     if (!silent) toast(t('pf.fixed', { title: it.title }), 'ok');
     return true;

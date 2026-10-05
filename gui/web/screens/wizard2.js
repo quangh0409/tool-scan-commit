@@ -1,10 +1,11 @@
 /* Wizard 2/5 — Phạm vi commit: time/count/sha/all, validate, include_clean, lọc, ước tính (debounce) + histogram. */
-import { api, t, h, card, notice, clear, debounce, wiz, fmt } from '../app.js';
+import { api, t, h, card, notice, skeleton, clear, debounce, wiz, fmt } from '../app.js';
 
 let alive = true;
 let frame = null;
 let estBox = null;
 let lastEstimate = null;
+let scopeBad = false;
 
 export async function render(root, ctx) {
   alive = true;
@@ -76,8 +77,12 @@ export async function render(root, ctx) {
     const e = validateScope(x.scope);
     for (const k of Object.keys(errs)) { errs[k].textContent = e[k] || ''; }
     for (const [inp, bad] of [[since, e.time && !since.value && !until.value], [until, e.time && since.value && until.value && since.value > until.value], [max, !!e.count], [fromSha, e.sha && fromSha.value && !shaOk(fromSha.value)], [toSha, e.sha && toSha.value && !shaOk(toSha.value)]]) inp.classList.toggle('invalid', !!bad);
+    // W2-3: "đến" ở tương lai không phải lỗi — nghĩa là HEAD
+    const today = new Date().toISOString().slice(0, 10);
+    if (x.scope.mode === 'time' && !e.time && until.value && until.value > today) { errs.time.textContent = t('w2.until_future'); errs.time.className = 'warnmsg'; } else errs.time.className = 'err';
     const bad = e[x.scope.mode];
-    frame.next.disabled = !!bad || !x.repo;
+    scopeBad = !!bad || !x.repo;
+    frame.next.disabled = scopeBad;
     if (!bad && x.repo) estimateDebounced(); else drawEstimate(null, bad ? { message: t('w2.fix_first') } : null);
   }
   const estimateDebounced = debounce(() => runEstimate(), 450);
@@ -133,8 +138,10 @@ function drawEstimate(d, err, loading) {
   clear(estBox);
   if (loading) estBox.setAttribute('aria-busy', 'true'); else estBox.removeAttribute('aria-busy');
   if (!d && err) { estBox.append(notice('warn', h('div', {}, h('strong', {}, t('w2.est_unavailable')), ' ', err.message || '', err.hint ? h('div', { class: 'small' }, err.hint) : null))); return; }
-  if (!d) { estBox.append(h('p', { class: 'muted' }, loading ? t('w2.est_loading') : t('w2.est_unavailable'))); return; }
+  if (!d) { estBox.append(loading ? skeleton(2, { lines: true }) : h('p', { class: 'muted' }, t('w2.est_unavailable'))); return; }   // W2-2: skeleton lần đầu
   const p = wiz.ensure();
+  // W2-1: 0 commit sau lọc -> khoá Tiếp (mở lại khi ước tính mới > 0 và phạm vi hợp lệ)
+  if (frame) frame.next.disabled = scopeBad || (!loading && d.commits_after_filter === 0);
   const tiles = h('div', { class: 'tiles' },
     tile(fmt.num(d.commits_after_filter), t('w2.after_filter')),
     tile(d.buggy_est !== undefined ? '~' + fmt.num(d.buggy_est) : '—', t('w2.buggy_est')),
