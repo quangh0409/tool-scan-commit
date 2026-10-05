@@ -67,9 +67,9 @@ Nhãn cụm: `gold | silver | candidate` theo luật v1 (`E ≥ gold_min_expensi
   (`max` > 0; **0 bị cấm**), `sha` (`from_sha..to_sha`, verify bằng `git rev-parse`), `all`.
 - `filters` (tuỳ chọn, Wizard 2): `clean_per_buggy` → `ORCH_CLEAN_PER_BUGGY`, `require_in_diff` → `ORCH_SUSPECT_REQUIRE_IN_DIFF`.
 - `params_v1` khác mặc định ⇒ bắt buộc `experiment={"enabled":true,"reason":"≥10 ký tự"}`; run gắn `run_meta.experiment=1`
-  + `reason`; manifest `experiment={enabled, reason}`; **không gộp** với dữ liệu v1.
-  **LỆCH: hợp đồng gốc nói "export sang thư mục có hậu tố `_exp`" — mã hiện KHÔNG thêm hậu tố `_exp` ở đâu (chỉ có gợi ý
-  text trong `api_results.relabel`); export thí nghiệm chỉ phân biệt qua `manifest.experiment`/`run_meta.experiment`.**
+  + `reason`; manifest `experiment={enabled, reason}`; **không gộp** với dữ liệu v1. Export thí nghiệm
+  (`ORCH_EXPERIMENT=1`) **gắn hậu tố `_exp`** vào tên thư mục (`export_dataset.resolve_out_dir`, trước khi xét `_2/_3`;
+  không nhân đôi nếu tên đã có `_exp`) — quyết đợt 9, đã vào mã.
 - `profile.to_env()` → env `ORCH_*` (+`PYTHONUTF8`, `PYTHONIOENCODING`; experiment → `ORCH_EXPERIMENT=1`,
   `ORCH_EXPERIMENT_REASON`, `ORCH_LINE_WINDOW`); `to_cli_args()` → argv `pipeline …`; `to_shell(p, "powershell"|"bash")` → lệnh
   tương đương (mọi giá trị quote). `from_env_defaults(repo, branch, out_dir)` sinh tên `dataset_<slug>_<branch>_<yyyymmdd>`.
@@ -173,7 +173,9 @@ của manifest A hoặc B (`explained_by{}` có đủ 6 khoá); từ DB suy từ
   pid, summary:{gold,silver,candidate,verified_clean,cheap_clean,commits,clusters,selected,kappa,relabeled,changed,smoke,scope,
   preflight_skipped,…}}]}`; ghi atomic (tmp + `os.replace`); `refresh_status()` → danh sách run đổi trạng thái
   (`interrupted` khi pid chết mà DB còn `building/analyzing`); `get/upsert/set_status/remove`.
-  **LỆCH: §12 cũ ghi cờ `smoke` "cấp bản ghi" — mã đặt `smoke` trong `summary.smoke` (và `run_id` hậu tố `-smoke`).**
+  Cờ **`smoke`** ghi **cả hai nơi**: cấp bản ghi `run.smoke` (wrapper `api_real.run_start` đã ghi; A5 bổ sung ở
+  `api_runs.run_start`) **và** `summary.smoke`; `run_id` chạy thử có hậu tố `-smoke`. Tương tự `preflight_skipped` (cấp bản ghi
+  + summary). Người đọc ưu tiên cấp bản ghi, fallback `summary` (quyết đợt 9).
 - Lock: `<db>.lock` (§4); single-instance GUI: `registry.locks.single_instance("secjit-gui")` (mutex Windows / lock-file);
   launcher ghi `gui.json` để lần chạy 2 mở URL cũ (`SECJIT_GUI_URL`).
 - `speed.json` (`<SECJIT_HOME>/speed.json`): `{cheap_s_per_commit, build_cold_s, build_warm_s, fsb_s, sonar_s, buggy_ratio,
@@ -209,7 +211,7 @@ header `X-Token: <token>` hoặc `?t=`. JSON UTF-8. Lỗi: HTTP 4xx/5xx + `{"err
 | `POST /api/repo/check` | `{url, pat?}` → `{canon, slug, public, default_branch, branches[], tags[], java_maven, jdk, modules, snapshot_risk, security_config_count, commit_count|null, warnings[]}` | `repo_check.json` |
 | `POST /api/estimate` | `{profile}` → `{commits_after_filter, buggy_est, cheap_minutes, expensive_minutes_cold, expensive_minutes_warm, disk_gb, speed_source, speed{}, detail{}, workers{}, histogram[{month,n}], db_exists}`; **425 `clone_pending`** khi chưa có clone (GUI retry 5 s) | `estimate.json` |
 | `POST /api/profile/validate` | `{profile}` → `{errors[], warnings[], db_exists, export_exists, db_user_version, db_locked{held,pid,run_id}, …}` | — |
-| `POST /api/run/start` | `{profile, smoke, workers?, preflight_skipped?}` → `{run_id, pid, smoke, db, work, log, …}`; `smoke=true` → `--max 3` vào DB scratch, `run_id` hậu tố `-smoke`. **LỆCH: §12 cũ (A4) khai `formats, notify, resume, overwrite` trong body — mã `api_runs.run_start` chỉ đọc `profile, smoke, workers` (+`preflight_skipped` ở api_real); resume đi qua `/run/{id}/resume`, overwrite/formats chưa có backend.** | — |
+| `POST /api/run/start` | `{profile, smoke, workers?, formats?, notify?, overwrite?, preflight_skipped?}` → `{run_id, pid, smoke, db, work, log, …}`. **Backend thuần A5** (`api_runs.run_start`) đọc `profile, smoke, workers` (`smoke=true` → `--max 3` vào DB scratch, `run_id` hậu tố `-smoke`). **Wrapper A4** (`api_real.run_start`) xử lý phần còn lại trước/sau khi ủy quyền: `overwrite=true` → đổi tên DB cũ thành `<db>.<yyyymmdd-HHMMSS>.bak` (không áp cho smoke; lỗi → 500 `overwrite_failed`); `formats` (mặc định `["jsonl"]`) và `notify` (mặc định true) lưu vào `registry.summary` để `export`/toast dùng sau; `preflight_skipped` ghi cấp bản ghi + summary. **`resume` KHÔNG đi qua run/start** — dùng `POST /api/run/{id}/resume` (quyết đợt 9). | — |
 | `POST /api/run/{id}/stop` | `{force}` → `{ok, cleaned[], force, stop_file, alive_before, alive_after, reset_claims, detail}` | — |
 | `POST /api/run/{id}/resume` | `{workers?}` → `{run_id, pid, from_phase, workers, reset_claims, …}` | — |
 | `GET /api/runs` | → `{runs:[registry §7 + summary], home}` (summary thêm `relabeled: bool`) | `runs.json` |
@@ -311,3 +313,7 @@ orchestrator.review` có cả `list`).
   ISO; `.gitattributes` fixture; export ghi LF; `verify_run`, `results_report`; `review.sample.empty/message`.
 - 2026-10-05 đợt 8 (hợp nhất): gộp §12 cũ vào §1–§11; đánh dấu **LỆCH** (§2 `_exp`, §7 `smoke`, §9 `run/start` body);
   thêm `?light=1`, `preflight_skipped`, route `finding/(?P<cluster_key>…)`.
+- 2026-10-05 đợt 9 (trưởng quyết 3 LỆCH): (1) §2/§6 `_exp` **thêm vào mã** — `export_dataset.resolve_out_dir` gắn hậu tố khi
+  `ORCH_EXPERIMENT=1`, trước `_2/_3`, manifest `experiment` giữ nguyên (test `test_export_experiment_gets_exp_suffix`);
+  (2) §7 `smoke`/`preflight_skipped` ghi cả cấp bản ghi lẫn `summary`; (3) §9 `run/start` body: A5 đọc `profile, smoke,
+  workers`; wrapper A4 xử lý `overwrite` (.bak), `formats`, `notify`, `preflight_skipped`; `resume` chỉ qua `/run/{id}/resume`.

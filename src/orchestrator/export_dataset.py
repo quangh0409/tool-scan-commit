@@ -73,9 +73,16 @@ def _experiment() -> dict | None:
     return None
 
 
+EXP_SUFFIX = "_exp"
+
+
 def resolve_out_dir(out_dir: Path) -> Path:
-    """D5: nếu thư mục đích đã có dữ liệu -> trả thư mục mới hậu tố _2, _3… (không trộn)."""
+    """D5: nếu thư mục đích đã có dữ liệu -> trả thư mục mới hậu tố _2, _3… (không trộn).
+    Chế độ thí nghiệm (ORCH_EXPERIMENT=1, CONTRACTS §2): gắn hậu tố `_exp` TRƯỚC khi xét `_2/_3`
+    -> export thí nghiệm không bao giờ nằm chung tên với export v1."""
     out_dir = Path(out_dir)
+    if os.environ.get("ORCH_EXPERIMENT") == "1" and not out_dir.name.endswith(EXP_SUFFIX):
+        out_dir = out_dir.with_name(out_dir.name + EXP_SUFFIX)
     if not out_dir.exists() or not any(out_dir.iterdir()):
         return out_dir
     base = str(out_dir).rstrip("/\\")
