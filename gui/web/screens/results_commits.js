@@ -1,6 +1,6 @@
 // results_commits.js — #/results/:id/commits (A5). GET /api/results/:id/commits?page=&size=
 // Nút "Tính lại Kamei" -> POST /api/results/:id/features (501 -> toast); "Gán nhãn lại" chỉ khi experiment.
-import { h, clear, makeT, fmt, statusTag, partialNote, banner, tryApi, errStatus, errText, qs, resultsHeader, findRun, getComponents } from './_util.js';
+import { h, clear, makeT, fmt, statusTag, partialNote, banner, tryApi, errStatus, errText, qs, resultsHeader, findRun, getComponents, rescanCommits, toolErrorsTag } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -44,6 +44,8 @@ function draw() {
     h('span', { class: 's-spacer' }),
     C.btn({ label: tr('cm.btn.tinh_lai_kamei', 'Tính lại Kamei'), small: true, onClick: recomputeKamei }));
   if (S.experiment && S.experiment.enabled) actions.append(C.btn({ label: tr('cm.btn.gan_nhan_lai_thi_nghiem', 'Gán nhãn lại (thí nghiệm)'), small: true, kind: 'danger', onClick: relabel }));
+  const errRows = ((S.data && S.data.rows) || []).filter((r) => r.scan_tool_errors && r.scan_tool_errors.length);
+  if (errRows.length > 1) actions.append(C.btn({ label: `Quét lại ${errRows.length} commit lỗi tool`, small: true, onClick: () => rescanCommits(ctx, C, id, errRows.map((r) => r.commit), { onDone: () => load() }) }));
   root.append(actions);
   if (S.experiment && S.experiment.enabled) root.append(banner('warn', tr('cm.banner.run_thi_nghiem', 'Run thí nghiệm'), `params_v1 khác mặc định — lý do: ${S.experiment.reason || '—'}. Không gộp vào gold_set_all.`));
   const pn = partialNote([...S.missing]); if (pn) root.append(pn);
@@ -61,10 +63,14 @@ function draw() {
       { key: 'n_expensive_ok', label: tr('cm.btn.tool_dat_ok', 'tool đắt ok'), render: (r) => r.n_expensive_ok === undefined ? null : h('span', { class: 's-mono', text: String(r.n_expensive_ok) }) },
       { key: 'negative_level', label: tr('cm.btn.muc_am', 'mức âm'), render: (r) => r.negative_level ? C.badgeLabel(r.negative_level) : (r.role === 'clean' ? h('span', { class: 's-muted', text: 'chưa xác định' }) : h('span', { class: 's-muted', text: '—' })) },
       { key: 'kamei', label: tr('cm.btn.kamei', 'Kamei'), render: (r) => kamei(r.kamei) },
-      { key: 'build_error', label: tr('cm.btn.loi_build', 'lỗi build'), render: (r) => r.build_error ? h('span', { class: 's-mono', style: { display: 'inline-block', maxWidth: '150px', whiteSpace: 'normal', wordBreak: 'break-word' }, title: r.build_error, text: r.build_error }) : null },
+      { key: 'build_error', label: tr('cm.btn.loi_build', 'lỗi build'), render: (r) => r.build_error ? h('span', { class: 's-mono s-cell-wrap', title: r.build_error, text: r.build_error.length > 90 ? r.build_error.slice(0, 90) + '…' : r.build_error }) : null },
+      { key: 'scan_tool_errors', label: tr('cm.btn.tool_re_loi', 'tool rẻ lỗi'), render: (r) => (r.scan_tool_errors && r.scan_tool_errors.length)
+        ? h('div', { class: 's-stack', style: { gap: '4px' } }, toolErrorsTag(r.scan_tool_errors),
+          C.btn({ label: tr('cm.btn.quet_lai', 'Quét lại'), small: true, title: 'TC-15: chạy lại tool rẻ bị lỗi trên commit này, giữ raw tool khác, relabel', onClick: () => rescanCommits(ctx, C, id, [r.commit], { onDone: () => load() }) }))
+        : null },
     ],
     rows, page: S.page, size: SIZE, total: d.total, onPage: (p) => { S.page = p; load(); },
-  })));
+  }), { extraClass: 's-table-card s-commits' }));
 }
 
 function kamei(k) {

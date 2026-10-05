@@ -376,3 +376,99 @@ def test_profiles_crud_and_shell(secjit_home, orch_env, tmp_path):
     with pytest.raises(ApiError) as e:
         api_settings.delete_profile({"name": "train-ticket-30"}, None)
     assert e.value.status == 404
+
+
+# ----------------------------------------------------------------------------- đợt 4: rescan (TC-15), smoke flag, storage
+def _add_scan_tool_errors(db):
+    import sqlite3
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE IF NOT EXISTS scan_tool_errors (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_id TEXT, tool TEXT, "
+                "tier TEXT, kind TEXT, msg TEXT, at TEXT)")
+    con.execute("INSERT INTO scan_tool_errors (commit_id, tool, tier, kind, msg, at) VALUES (?,?,?,?,?,?)",
+                [BUGGY, "semgrep", "cheap", "tool_error", "WinError 206", "2026-10-05T11:03:10"])
+    con.commit(); con.close()
+
+
+def test_commits_and_finding_expose_scan_tool_errors(run_a):
+    _add_scan_tool_errors(run_a["db"])
+    row = api_results.commits({"id": RUN}, None)["rows"][0]
+    assert row["scan_tool_errors"] == [{"tool": "semgrep", "tier": "cheap", "kind": "tool_error", "msg": "WinError 206", "at": "2026-10-05T11:03:10"}]
+    ck = api_results.findings({"id": RUN, "size": "1"}, None)["rows"][0]["cluster_key"]
+    d = api_results.finding({"id": RUN, "cluster_key": ck}, None)
+    assert d["row"]["scan_tool_errors"][0]["tool"] == "semgrep"
+
+
+def test_rescan_single_sync_and_multi_background(run_a, monkeypatch):
+    calls = {}
+
+    def fake_run_cli(argv, env=None, timeout=600, ok_codes=(0,)):
+        calls.update(argv=argv, timeout=timeout, ok_codes=ok_codes, env=env)
+        return {"db": "x", "repo": "r", "results": [{"commit": BUGGY, "tools": ["semgrep"], "findings": 3, "clusters": 2,
+                                                     "errors_cleared": 1, "infra": None, "reason": "tool_errors"}], "rc": 0}
+    monkeypatch.setattr(api_results.C, "run_cli", fake_run_cli)
+    r = api_results.rescan({"id": RUN}, {"commits": [BUGGY]})
+    assert r["mode"] == "sync" and r["ok"] is True and r["results"][0]["clusters"] == 2 and r["infra"] is False
+    assert calls["argv"][:4] == ["rescan", "--db", str(run_a["db"]), "--commit"] and calls["argv"][4] == BUGGY
+    assert "--repo" in calls["argv"] and calls["ok_codes"] == (0, 3) and calls["timeout"] == 900
+    assert calls["env"]["ORCH_SQLITE"] == str(run_a["db"])
+    # --tools
+    api_results.rescan({"id": RUN}, {"commits": [BUGGY], "tools": ["semgrep", "bearer"]})
+    assert calls["argv"][-2:] == ["--tools", "semgrep,bearer"]
+    # infra_error (exit 3) -> ok=False, infra=True, không raise
+    monkeypatch.setattr(api_results.C, "run_cli", lambda *a, **k: {"results": [{"commit": BUGGY, "infra": "docker"}], "rc": 3})
+    r3 = api_results.rescan({"id": RUN}, {"commits": [BUGGY]})
+    assert r3["infra"] is True and r3["ok"] is False
+    # >1 commit -> nền
+    spawned = {}
+    monkeypatch.setattr(api_results.C, "spawn_cli", lambda argv, log, env=None: spawned.update(argv=argv, log=str(log)) or 777)
+    rb = api_results.rescan({"id": RUN}, {"commits": [BUGGY, "9bdd9a28"]})
+    assert rb["mode"] == "background" and rb["pid"] == 777 and rb["status"] == 202 and spawned["log"].endswith("rescan.log")
+    assert spawned["argv"][4] == f"{BUGGY},9bdd9a28"
+    for bad in ({}, {"commits": []}, {"commits": ["zz"]}, {"commits": [BUGGY], "tools": "semgrep"}):
+        with pytest.raises(ApiError) as e:
+            api_results.rescan({"id": RUN}, bad)
+        assert e.value.status == 400
+
+
+def test_rescan_refuses_when_db_locked(run_a, monkeypatch):
+    import os
+    import registry
+    from registry import locks
+    locks.acquire_db_lock(run_a["db"], "r-live", os.getpid())
+    try:
+        with pytest.raises(ApiError) as e:
+            api_results.rescan({"id": RUN}, {"commits": [BUGGY]})
+        assert e.value.status == 409
+    finally:
+        locks.release_db_lock(run_a["db"], None)
+    assert registry.get(RUN)
+
+
+def test_run_start_writes_record_level_smoke_flag(run_a, monkeypatch, secjit_home):
+    import registry
+    import runner
+    from orchestrator import profile as prof
+    monkeypatch.setattr(runner, "start", lambda path, rid, work, **kw: {"pid": 1, "log": "l", "progress": "p", "stop": "s", "run_dir": "d", "meta": "m", "argv": []})
+    p = prof.default_profile("https://github.com/FudanSELab/train-ticket", "master")
+    p["paths"] = {"db": str(secjit_home / "res" / "dataset.sqlite"), "export": "", "work": ""}
+    res = api_runs.run_start({}, {"profile": p, "smoke": True})
+    rec = registry.get(res["run_id"])
+    assert rec["smoke"] is True and rec["summary"]["smoke"] is True
+    res2 = api_runs.run_start({}, {"profile": p, "smoke": False})
+    assert registry.get(res2["run_id"])["smoke"] is False
+
+
+def test_storage_results_ignores_wal_shm(secjit_home, orch_env, tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "dataset_a.sqlite").write_bytes(b"x" * 10)
+    (res / "dataset_a.sqlite-wal").write_bytes(b"")
+    (res / "dataset_a.sqlite-shm").write_bytes(b"")
+    (res / "dataset_a.sqlite.lock").write_text("{}", encoding="utf-8")
+    (res / "export_a").mkdir()
+    (res / "export_a" / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (res / "notes.docx").write_bytes(b"y")
+    api_settings.set_settings({}, {"out_dir": str(res), "work_dir": str(tmp_path / "wk")})
+    item = [i for i in api_settings.storage({}, None)["items"] if i["id"] == "results"][0]
+    assert item["dbs"] == 1 and item["exports"] == 1 and item["stray"] == ["notes.docx"]
+    assert "1 DB · 1 export" in item["detail"] and "-wal" not in item["detail"] and "-shm" not in item["detail"]

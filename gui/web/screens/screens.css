@@ -142,6 +142,11 @@ tr.s-row-click:focus-visible { outline: 3px solid var(--s-accent); outline-offse
 .s-tools .s-tag { font-weight: 500; }
 .s-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; display: inline-block; vertical-align: bottom; }
 
+/* bảng commit: ô lỗi build wrap trong 150–220px, cột lỗi tool gọn */
+.s-cell-wrap { display: inline-block; min-width: 150px; max-width: 220px; white-space: normal; word-break: break-word; font-size: 12px; }
+.s-commits .sh-table td, .s-commits .tbl td { vertical-align: top; }
+.s-commits .s-kamei summary { min-height: 32px; }
+
 /* kamei gập */
 .s-kamei summary { cursor: pointer; color: var(--s-accent); font-weight: 600; font-size: 12.5px; min-height: 44px; display: flex; align-items: center; white-space: nowrap; }
 .s-kamei .s-mono { color: var(--s-ink-2); }

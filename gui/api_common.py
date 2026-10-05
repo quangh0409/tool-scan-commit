@@ -271,7 +271,7 @@ def cli_env(prof: dict | None = None, run_id: str | None = None, run_dir: Path |
     return env
 
 
-def run_cli(args: list[str], env: dict | None = None, timeout: float = 600) -> dict:
+def run_cli(args: list[str], env: dict | None = None, timeout: float = 600, ok_codes: tuple = (0,)) -> dict:
     """`python -m orchestrator.cli <args> --json` đồng bộ → JSON stdout. Lệnh chưa có → 501."""
     argv = [sys.executable, "-m", "orchestrator.cli", *args]
     if "--json" not in argv:
@@ -287,13 +287,16 @@ def run_cli(args: list[str], env: dict | None = None, timeout: float = 600) -> d
     err = (r.stderr or "").strip()
     if r.returncode != 0 and ("invalid choice" in err or "unrecognized arguments" in err):
         raise ApiError(501, "ENOTSUP", f"orchestrator.cli chưa có lệnh {args[0]!r}", err[-300:])
-    if r.returncode != 0:
+    if r.returncode != 0 and r.returncode not in ok_codes:
         raise ApiError(500 if r.returncode == 2 else 400, "ECLI", f"{args[0]} exit {r.returncode}", (err or out)[-500:])
     last = out.splitlines()[-1] if out else ""
     try:
-        return json.loads(last)
+        d = json.loads(last)
     except ValueError:
         return {"stdout": out[-2000:], "stderr": err[-500:], "rc": r.returncode}
+    if isinstance(d, dict):
+        d.setdefault("rc", r.returncode)
+    return d
 
 
 def spawn_cli(args: list[str], log_path: Path, env: dict | None = None) -> int:

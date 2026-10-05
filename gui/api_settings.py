@@ -182,8 +182,9 @@ def storage(params: dict | None = None, body: dict | None = None) -> dict:
     items.append({"id": "runs", "title": "Log/progress các run", "path": str(work / "r-*"), "safety": "safe",
                   "bytes": sum(_dir_size(p) for p in run_dirs), "count": len(run_dirs),
                   "detail": "run.log, progress.jsonl, profile — xoá thì không resume được run đó"})
+    res_info = _results_info(out_dir)
     items.append({"id": "results", "title": "Kết quả đã xuất (DB + export)", "path": str(out_dir), "safety": "forbidden",
-                  "bytes": _dir_size(out_dir) if out_dir.exists() else 0, "detail": "không bao giờ tự xoá"})
+                  "bytes": _dir_size(out_dir) if out_dir.exists() else 0, "detail": res_info["detail"], **res_info["counts"]})
     total = sum(i["bytes"] for i in items)
     free = None
     for probe in (work, out_dir, C.home(), Path.cwd()):
@@ -194,6 +195,32 @@ def storage(params: dict | None = None, body: dict | None = None) -> dict:
             continue
     return {"items": items, "total_bytes": total, "free_bytes": free, "work_dir": str(work), "out_dir": str(out_dir),
             "docker": bool(shutil.which("docker"))}
+
+
+def _results_info(out_dir: Path) -> dict:
+    """Đếm DB/export/mục khác trong thư mục kết quả. `-wal`/`-shm` (file phụ SQLite, thường 0 byte), `.lock`, `.bak`
+    KHÔNG tính là 'dữ liệu lạ'."""
+    dbs = exports = 0
+    stray: list[str] = []
+    if out_dir.exists():
+        for p in out_dir.iterdir():
+            n = p.name.lower()
+            if p.is_dir():
+                if n.startswith("export") or (p / "run_manifest.json").exists():
+                    exports += 1
+                elif n in ("work", "scratch", "diagnostics", "profiles"):
+                    continue
+                else:
+                    stray.append(p.name)
+            elif n.endswith((".sqlite", ".db")):
+                dbs += 1
+            elif n.endswith(("-wal", "-shm", ".lock", ".bak", ".json", ".log", ".txt", ".md")):
+                continue
+            else:
+                stray.append(p.name)
+    detail = f"{dbs} DB · {exports} export — không bao giờ tự xoá" + (f" · {len(stray)} mục khác: {', '.join(stray[:3])}" if stray else "")
+    return {"detail": detail if out_dir.exists() else "chưa có thư mục kết quả",
+            "counts": {"dbs": dbs, "exports": exports, "stray": stray[:20]}}
 
 
 # ----------------------------------------------------------------------------- clean

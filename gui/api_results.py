@@ -226,6 +226,7 @@ def finding(params: dict, body: dict | None = None) -> dict:
         row = _row_out(full, w, reviews)
         keys_ = full.keys()
         row["kamei"] = C.jload(full["kamei"], None) if "kamei" in keys_ else None
+        row["scan_tool_errors"] = _scan_tool_errors(conn, full["commit_id"]) if "scan_tool_errors" in tabs else []
         row["code_before_url"] = full["code_before_url"] if "code_before_url" in keys_ else None
         row["code_after_url"] = full["code_after_url"] if "code_after_url" in keys_ else None
         diff_lines = _diff_lines(full)
@@ -354,6 +355,7 @@ def commits(params: dict, body: dict | None = None) -> dict:
         scols = C.columns(conn, "selected_commits")
         has_cf = "commit_features" in tabs
         has_er = "expensive_runs" in tabs
+        has_ste = "scan_tool_errors" in tabs
         total = conn.execute("SELECT COUNT(*) FROM selected_commits").fetchone()[0]
         sel = ["s.commit_id", "s.role", "s.status" if "status" in scols else "'pending' AS status",
                "s.build_status" if "build_status" in scols else "NULL AS build_status",
@@ -386,11 +388,72 @@ def commits(params: dict, body: dict | None = None) -> dict:
                 if e:
                     build_error = e["error"]
             kam = {k: r[k] for k in kamei_cols} if has_cf and r["nf"] is not None else None
-            out.append({"commit": cid, "date": (r["author_date"] or "")[:10] if has_cf and r["author_date"] else None,
+            ste = _scan_tool_errors(conn, cid) if has_ste else []
+            out.append({"commit": cid, "scan_tool_errors": ste, "date": (r["author_date"] or "")[:10] if has_cf and r["author_date"] else None,
                         "author": r["author"] if has_cf else None, "role": r["role"], "status": r["status"],
                         "build_status": r["build_status"], "n_expensive_ok": n_ok, "negative_level": neg,
                         "kamei": kam, "build_error": build_error, "claimed_by": r["claimed_by"]})
     return {"total": int(total), "page": page, "size": size, "rows": out}
+
+
+def _scan_tool_errors(conn: sqlite3.Connection, cid: str) -> list[dict]:
+    """Lỗi tool tầng rẻ của commit (TC-15): [{tool, tier, kind, msg, at}]."""
+    try:
+        return [{"tool": r["tool"], "tier": r["tier"], "kind": r["kind"], "msg": (r["msg"] or "")[:300], "at": r["at"]}
+                for r in conn.execute("SELECT tool, tier, kind, msg, at FROM scan_tool_errors WHERE commit_id=? ORDER BY id", [cid])]
+    except sqlite3.Error:
+        return []
+
+
+# ----------------------------------------------------------------------------- rescan (TC-15)
+SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+RESCAN_SYNC_TIMEOUT = 900
+
+
+def rescan(params: dict, body: dict | None = None) -> dict:
+    """POST /api/results/{id}/rescan {commits[], tools?} -> `cli rescan --db ... --commit a,b [--tools ...] --json`.
+
+    1 commit: đồng bộ (timeout 900 s) trả JSON của CLI (`results[]`; exit 3 = có infra_error -> `infra: true`).
+    >1 commit: chạy nền, trả {pid, log, mode:'background'} (A4 trả HTTP 202).
+    """
+    rid, run, db = _ctx(params)
+    body = body or {}
+    commits_ = body.get("commits")
+    if isinstance(commits_, str):
+        commits_ = [commits_]
+    if not isinstance(commits_, list) or not commits_:
+        raise bad_request("commits phải là danh sách SHA không rỗng")
+    shas = []
+    for s in commits_:
+        s = str(s or "").strip()
+        if not SHA_RE.match(s):
+            raise bad_request(f"SHA không hợp lệ: {s!r}", "7–40 ký tự hex")
+        shas.append(s)
+    tools = body.get("tools")
+    if tools is not None:
+        if not isinstance(tools, list) or any(not re.fullmatch(r"[a-z0-9_-]+", str(t)) for t in tools):
+            raise bad_request("tools phải là danh sách tên tool rẻ")
+    C.require_db_free(db)
+    prof = C.load_run_profile(run)
+    repo = run.get("repo") or (prof or {}).get("repo")
+    rdir = C.run_work(run) / rid
+    env = C.cli_env(prof, run_id=rid, run_dir=rdir)
+    env["ORCH_SQLITE"] = str(db)
+    argv = ["rescan", "--db", str(db), "--commit", ",".join(shas)]
+    if repo:
+        argv += ["--repo", repo]
+    if tools:
+        argv += ["--tools", ",".join(tools)]
+    if len(shas) == 1:
+        res = C.run_cli(argv, env, timeout=RESCAN_SYNC_TIMEOUT, ok_codes=(0, 3))
+        results = res.get("results") or []
+        infra = any(r.get("infra") for r in results if isinstance(r, dict)) or res.get("rc") == 3
+        return {"ok": not infra, "mode": "sync", "commits": shas, "results": results, "infra": infra, "rc": res.get("rc", 0),
+                "note": "infra_error — Docker/đĩa có vấn đề, chưa quét lại được" if infra else "đã quét lại tầng rẻ + relabel commit"}
+    log = rdir / "rescan.log"
+    pid = C.spawn_cli(argv, log, env)
+    return {"ok": True, "mode": "background", "status": 202, "pid": pid, "log": str(log), "commits": shas,
+            "note": f"rescan {len(shas)} commit chạy nền — xem log; kết quả cập nhật vào DB"}
 
 
 # ----------------------------------------------------------------------------- export

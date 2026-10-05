@@ -128,6 +128,11 @@ async function api(path, opts = {}) {
     if (fmts.includes('latex')) files.push('stats.tex');
     return { export_dir: dir, files, exists: query.exists === '1' };
   }
+  if ((m = p.match(/^\/api\/results\/([^/]+)\/rescan$/)) && method === 'POST') {
+    const shas = body.commits || [];
+    if (shas.length > 1) return { ok: true, mode: 'background', pid: 4545, log: 'D:\\secjit\\work\\r-20261005-A\\rescan.log', commits: shas };
+    return { ok: true, mode: 'sync', commits: shas, infra: false, rc: 0, results: [{ commit: shas[0], tools: ['semgrep'], findings: 3, clusters: 2, errors_cleared: 1, infra: null, reason: 'tool_errors' }] };
+  }
   if ((m = p.match(/^\/api\/results\/([^/]+)\/(features|relabel)$/))) throw apiErr(501, 'ENOTSUP', `${m[2]} chưa được hỗ trợ qua GUI`, 'A2: thêm endpoint');
   if (p === '/api/open') throw apiErr(501, 'ENOTSUP', 'Mở thư mục chưa được hỗ trợ trong harness', 'A4: POST /api/open?path=');
 

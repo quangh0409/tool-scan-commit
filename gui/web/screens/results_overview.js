@@ -79,6 +79,16 @@ export async function render(root, ctx) {
     kap.append(h('div', { class: 's-stack' }, h('strong', { class: 's-small', text: `Độ phủ: số tool báo cùng một cụm (n=${fmt.int(tot)})` }),
       segBar([{ label: tr('ov.btn.1_tool', '1 tool'), value: cov.one || 0, cls: 'candidate' }, { label: tr('ov.btn.2_tool', '2 tool'), value: cov.two || 0, cls: 'silver' }, { label: tr('ov.btn.3_tool', '≥3 tool'), value: cov.three_plus || 0, cls: 'gold' }], tot, { height: 14 })));
   }
+  const ct = d.cross_tool;
+  if (ct) {
+    const seen = ct.expensive_tools_seen || [];
+    const both = seen.includes('findsecbugs') && seen.includes('sonar');
+    kap.append(h('div', { class: `s-note ${both && !ct.fsb_sonar_clusters ? 'warn' : ''}`.trim(), id: 'ov-cross-tool' },
+      h('strong', { text: tr('ov.text.lien_tool', 'Liên-tool: ') }),
+      `cụm liên-tool FSB–Sonar: ${fmt.int(ct.fsb_sonar_clusters)} · cụm ≥2 tool: ${fmt.int(ct.multi_tool_clusters)} · tool đắt đã chạy: ${seen.join(', ') || '—'}. `,
+      both && !ct.fsb_sonar_clusters ? 'FSB và Sonar cùng chạy nhưng không gộp được cụm nào — khác điểm neo dòng (METHODOLOGY §8), xem ' : 'Xem ',
+      h('a', { href: '#ov-limits', text: tr('ov.text.gioi_han', 'Giới hạn của dataset này'), onclick: (e) => { e.preventDefault(); const t = document.getElementById('ov-limits'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }), '.'));
+  }
   kap.append(h('div', { class: 's-note' },
     h('strong', { text: tr('ov.text.cach_doc', 'Cách đọc κ: ') }),
     'κ Fleiss âm hoặc gần 0 là bình thường ở mọi repo đã chạy (−0,26 … −0,47): các tool SAST bắt ',
@@ -89,7 +99,9 @@ export async function render(root, ctx) {
 
   // giới hạn
   const lim = d.limits;
-  root.append(C.card(lim === undefined ? h('div', { class: 's-note warn', text: tr('ov.note.backend_chua_tra_limits', 'Backend chưa trả limits[].') }) : (lim.length ? h('ul', { class: 's-list' }, lim.map((s) => h('li', { text: s }))) : C.empty(tr('ov.empty.khong_co_gioi_han_tu_sinh', 'Không có giới hạn tự sinh.'))), { title: tr('ov.title.gioi_han_cua_dataset_nay_thr', 'Giới hạn của dataset này (threats to validity, tự sinh từ run)') }));
+  const limCard = C.card(lim === undefined ? h('div', { class: 's-note warn', text: tr('ov.note.backend_chua_tra_limits', 'Backend chưa trả limits[].') }) : (lim.length ? h('ul', { class: 's-list' }, lim.map((s) => h('li', { text: s }))) : C.empty(tr('ov.empty.khong_co_gioi_han_tu_sinh', 'Không có giới hạn tự sinh.'))), { title: tr('ov.title.gioi_han_cua_dataset_nay_thr', 'Giới hạn của dataset này (threats to validity, tự sinh từ run)') });
+  limCard.id = 'ov-limits';
+  root.append(limCard);
 
   // params + export
   const P = d.params_v1 || {};

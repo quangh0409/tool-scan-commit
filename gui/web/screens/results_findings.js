@@ -1,7 +1,7 @@
 // results_findings.js — #/results/:id/findings (A5). Lọc + phân trang server-side; bấm dòng -> panel Bằng chứng.
 // GET /api/results/:id/findings?label=&cwe_group=&min_tools=&tier=&in_diff=&q=&page=&size=
 // GET /api/results/:id/finding/:cluster_key ; GET /api/results/:id/raw?path= (404 -> toast)
-import { h, clear, makeT, fmt, partialNote, banner, tryApi, errStatus, errText, qs, debounce, select, field, resultsHeader, findRun, getComponents } from './_util.js';
+import { h, clear, makeT, fmt, partialNote, banner, tryApi, errStatus, errText, qs, debounce, select, field, resultsHeader, findRun, getComponents, rescanCommits, toolErrorsTag } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -146,8 +146,11 @@ function detailCard(d) {
       h('div', {}, h('strong', { text: tr('fd.text.provenance', 'Provenance · ') }), `run ${p.run_id || '—'} · W=${p.line_window ?? '—'} · luật gold: ${p.gold_rule || '—'}`),
       h('div', { class: 's-mono' }, (p.tools_json || []).map((tj) => h('div', { text: `${tj.name}: ${tj.image || '—'}${tj.digest ? ' @ ' + tj.digest : ''}` })))));
   }
+  const ste = row.scan_tool_errors || d.scan_tool_errors || [];
+  if (ste.length) el.append(h('div', { class: 's-note warn' }, toolErrorsTag(ste), ' ', h('span', { class: 's-small', text: 'Tool rẻ lỗi trên commit này — mẫu số eligible của cụm thiếu tool đó (TC-15).' })));
   el.append(h('div', { class: 's-row' },
     C.btn({ label: tr('fd.btn.kiem_tay_cum_nay', 'Kiểm tay cụm này'), small: true, onClick: () => ctx.navigate(`#/review/${id}`) }),
+    ste.length ? C.btn({ label: tr('fd.btn.quet_lai_commit_nay', 'Quét lại commit này'), small: true, onClick: () => rescanCommits(ctx, C, id, [row.commit], { onDone: () => openDetail(row.cluster_key) }) }) : null,
     C.btn({ label: tr('fd.btn.dong', 'Đóng'), small: true, onClick: () => { S.selected = null; S.detail = null; draw(); } })));
   return C.card(el, { title: tr('fd.title.bang_chung', 'Bằng chứng') });
 }

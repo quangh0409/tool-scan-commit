@@ -19,7 +19,16 @@
       "consensus": "gold",
       "validation": "unreviewed"
     },
-    "in_diff": 1
+    "in_diff": 1,
+    "scan_tool_errors": [
+      {
+        "tool": "semgrep",
+        "tier": "cheap",
+        "kind": "tool_error",
+        "msg": "WinError 206: argv quá dài",
+        "at": "2026-10-05T11:03:10"
+      }
+    ]
   },
   "diff_lines": [
     {
