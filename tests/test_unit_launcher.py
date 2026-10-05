@@ -83,6 +83,14 @@ def test_module_dispatch_sets_argv(monkeypatch):
 
 def test_gui_default_and_fallback(monkeypatch, capsys):
     import gui.__main__ as gm
+    import registry
+
+    class _Held:  # GUI thật đang chạy trên máy (QA) giữ mutex -> test phải mock
+        acquired = True
+
+        def release(self):
+            pass
+    monkeypatch.setattr(registry.locks, "single_instance", lambda name="secjit-gui": _Held())
     monkeypatch.setattr(gm, "main", lambda argv: 0 if argv == ["--dev", "--no-browser"] else 9)
     assert launcher.main(["--dev", "--no-browser"]) == 0
     assert launcher.main([]) == 9

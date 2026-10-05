@@ -30,6 +30,19 @@ def home(monkeypatch, tmp_path):
     os.environ.update(snap)
 
 
+@pytest.fixture(autouse=True)
+def _fake_mutex(monkeypatch):
+    """Không phụ thuộc máy: GUI thật đang chạy (QA) giữ mutex secjit-gui -> run_gui trả 2."""
+    import registry
+
+    class _Held:
+        acquired = True
+
+        def release(self):
+            pass
+    monkeypatch.setattr(registry.locks, "single_instance", lambda name="secjit-gui": _Held())
+
+
 def test_gui_json_written_and_cleared_with_real_server(monkeypatch):
     import gui.__main__ as gm
     from gui import server as gui_server
