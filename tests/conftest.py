@@ -80,6 +80,20 @@ def fake_docker(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_secjit_home(monkeypatch, tmp_path):
+    """CÔ LẬP registry/settings/profiles/speed/gui.json: mọi test chạy với SECJIT_HOME=<tmp>/secjit_home.
+
+    Lý do (sự cố 2026-10-05): test batch_runner/api ghi bản ghi `batch-…-0` vào registry THẬT
+    %LOCALAPPDATA%\\secjit\\runs.json và hiện trên Home của GUI thật. `registry.home()` đọc env mỗi lần gọi nên chỉ cần
+    set env; test nào cần vị trí riêng vẫn monkeypatch.setenv đè lên được (fixture này chạy trước).
+    Tắt (không khuyến khích): ORCH_TEST_REAL_HOME=1.
+    """
+    if os.environ.get("ORCH_TEST_REAL_HOME") == "1":
+        return
+    monkeypatch.setenv("SECJIT_HOME", str(tmp_path / "secjit_home"))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_docker(monkeypatch):
     """Lưới an toàn: nếu test nào gọi docker thật mà quên mock -> fail rõ ràng."""
     if os.environ.get("ORCH_TEST_ALLOW_DOCKER") == "1":
