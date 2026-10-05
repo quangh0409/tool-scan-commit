@@ -227,6 +227,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                 raise ApiError(501, "not_implemented", f"Backend chưa có {name}()", "Chờ A3/A5 nối")
             body = self._read_body() if want in ("POST", "DELETE") else None
             req = Request(method=want, path=path, params=mo.groupdict(), query=query, body=body)
+            self._last_req = req
             result = fn(req)
             self._send_result(result)
             return
@@ -239,8 +240,11 @@ class GuiHandler(BaseHTTPRequestHandler):
             accept = self.headers.get("Accept") or ""
             if "text/event-stream" in accept:
                 self._send_sse(result)
+            elif getattr(self.server.api, "run_progress_json", None) is not None and hasattr(self, "_last_req"):
+                # poll ?since=N -> {lines, next} (A5 api_runs.get_progress_lines)
+                self._send_json(200, self.server.api.run_progress_json(self._last_req))
             else:
-                # fetch() thường (dashboard A5 lần đầu / poll) -> JSON {lines:[...]} 200 dòng cuối
+                # fetch() thường (mock) -> JSON {lines:[...]} 200 dòng cuối
                 lines, _ = _tail_lines(Path(result.path), SSE_REPLAY_LINES)
                 parsed = []
                 for ln in lines:

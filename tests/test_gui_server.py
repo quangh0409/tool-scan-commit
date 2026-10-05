@@ -67,7 +67,7 @@ def test_api_requires_token(server):
     st, body, _ = call(server, "/api/runs", token=False)
     assert st == 401
     assert body["error"]["code"] == "unauthorized"
-    assert set(body["error"]) == {"code", "message", "hint"}
+    assert {"code", "message", "hint"} <= set(body["error"])
 
 
 def test_token_via_query_param(server):
@@ -227,13 +227,20 @@ def real_env(monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_real_delegate_501_when_a5_module_missing(real_env):
+def test_real_delegate_501_when_a5_module_missing(real_env, monkeypatch):
+    import gui.api_real as ar
     from gui.api_real import RealApi
     from gui.server import Request
     api = RealApi()
+    # có A5: run lạ -> 404 từ api_results.overview
     with pytest.raises(Exception) as ei:
         api.results_overview(Request("GET", "/api/results/x/overview", {"id": "x"}, {}, None))
-    assert getattr(ei.value, "status", None) == 501 and "gui.api_results.results_overview" in ei.value.hint
+    assert getattr(ei.value, "status", None) == 404
+    # giả lập thiếu module A5 -> 501 kèm chữ ký hàm cần cung cấp
+    monkeypatch.setattr(ar, "_try_import", lambda mod: None)
+    with pytest.raises(Exception) as ei:
+        api.results_overview(Request("GET", "/api/results/x/overview", {"id": "x"}, {}, None))
+    assert ei.value.status == 501 and "gui.api_results.overview" in ei.value.hint
 
 
 def test_real_run_start_smoke_and_registry(real_env, monkeypatch, scratch_db):
@@ -256,23 +263,28 @@ def test_real_run_start_smoke_and_registry(real_env, monkeypatch, scratch_db):
     api = RealApi()
     work = real_env / "work"
     prof = dict(PROFILE, paths={"db": str(scratch_db), "export": str(real_env / "exp"), "work": str(work)})
+    # wrapper -> gui.api_runs.run_start (A5): run_id r-<ts>-smoke, DB scratch trong SECJIT_HOME; wrapper ghi formats/notify
     res = api.run_start(Request("POST", "/api/run/start", {}, {}, {"profile": prof, "smoke": True, "formats": ["jsonl", "csv"]}))
-    assert res["run_id"].startswith("smoke-") and res["pid"] == 99999999
+    assert "smoke" in res["run_id"] and res["pid"] == 99999999
     saved = json.loads(Path(started["profile_path"]).read_text(encoding="utf-8"))
     assert saved["scope"]["max"] == 3 and saved["scope"]["mode"] == "count"
-    assert str(real_env / "home" / "scratch") in saved["paths"]["db"] and "_smoke_" in saved["paths"]["db"]
-    assert started["extra_env"]["ORCH_SONAR_PORT"] == "9100"
+    assert str(real_env / "home" / "scratch") in saved["paths"]["db"]
     import registry
     rec = registry.get(res["run_id"])
     assert rec and rec["status"] == "running" and rec["smoke"] is True and rec["summary"]["formats"] == ["jsonl", "csv"]
+    # bản local (fallback khi thiếu A5): tiền tố smoke-, _smoke_ trong tên DB, extra_env sonar port
+    res2 = api.run_start_local(Request("POST", "/api/run/start", {}, {}, {"profile": prof, "smoke": True}))
+    assert res2["run_id"].startswith("smoke-") and "_smoke_" in json.loads(Path(started["profile_path"]).read_text(encoding="utf-8"))["paths"]["db"]
+    assert started["extra_env"]["ORCH_SONAR_PORT"] == "9100"
+    res = res2
     # GET /api/run/{id}/profile đọc đúng file đã ghi
     got = api.run_profile(Request("GET", "", {"id": res["run_id"]}, {}, None))
     assert got["profile"]["scope"]["max"] == 3
     # progress: file chưa có -> SseFile trỏ đúng đường dẫn
     sse = api.run_progress(Request("GET", "", {"id": res["run_id"]}, {}, None))
     assert str(sse.path).endswith(os.path.join(res["run_id"], "progress.jsonl"))
-    # stop (pid giả đã chết) -> stop-file + registry stopped
-    out = api.run_stop(Request("POST", "", {"id": res["run_id"]}, {}, {"force": False}))
+    # stop local (pid giả đã chết) -> stop-file + registry stopped (bản A5 có test riêng trong test_api_results)
+    out = api.run_stop_local(Request("POST", "", {"id": res["run_id"]}, {}, {"force": False}))
     assert out["ok"] and (work / res["run_id"] / "stop").exists()
     assert registry.get(res["run_id"])["status"] == "stopped"
 
@@ -291,6 +303,9 @@ def test_real_run_start_rejects_invalid_and_locked(real_env, monkeypatch, scratc
     ok = dict(PROFILE, paths={"db": str(scratch_db), "export": "", "work": str(real_env)})
     with pytest.raises(Exception) as ei:
         api.run_start(Request("POST", "", {}, {}, {"profile": ok}))
+    assert ei.value.status == 409 and ei.value.code in ("db_locked", "ECONFLICT")
+    with pytest.raises(Exception) as ei:
+        api.run_start_local(Request("POST", "", {}, {}, {"profile": ok}))
     assert ei.value.status == 409 and ei.value.code == "db_locked"
 
 

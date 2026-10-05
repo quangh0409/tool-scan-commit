@@ -138,6 +138,8 @@ export async function loadI18n() {
   for (const l of ['vi', 'en']) {
     try { DICT[l] = await (await fetch(`i18n/${l}.json`, { cache: 'no-cache' })).json(); } catch (_) { DICT[l] = {}; }
   }
+  // chuỗi màn 6–10 (A5): khoá phẳng, gộp vào VI (EN rơi về VI)
+  try { Object.assign(DICT.vi, await (await fetch('i18n/vi_screens.json', { cache: 'no-cache' })).json()); } catch (_) { /* không có */ }
   try { LANG = localStorage.getItem(LANG_KEY) || 'vi'; } catch (_) { LANG = 'vi'; }
 }
 export function setLang(l) {

@@ -158,9 +158,13 @@ def main(argv=None) -> int:
                         try:
                             page.wait_for_selector("body[data-ready='1']", timeout=a.wait)
                             page.wait_for_timeout(500)   # chờ các request phụ (estimate/shell debounce)
-                            page.wait_for_load_state("networkidle", timeout=5000)
                         except Exception as e:  # noqa: BLE001
                             cons.append(f"timeout: không thấy data-ready ({type(e).__name__})")
+                        try:
+                            # request nền (preflight thật/storage) có thể còn treo — không coi là lỗi
+                            page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:  # noqa: BLE001
+                            pass
                     safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", route.replace("/", "-"))
                     name = f"{safe}{'--' + state if state else ''}.png"
                     page.screenshot(path=str(out / name), full_page=True)

@@ -81,8 +81,8 @@ class RealApi:
         self._clone_jobs: dict[str, dict] = {}
         self._last_preflight: dict | None = None
 
-    # ------------------------------------------------------------------ uỷ quyền A5
-    def _delegate(self, module: str, fn: str, req: Request, fallback=None, owner: str = "A5"):
+    # ------------------------------------------------------------------ uỷ quyền A5 (fn(params, body) -> dict)
+    def _delegate(self, module: str, fn: str, req: Request, fallback=None, owner: str = "A5", body=None):
         mod = _try_import(module)
         f = getattr(mod, fn, None) if mod is not None else None
         if f is None:
@@ -91,7 +91,7 @@ class RealApi:
             raise not_implemented(f"{req.method} {req.path}", owner, f"{module}.{fn}(params, body) -> dict")
         params = dict(req.params)
         params.update(req.query)
-        return f(params, req.body or {})
+        return f(params, req.body if body is None else body)
 
     # ------------------------------------------------------------------ settings (stdlib)
     def _default_settings(self) -> dict:
@@ -119,14 +119,14 @@ class RealApi:
         return s
 
     def settings_get(self, req: Request):
-        return self._delegate(A5_SETTINGS, "settings_get", req, fallback=lambda r: self._settings())
+        return self._delegate(A5_SETTINGS, "get_settings", req, fallback=lambda r: self._settings())
 
     def settings_set(self, req: Request):
         def _fb(r: Request):
             s = self._settings()
             s.update(r.body or {})
             return self._save_settings(s)
-        return self._delegate(A5_SETTINGS, "settings_set", req, fallback=_fb)
+        return self._delegate(A5_SETTINGS, "set_settings", req, fallback=_fb)
 
     def settings_pick_dir(self, req: Request):
         try:
@@ -165,7 +165,7 @@ class RealApi:
             except OSError as e:
                 raise ApiError(501, "not_implemented", f"Không mở được: {e}", "")
             return {"ok": True, "path": p}
-        return self._delegate(A5_SETTINGS, "open_path", req, fallback=_fb)
+        return self._delegate(A5_RESULTS, "open_path", req, fallback=_fb)
 
     # ------------------------------------------------------------------ A3: preflight
     def preflight(self, req: Request):
@@ -366,6 +366,46 @@ class RealApi:
         return q
 
     def run_start(self, req: Request):
+        """Uỷ quyền gui.api_runs.run_start (A5); bọc thêm overwrite (.bak), kiểm lock sớm, summary formats/notify/resume.
+        Không có module A5 -> run_start_local."""
+        mod = _try_import(A5_RUNS)
+        f = getattr(mod, "run_start", None) if mod is not None else None
+        if f is None:
+            return self.run_start_local(req)
+        body = dict(req.body or {})
+        p = body.get("profile") or {}
+        db = (p.get("paths") or {}).get("db") or ""
+        if body.get("overwrite") and db and Path(db).exists() and not body.get("smoke"):
+            self._backup_db(db)
+        res = f(dict(req.params), body)
+        try:
+            _registry().upsert({"run_id": res["run_id"], "smoke": bool(res.get("smoke")),
+                                "summary": {"formats": body.get("formats") or ["jsonl"], "notify": bool(body.get("notify", True)),
+                                            "resume": bool(body.get("resume"))}})
+        except Exception:  # noqa: BLE001 — registry phụ, không làm hỏng start
+            pass
+        return res
+
+    def _backup_db(self, db: str) -> None:
+        reg = _try_import("registry")
+        if reg is not None:
+            try:
+                held, info = reg.locks.lock_status(db)
+            except Exception:  # noqa: BLE001
+                held, info = False, None
+            if held:
+                raise ApiError(409, "db_locked", f"DB đang bị run {info.get('run_id')} (pid {info.get('pid')}) sử dụng",
+                               "Dừng run đó ở Bảng điều khiển hoặc đổi tên DB ở bước 4")
+        bak = Path(str(db) + f".{time.strftime('%Y%m%d-%H%M%S')}.bak")
+        try:
+            shutil.move(db, bak)
+            for suf in ("-wal", "-shm"):
+                if Path(str(db) + suf).exists():
+                    Path(str(db) + suf).unlink()
+        except OSError as e:
+            raise ApiError(500, "overwrite_failed", f"Không đổi tên DB cũ thành .bak: {e}", "")
+
+    def run_start_local(self, req: Request):
         if prof is None:
             raise ApiError(501, "not_implemented", "Thiếu orchestrator.profile", "")
         reg = _registry()
@@ -392,14 +432,7 @@ class RealApi:
             raise ApiError(409, "db_locked", f"DB đang bị run {info.get('run_id')} (pid {info.get('pid')}) sử dụng",
                            "Dừng run đó ở Bảng điều khiển hoặc đổi tên DB ở bước 4")
         if body.get("overwrite") and Path(db).exists():
-            bak = Path(str(db) + f".{time.strftime('%Y%m%d-%H%M%S')}.bak")
-            try:
-                shutil.move(db, bak)
-                for suf in ("-wal", "-shm"):
-                    if Path(str(db) + suf).exists():
-                        Path(str(db) + suf).unlink()
-            except OSError as e:
-                raise ApiError(500, "overwrite_failed", f"Không đổi tên DB cũ thành .bak: {e}", "")
+            self._backup_db(db)
         run_id = self._run_id("smoke-" if smoke else "r-", p)
         rdir = rn.run_dir(work, run_id)
         rdir.mkdir(parents=True, exist_ok=True)
@@ -423,6 +456,9 @@ class RealApi:
         return {"run_id": run_id, "pid": res["pid"], "smoke": smoke, "log": res.get("log"), "run_dir": res.get("run_dir")}
 
     def run_stop(self, req: Request):
+        return self._delegate(A5_RUNS, "run_stop", req, fallback=self.run_stop_local)
+
+    def run_stop_local(self, req: Request):
         reg = _registry()
         rn = _runner()
         rid = req.params["id"]
@@ -446,12 +482,18 @@ class RealApi:
         return self._delegate(A5_RUNS, "run_resume", req, owner="A5")
 
     def runs(self, req: Request):
-        reg = _registry()
-        try:
-            reg.refresh_status()
-        except Exception:  # noqa: BLE001 — registry hỏng không được làm Home chết
-            pass
-        return self._delegate(A5_RUNS, "runs", req, fallback=lambda r: reg.load())
+        def _fb(r: Request):
+            reg = _registry()
+            try:
+                reg.refresh_status()
+            except Exception:  # noqa: BLE001 — registry hỏng không được làm Home chết
+                pass
+            return reg.load()
+        return self._delegate(A5_RUNS, "list_runs", req, fallback=_fb)
+
+    def run_progress_json(self, req: Request):
+        """Poll: GET progress?since=N -> {lines, next} (A5 api_runs.get_progress_lines). Server gọi khi không phải SSE."""
+        return self._delegate(A5_RUNS, "get_progress_lines", req)
 
     def _run_record(self, rid: str) -> dict:
         rec = _registry().get(rid)
@@ -476,48 +518,86 @@ class RealApi:
 
     # ------------------------------------------------------------------ A5: results / review
     def results_overview(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_overview", req)
+        return self._delegate(A5_RESULTS, "overview", req)
 
     def results_findings(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_findings", req)
+        return self._delegate(A5_RESULTS, "findings", req)
 
     def results_finding(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_finding", req)
+        return self._delegate(A5_RESULTS, "finding", req)
 
     def results_commits(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_commits", req)
+        return self._delegate(A5_RESULTS, "commits", req)
 
     def results_export(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_export", req)
+        return self._delegate(A5_RESULTS, "export", req)
 
     def results_raw(self, req: Request):
-        r = self._delegate(A5_RESULTS, "results_raw", req)
-        if isinstance(r, dict) and "text" in r:
-            return Text(str(r["text"]), r.get("content_type") or "text/plain; charset=utf-8")
+        r = self._delegate(A5_RESULTS, "raw", req)
+        if isinstance(r, dict) and ("content" in r or "text" in r):
+            ctype = r.get("content_type") or "text/plain"
+            if "charset" not in ctype:
+                ctype += "; charset=utf-8"
+            return Text(str(r.get("content", r.get("text", ""))), ctype)
         if isinstance(r, str):
             return Text(r)
         return r
 
     def results_features(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_features", req)
+        return self._delegate(A5_RESULTS, "features", req)
 
     def results_relabel(self, req: Request):
-        return self._delegate(A5_RESULTS, "results_relabel", req)
+        return self._delegate(A5_RESULTS, "relabel", req)
 
     def review_sample(self, req: Request):
-        return self._delegate(A5_REVIEW, "review_sample", req)
+        return self._delegate(A5_REVIEW, "sample", req)
 
     def review_next(self, req: Request):
-        return self._delegate(A5_REVIEW, "review_next", req)
+        return self._delegate(A5_REVIEW, "next_item", req)
 
     def review_verdict(self, req: Request):
-        return self._delegate(A5_REVIEW, "review_verdict", req)
+        return self._delegate(A5_REVIEW, "verdict", req)
 
     def review_close(self, req: Request):
-        return self._delegate(A5_REVIEW, "review_close", req)
+        return self._delegate(A5_REVIEW, "close", req)
 
     # ------------------------------------------------------------------ profiles / shell / diagnostics
     def profiles_list(self, req: Request):
+        return self._delegate(A5_SETTINGS, "list_profiles", req, fallback=self._profiles_list_local)
+
+    def profiles_get(self, req: Request):
+        return self._delegate(A5_SETTINGS, "get_profile", req, fallback=self._profiles_get_local)
+
+    def profiles_save(self, req: Request):
+        return self._delegate(A5_SETTINGS, "save_profile", req, fallback=self._profiles_save_local)
+
+    def profiles_delete(self, req: Request):
+        return self._delegate(A5_SETTINGS, "delete_profile", req, fallback=self._profiles_delete_local)
+
+    def shell(self, req: Request):
+        # GET ?profile=<json> hoặc POST {profile, shell}: chuẩn hoá thành body cho A5
+        body = req.body
+        if not body or not isinstance(body.get("profile"), dict):
+            try:
+                body = {"profile": json.loads(req.query["profile"]), "shell": req.query.get("shell") or "powershell"} \
+                    if req.query.get("profile") else None
+            except json.JSONDecodeError as e:
+                raise ApiError(400, "bad_json", f"profile không phải JSON: {e}", "")
+        return self._delegate(A5_SETTINGS, "shell", req, fallback=lambda r: _shell_from_request(r), body=body)
+
+    def diagnostics(self, req: Request):
+        mod = _try_import(A5_RUNS)
+        f = getattr(mod, "diagnostics", None) if mod is not None else None
+        if f is not None:
+            params = dict(req.params)
+            params.update(req.query)
+            r = f(params, req.body)
+            p = Path(r.get("path") or "")
+            if p.is_file():
+                return Binary(p.read_bytes(), "application/zip", p.name)
+        return self.diagnostics_local(req)
+
+    def _profiles_list_local(self, req: Request):
         out = []
         if self.profiles_dir.exists():
             for fp in sorted(self.profiles_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
@@ -536,7 +616,7 @@ class RealApi:
             raise ApiError(400, "bad_name", "Tên profile chỉ gồm chữ, số, . _ - và khoảng trắng (≤64)", "")
         return self.profiles_dir / f"{name}.json"
 
-    def profiles_save(self, req: Request):
+    def _profiles_save_local(self, req: Request):
         if prof is None:
             raise ApiError(501, "not_implemented", "Thiếu orchestrator.profile", "")
         body = req.body or {}
@@ -549,23 +629,20 @@ class RealApi:
             raise ApiError(400, "invalid_profile", str(e), "Sửa các mục báo lỗi ở Wizard")
         return {"ok": True, "name": name, "path": str(path)}
 
-    def profiles_get(self, req: Request):
+    def _profiles_get_local(self, req: Request):
         path = self._profile_path(req.params["name"])
         if not path.exists():
             raise ApiError(404, "not_found", f"Không có profile {req.params['name']}", "")
         with open(path, encoding="utf-8") as f:
             return {"name": req.params["name"], "profile": json.load(f)}
 
-    def profiles_delete(self, req: Request):
+    def _profiles_delete_local(self, req: Request):
         path = self._profile_path(req.params["name"])
         if path.exists():
             path.unlink()
         return {"ok": True}
 
-    def shell(self, req: Request):
-        return _shell_from_request(req)
-
-    def diagnostics(self, req: Request):
+    def diagnostics_local(self, req: Request):
         """Zip: settings.json, runs.json, speed.json, preflight gần nhất, run.log + meta + profile của ≤5 run mới nhất."""
         import io
         import zipfile
