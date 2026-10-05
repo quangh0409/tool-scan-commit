@@ -173,3 +173,7 @@ Mọi lệnh in JSON khi `--json`. Exit code: 0 ok · 1 lỗi tham số · 2 l�
 - §4 storage API (A1): `SQLiteStore(path=None, readonly=False)`; `insert_run_meta(tier, **fields)`, `finish_run_meta`, `save_kappa`, `kappa_rows`, `reset_claims(run_id|None)`, `reset_expensive_raw`, `pid_alive`, `read_lock(db)`; lock-file `<db>.lock` JSON `{pid, run_id, at}`; `storage.InfraError`; `repo_pool.rmtree_force`.
 - §6 manifest thêm `tool_error[]`, `python`, `db`, `export_dir`, `run_id`; `experiment` = `null | {enabled, reason}`; export LUÔN sang thư mục mới (`_2`, `_3`…) nếu đích không rỗng. `export_all(store, out_dir, profile=None, run_id=None)` trả `res['out']`.
 - Env đọc trực tiếp bởi A1 (A2 thêm vào config/GUIDE): `ORCH_EXPERIMENT`, `ORCH_EXPERIMENT_REASON`, `SECJIT_APP_VERSION` (mặc định `dev`), `ORCH_INFRA_STOP_AFTER` (3).
+- §11 (A2): `analyze --tools` là alias cũ (cảnh báo), sẽ bỏ; `reset-claims --run ID` theo `claimed_by '<run_id>:wN'`, `--all-stale` bỏ lọc run; `reset_claims` giữ `expensive_runs` (telemetry) — khác quy trình tay 2026-07-08, chấp nhận.
+- §9 `estimate` trả thêm `detail{}`; `stats` trả superset (`db`, `run_id`, `kappa.n`, `precision.unclear/point`).
+- §3: `scan.item.msg` ≤120 ký tự; `relabel.item` mỗi 50 commit. §2: `scope_json` có `date_field:"committer"`.
+- `config.reload()` tồn tại; `--profile` áp env TRƯỚC argparse; `clone_or_update` fetch mỗi lần (offline → cảnh báo), tên clone `owner__repo` (giữ tên cũ nếu origin khớp).
