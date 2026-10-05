@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .. import config, enumerate_commits as enm
-from ..tools.base import docker_run
+from ..tools.base import classify_failure, docker_run
 from .base import BuildContext, run_as_user
 
 # JDK khai trong pom: <java.version>17</>, <maven.compiler.release|target|source>1.8</>
@@ -73,29 +73,53 @@ def maven_image_for(clone_dir: Path, commit_id: str) -> str:
 
 
 def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
+    """Build 1 commit. KHÔNG raise: kết quả nằm ở ctx.status (CONTRACTS §1):
+      ok           build xong, có classes.
+      skipped      0 module Java bị đụng (docs/yml) -> KHÔNG build, tool đắt KHÔNG chạy, KHÔNG verified.
+      build_failed mvn rc≠0 vì dữ liệu (dependency mất, compile lỗi).
+      infra_error  Docker không kết nối / đĩa đầy (rc 125/127, stderr khớp INFRA_PATTERNS).
+      tool_timeout mvn vượt BUILD_TIMEOUT.
+    """
     ctx = BuildContext(commit_id=commit_id, repo=repo, clone_dir=clone_dir)
     mods = changed_modules(clone_dir, commit_id)
+    ctx.modules = mods
     if not mods:
         # commit KHÔNG đụng module Java nào (vd chỉ docs/yml) -> không có gì để build/analyze.
-        # KHÔNG full-build cả 43 module (rất chậm). ok=True, classes rỗng -> FindSecBugs/Sonar bỏ qua.
-        ctx.ok = True
+        # KHÔNG full-build cả 43 module (rất chậm). status=skipped: tool đắt KHÔNG chạy và commit
+        # KHÔNG được tính verified-clean (REVIEW D1 / TC-16).
+        ctx.ok = False
+        ctx.status = "skipped"
+        ctx.error = "0 module Java bị đụng (không build, không phân tích)"
         return ctx
     pl = ["-pl", ",".join(mods), "-am"]
     image = maven_image_for(clone_dir, commit_id)
+    ctx.image = image
 
     t0 = time.time()
     # Chạy maven AS CURRENT UID (không sinh file root mà orchestrator non-root xoá không được
     # -> tránh kẹt clone-pool). HOME=/tmp + repo.local trong cache uid-owned.
-    proc = docker_run([
-        "run", "--rm",
-        *run_as_user(),
-        "-e", "HOME=/tmp",
-        "-v", f"{clone_dir}:/work",
-        "-v", f"{_m2_cache()}:/m2",
-        "-w", "/work",
-        image,
-        "mvn", *config.MAVEN_GOALS.split(), "-Dmaven.repo.local=/m2/repository", *pl,
-    ], timeout=config.BUILD_TIMEOUT)
+    try:
+        proc = docker_run([
+            "run", "--rm",
+            *run_as_user(),
+            "-e", "HOME=/tmp",
+            "-v", f"{clone_dir}:/work",
+            "-v", f"{_m2_cache()}:/m2",
+            "-w", "/work",
+            image,
+            "mvn", *config.MAVEN_GOALS.split(), "-Dmaven.repo.local=/m2/repository", *pl,
+        ], timeout=config.BUILD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        ctx.duration_sec = round(time.time() - t0, 1)
+        ctx.ok = False
+        ctx.status = "tool_timeout"
+        ctx.error = f"mvn quá {config.BUILD_TIMEOUT}s (mods={mods}, image={image})"
+        return ctx
+    except FileNotFoundError as e:      # không có binary docker
+        ctx.ok = False
+        ctx.status = "infra_error"
+        ctx.error = f"không chạy được docker: {e}"
+        return ctx
     ctx.duration_sec = round(time.time() - t0, 1)
 
     if proc.returncode != 0:
@@ -106,10 +130,13 @@ def build_commit(clone_dir: Path, commit_id: str, repo: str) -> BuildContext:
         tail = ("\n".join(err_lines)[-500:] if err_lines
                 else ((proc.stdout or "")[-300:] + (proc.stderr or "")[-200:]))
         ctx.ok = False
+        # Docker tắt / đĩa đầy -> infra_error (KHÔNG phải dữ liệu, commit về pending — REVIEW D2/TC-10)
+        ctx.status = classify_failure(proc.returncode, proc.stderr, proc.stdout) or "build_failed"
         ctx.error = f"mvn rc={proc.returncode} (mods={mods or 'full'}, image={image}): {tail}"
         return ctx
 
     # gom target/classes của module vừa build (đầu vào cho FindSecBugs/Sonar)
     ctx.classes_dirs = sorted(p for p in clone_dir.glob("**/target/classes") if p.is_dir())
     ctx.ok = True
+    ctx.status = "ok"
     return ctx

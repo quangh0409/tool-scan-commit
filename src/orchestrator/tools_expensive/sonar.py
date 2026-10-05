@@ -8,8 +8,11 @@ Luồng đã PoC-xác minh:
         query issues(VULNERABILITY) + hotspots -> CWE regex từ mô tả rule (cache) -> RawFinding.
   stop_server: rm container + network.
 
-API gọi từ HOST qua http://localhost:9000 (server -p 9000:9000); scanner trong container qua
-http://orch-sonar:9000 (cùng docker network). Auth: token làm basic-user (token:).
+API gọi từ HOST qua http://localhost:<ORCH_SONAR_PORT> (server -p <port>:9000); scanner trong container
+qua http://orch-sonar-<run_id>:9000 (cùng docker network). Auth: token làm basic-user (token:).
+
+Tên container/network THEO run_id (`orch-sonar-<run_id>`, `orch-sonar-net-<run_id>`, REVIEW D3/TC-13):
+2 run song song không giết Sonar của nhau; không `rm -f` container của run khác.
 """
 from __future__ import annotations
 
@@ -20,18 +23,37 @@ import time
 import urllib.request
 import urllib.error
 
-from .. import config
+from .. import config, progress
 from ..schema import RawFinding, normalize_cwe
 from ..tools.base import docker_run
-from .base import BuildContext, ExpensiveTool, run_as_user
+from .base import BuildContext, ExpensiveTool, ToolError, run_as_user
 from .build import changed_modules, _m2_cache
 
 IMAGE_SERVER = "sonarqube:lts-community"
 IMAGE_SCANNER = "sonarsource/sonar-scanner-cli"
-NETWORK = "orch-sonar-net"
-SERVER = "orch-sonar"
-# Port HOST map vào server (container luôn nghe 9000). Đổi qua ORCH_SONAR_PORT khi 9000 bị chiếm.
-HOST_API = f"http://127.0.0.1:{config.SONAR_HOST_PORT}"
+# Tiền tố tên; tên thật = f"{PREFIX}-{run_id}" (xem server_name/network_name).
+NETWORK_PREFIX = "orch-sonar-net"
+SERVER_PREFIX = "orch-sonar"
+# Giữ tên legacy cho script/doc cũ; code dùng server_name()/network_name().
+NETWORK = NETWORK_PREFIX
+SERVER = SERVER_PREFIX
+
+
+def server_name(run_id: str | None = None) -> str:
+    return f"{SERVER_PREFIX}-{run_id or progress.run_id()}"
+
+
+def network_name(run_id: str | None = None) -> str:
+    return f"{NETWORK_PREFIX}-{run_id or progress.run_id()}"
+
+
+def _host_api() -> str:
+    """Port HOST map vào server (container luôn nghe 9000). Đọc config LÚC GỌI (không lúc import)
+    để ORCH_SONAR_PORT đặt muộn vẫn có hiệu lực (TC-03)."""
+    return f"http://127.0.0.1:{config.SONAR_HOST_PORT}"
+
+
+HOST_API = _host_api()   # legacy alias
 _CWE_RE = re.compile(r"CWE-(\d+)")
 _SEV = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}
 
@@ -44,13 +66,16 @@ class SonarTool(ExpensiveTool):
     name = "sonar"
     image = IMAGE_SERVER
 
-    def __init__(self):
+    def __init__(self, run_id: str | None = None):
         self._token = None
         self._rule_cwe: dict[str, list[str]] = {}
+        self.run_id = run_id or progress.run_id()
+        self.server = server_name(self.run_id)
+        self.network = network_name(self.run_id)
 
     # ---- HTTP (host -> server) ----
     def _get(self, path: str) -> dict:
-        req = urllib.request.Request(HOST_API + path)
+        req = urllib.request.Request(_host_api() + path)
         if self._token:
             tok = base64.b64encode(f"{self._token}:".encode()).decode()
             req.add_header("Authorization", f"Basic {tok}")
@@ -58,7 +83,7 @@ class SonarTool(ExpensiveTool):
             return json.loads(r.read().decode())
 
     def _post(self, path: str, auth: bytes) -> dict:
-        req = urllib.request.Request(HOST_API + path, method="POST")
+        req = urllib.request.Request(_host_api() + path, method="POST")
         req.add_header("Authorization", "Basic " + base64.b64encode(auth).decode())
         with urllib.request.urlopen(req, timeout=60) as r:
             body = r.read().decode()
@@ -66,13 +91,14 @@ class SonarTool(ExpensiveTool):
 
     # ---- server lifecycle (singleton) ----
     def start_server(self) -> None:
-        _sh(["network", "create", NETWORK], timeout=30)
-        _sh(["rm", "-f", SERVER], timeout=30)
-        proc = _sh(["run", "-d", "--name", SERVER, "--network", NETWORK,
+        # Chỉ đụng container/network MANG TÊN run này (idempotent khi restart cùng run_id).
+        _sh(["network", "create", "--label", f"orch.run={self.run_id}", self.network], timeout=30)
+        _sh(["rm", "-f", self.server], timeout=30)
+        proc = _sh(["run", "-d", "--name", self.server, "--network", self.network,
                     "-p", f"{config.SONAR_HOST_PORT}:9000",
                     "-e", "SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true", IMAGE_SERVER], timeout=600)
         if proc.returncode != 0:  # fail-fast (vd port host bị chiếm) thay vì chờ 6' vô ích
-            raise RuntimeError(f"docker run {SERVER} lỗi rc={proc.returncode}: "
+            raise RuntimeError(f"docker run {self.server} lỗi rc={proc.returncode}: "
                                f"{(proc.stderr or proc.stdout or '')[-400:]}")
         # chờ UP (~1-2')
         for _ in range(120):
@@ -93,8 +119,12 @@ class SonarTool(ExpensiveTool):
         self._token = r["token"]
 
     def stop_server(self) -> None:
-        _sh(["rm", "-f", SERVER], timeout=60)
-        _sh(["network", "rm", NETWORK], timeout=30)
+        """Dọn container + network CỦA RUN NÀY. Không bao giờ raise (gọi trong finally)."""
+        try:
+            _sh(["rm", "-f", self.server], timeout=60)
+            _sh(["network", "rm", self.network], timeout=30)
+        except Exception as e:  # noqa: BLE001 — dọn dẹp best-effort
+            print(f"[sonar] stop_server lỗi (bỏ qua): {e}")
 
     # ---- CWE từ mô tả rule (cache) ----
     def _cwe_of_rule(self, rule_key: str) -> list[str]:
@@ -124,12 +154,12 @@ class SonarTool(ExpensiveTool):
         key = f"tt-{ctx.commit_id[:12]}"
 
         proc = docker_run([
-            "run", "--rm", "--network", NETWORK,
+            "run", "--rm", "--network", self.network,
             *run_as_user(), "-e", "HOME=/tmp",
             "-e", "SONAR_USER_HOME=/tmp/.sonar", "-w", "/usr/src",
             "-v", f"{ctx.clone_dir}:/usr/src", "-v", f"{_m2_cache()}:/m2:ro",
             IMAGE_SCANNER,
-            f"-Dsonar.host.url=http://{SERVER}:9000", f"-Dsonar.login={self._token}",
+            f"-Dsonar.host.url=http://{self.server}:9000", f"-Dsonar.login={self._token}",
             f"-Dsonar.projectKey={key}", f"-Dsonar.sources={','.join(srcs)}",
             f"-Dsonar.java.binaries={bins}", "-Dsonar.java.libraries=/m2/repository/**/*.jar",
             "-Dsonar.working.directory=/tmp/sw", "-Dsonar.scm.disabled=true",
@@ -138,7 +168,7 @@ class SonarTool(ExpensiveTool):
         m = re.search(r"ce/task\?id=([\w-]+)", proc.stdout or "")
         if not m:
             tail = (proc.stderr or proc.stdout or "")[-400:]
-            raise RuntimeError(f"sonar-scanner không ra task id: {tail}")
+            raise ToolError(f"sonar-scanner không ra task id (rc={proc.returncode}): {tail}")
         task = m.group(1)
         for _ in range(150):  # chờ Compute Engine xử lý
             st = self._get(f"/api/ce/task?id={task}").get("task", {}).get("status")

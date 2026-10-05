@@ -160,3 +160,16 @@ clean      <repo> [--items clone,pool,m2,export:<dir>,db:<path>] [--dry-run]   (
 review     sample --db DB --seed N --n-pos 200 --n-neg 100 | close --db DB --sample-id ID [--raters a,b]
 ```
 Mọi lệnh in JSON khi `--json`. Exit code: 0 ok · 1 lỗi tham số · 2 lỗi runtime · 3 dừng theo stop-file.
+
+
+## 12. Hiệu chỉnh hợp đồng đã chấp nhận (trưởng, T+2)
+
+- §7 runner: chữ ký thật `runner.start(profile_path, run_id, work_dir, python_exe=sys.executable, extra_env=None) -> {pid, log, progress, stop, run_dir, meta, argv}`; `runner.stop(run_id, work_dir, force=False, timeout_s=10.0, python_exe=None, cleanup=None) -> {ok, stop_file, pid, alive_before, killed, alive_after, cleanup}`; `runner.attach(run_id, work_dir) -> {run_id, pid, alive, last_progress_line, interrupted, status, meta, log, run_dir, exists}`.
+- §7 registry: env `SECJIT_HOME` override `%LOCALAPPDATA%\secjit`; `registry.refresh_status()` trả danh sách run đổi trạng thái; `speed.json` thêm `buggy_ratio`, `updated`.
+- §8 preflight: `run()` trả thêm `codeql_ram_mb`, `sonar_port`, `fixed`, `elapsed_s`, `os`, `ts`; 6 auto-fix (thêm `max_map_count` và `lower_codeql_ram`).
+- §11 `stop-cleanup`: exit 0 kể cả khi không có gì để dọn; `--json`; `reset-claims` theo `claimed_by` của run.
+- §1 build timeout (A1): `expensive_runs.status='tool_timeout'` với `tool=maven`, commit → `build_failed`, `build_status='timeout'`.
+- §3 `analyze.item.worker` = `wN`; `selected_commits.claimed_by` = `<run_id>:wN`. GUI đối chiếu bằng `endswith(":"+worker)`.
+- §4 storage API (A1): `SQLiteStore(path=None, readonly=False)`; `insert_run_meta(tier, **fields)`, `finish_run_meta`, `save_kappa`, `kappa_rows`, `reset_claims(run_id|None)`, `reset_expensive_raw`, `pid_alive`, `read_lock(db)`; lock-file `<db>.lock` JSON `{pid, run_id, at}`; `storage.InfraError`; `repo_pool.rmtree_force`.
+- §6 manifest thêm `tool_error[]`, `python`, `db`, `export_dir`, `run_id`; `experiment` = `null | {enabled, reason}`; export LUÔN sang thư mục mới (`_2`, `_3`…) nếu đích không rỗng. `export_all(store, out_dir, profile=None, run_id=None)` trả `res['out']`.
+- Env đọc trực tiếp bởi A1 (A2 thêm vào config/GUIDE): `ORCH_EXPERIMENT`, `ORCH_EXPERIMENT_REASON`, `SECJIT_APP_VERSION` (mặc định `dev`), `ORCH_INFRA_STOP_AFTER` (3).
