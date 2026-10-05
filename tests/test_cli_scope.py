@@ -453,3 +453,135 @@ def test_sensitivity_runs_on_copies(orch_env, scratch_db, tmp_path):
     assert scratch_db.stat().st_size > 0 and "(v1)" in sensitivity.to_markdown(res)
     with pytest.raises(ValueError):
         sensitivity.parse_grid(["vote_threshold=1"])
+
+
+# ----------------------------------------------------------------------------- scan: progress + stop-file
+class _FakeTool:
+    name = "semgrep"
+
+    def version(self):
+        return "v"
+
+    def digest(self):
+        return "d"
+
+
+class _FakePool:
+    def __init__(self, main_repo, size, **kw):
+        self.size = size
+
+    def acquire(self):
+        return Path(".")
+
+    def checkout(self, clone, sha):
+        pass
+
+    def release(self, clone):
+        pass
+
+    def cleanup(self):
+        pass
+
+
+def _fake_commits(n):
+    from orchestrator.enumerate_commits import CommitInfo
+    return [CommitInfo(commit_id=f"{i:040x}", parent_commit=None, author_date="2024-01-01", message=f"c{i}",
+                       is_merge=False, changed_files=[f"F{i}.java"]) for i in range(n)]
+
+
+def _patch_scan(monkeypatch, tmp_path, n_commits, scan_hook=None):
+    from orchestrator import cli, enumerate_commits as enm
+    monkeypatch.setenv("ORCH_KAMEI", "0")
+    monkeypatch.setenv("ORCH_SCAN_WORKERS", "2")
+    cli.config.reload()
+    monkeypatch.setattr(cli, "cheap_tool_classes", lambda: {"semgrep": _FakeTool, "bearer": _FakeTool,
+                                                            "gitleaks": _FakeTool, "trufflehog": _FakeTool,
+                                                            "horusec": _FakeTool})
+    monkeypatch.setattr(enm, "clone_or_update", lambda repo, dest=None: tmp_path)
+    monkeypatch.setattr(enm, "enumerate_repo", lambda *a, **k: ((ci, True, "ok") for ci in _fake_commits(n_commits)))
+    import orchestrator.repo_pool as rp
+    monkeypatch.setattr(rp, "RepoPool", _FakePool)
+
+    def _one(ci, clone, tools, tool_names, args, store):
+        if scan_hook:
+            scan_hook(ci)
+        store.mark_scan_done(ci.commit_id)
+        return f"[{ci.commit_id[:8]}] 1 file đổi | 0 findings -> 0 cụm", 1, 0, 1
+
+    monkeypatch.setattr(cli, "_scan_one_commit", _one)
+    return cli
+
+
+def test_scan_emits_progress_and_honors_stop_file(orch_env, monkeypatch, tmp_path):
+    from orchestrator import progress
+    stop_file = Path(os.environ["ORCH_STOP_FILE"])
+    seen: list[str] = []
+
+    def hook(ci):
+        seen.append(ci.commit_id)
+        stop_file.write_text("stop", encoding="utf-8")       # stop-file xuất hiện giữa run
+
+    cli = _patch_scan(monkeypatch, tmp_path, 10, hook)
+    rc = cli.main(["scan", "https://github.com/o/r", "--no-meta", "--max", "0", "--tools", "semgrep,bearer"])
+    assert rc == 3
+    assert 0 < len(seen) <= 4                                   # chỉ lô đang chạy (≤ 2 worker) hoàn tất, không claim thêm
+    ev = progress.read(os.environ["ORCH_PROGRESS_FILE"])
+    kinds = [(e["phase"], e["event"]) for e in ev]
+    assert kinds[0] == ("scan", "start") and ev[0]["total"] == 10 and ev[0]["run_id"] == "test-run"
+    assert ("scan", "item") in kinds and kinds[-1] == ("scan", "stop") and ("scan", "done") not in kinds
+    item = next(e for e in ev if e["event"] == "item")
+    assert {"done", "total", "sha", "status"} <= set(item) and item["status"] == "ok"
+
+
+def test_scan_completes_with_done_event(orch_env, monkeypatch, tmp_path):
+    from orchestrator import progress
+    cli = _patch_scan(monkeypatch, tmp_path, 5)
+    rc = cli.main(["scan", "https://github.com/o/r", "--no-meta", "--max", "0"])
+    assert rc == 0
+    ev = progress.read(os.environ["ORCH_PROGRESS_FILE"])
+    assert ev[-1]["event"] == "done" and ev[-1]["done"] == 5
+    assert sum(1 for e in ev if e["event"] == "item") == 5
+    # resume: chạy lại -> 0 commit cần quét, vẫn start/done
+    rc2 = cli.main(["scan", "https://github.com/o/r", "--no-meta", "--max", "0"])
+    assert rc2 == 0 and progress.read(os.environ["ORCH_PROGRESS_FILE"])[-1]["total"] == 0
+
+
+def test_scan_writes_run_meta_v2_without_vote_threshold(orch_env, monkeypatch, tmp_path, scratch_db):
+    cli = _patch_scan(monkeypatch, tmp_path, 1)
+    captured = {}
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    monkeypatch.setattr(SQLiteStore, "insert_run_meta", lambda self, meta: captured.update(meta))
+    rc = cli.main(["scan", "https://github.com/o/r", "--since", "2024-01-01", "--branch", "main"])
+    assert rc == 0
+    assert "vote_threshold" not in captured
+    assert captured["tier"] == "scan" and captured["run_id"] == "test-run" and captured["branch"] == "main"
+    assert json.loads(captured["scope_json"]) == {"mode": "time", "since": "2024-01-01", "until": None, "max": 0,
+                                                  "from_sha": None, "to_sha": None, "date_field": "committer"}
+    snap = json.loads(captured["config_snapshot_json"])
+    assert snap["params_v1"]["line_window"] == 3 and "ORCH_SQLITE" in snap["env"]
+    assert captured["experiment"] == 0 and captured["tools"][0]["name"] == "semgrep"
+
+
+def test_pipeline_passes_tools_and_scope_down(orch_env, monkeypatch):
+    from orchestrator import cli
+    seen = []
+
+    def rec(name):
+        def f(ns):
+            seen.append((name, ns.tools, getattr(ns, "expensive_tools", None), ns.since, ns.max))
+            return 0
+        return f
+
+    for fn in ("cmd_scan", "cmd_select", "cmd_analyze", "cmd_relabel", "cmd_kappa", "cmd_export"):
+        monkeypatch.setattr(cli, fn, rec(fn))
+    rc = cli.main(["pipeline", "https://github.com/o/r", "--since", "2024-01-01", "--tools", "semgrep,bearer",
+                   "--expensive-tools", "sonar", "--codeql", "0"])
+    assert rc == 0 and [s[0] for s in seen] == ["cmd_scan", "cmd_select", "cmd_analyze", "cmd_relabel",
+                                                 "cmd_kappa", "cmd_export"]
+    assert seen[0][1] == "semgrep,bearer" and seen[0][3] == "2024-01-01" and seen[0][4] == 0
+    assert seen[2][1] is None and seen[2][2] == "sonar"          # analyze: cheap None, expensive truyền xuống
+    # 1 bước trả 3 (stop-file) -> pipeline dừng, exit 3
+    seen.clear()
+    monkeypatch.setattr(cli, "cmd_select", lambda ns: 3)
+    assert cli.main(["pipeline", "https://github.com/o/r", "--max", "3"]) == 3
+    assert [s[0] for s in seen] == ["cmd_scan"]
