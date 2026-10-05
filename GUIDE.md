@@ -198,6 +198,8 @@ KHÔNG áp `ORCH_EXCLUDE_PATHS` (trung thành định nghĩa gốc).
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `ORCH_SCAN_WORKERS` | `4` | số commit song song ở tầng RẺ (VM 8 vCPU → 4-6 ổn) |
+| `ORCH_SCAN_RESUME` | `1` | bỏ qua commit đã có mốc `scan_done` (quét TRỌN ở run trước); `0` = ép quét lại từ đầu (`reset_cheap_scan` vẫn chống nhân đôi) |
+| `ORCH_SUBMODULES` | `1` | `git submodule sync/update --init --recursive` sau mỗi checkout trong clone pool (repo kiểu skywalking cần để build); không có `.gitmodules` → no-op |
 | `ORCH_CHEAP_INTRA_PARALLEL` | `1` | tầng rẻ: `1`=5 tool song song/commit (Model B, nhanh ~14%), `0`=tuần tự |
 | `ORCH_EXPENSIVE_WORKERS` | `2` | số commit song song ở tầng ĐẮT (nặng RAM → 2-3) |
 | `ORCH_EXPENSIVE_INTRA_PARALLEL` | `0` | tầng đắt: `0`=3 tool tuần tự (khuyến nghị), `1`=song song |
@@ -240,6 +242,7 @@ CLI: `analyze --workers N --tools codeql,sonar --codeql 0/1 --dry-run`.
 | `ORCH_SILVER_MIN_CHEAP` | `2` | ≥N tool RẺ → **silver** |
 | `ORCH_NOISE_CWE` | `CWE-117` | CWE FP-cao → bỏ khi gán nhãn (raw giữ nguyên). Thêm: `CWE-117,CWE-807` |
 | `ORCH_NOISE_RULES` | (rỗng) | rule_id FP-cao cần bỏ (vd `CRLF_INJECTION_LOGS`) |
+| `ORCH_VOTE_THRESHOLD` | `2` | **legacy, KHÔNG dùng** (single-tier cũ) — giữ biến cho tương thích import; không ghi `run_meta`, không hiển thị GUI |
 
 > `LINE_WINDOW=3` là **cấu hình v1 đăng ký trước** (METHODOLOGY.md §1). `ORCH_LINE_WINDOW` **chỉ có hiệu lực khi
 > `ORCH_EXPERIMENT=1`** (xem §3.7); không bật → giữ 3 và in cảnh báo. Muốn xem ảnh hưởng W → dùng `sensitivity`

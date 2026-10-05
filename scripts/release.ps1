@@ -41,7 +41,7 @@ New-Item -ItemType Directory -Force (Join-Path $out "docs") | Out-Null
 Copy-Item (Join-Path $Root "dist\*.exe") $out
 Copy-Item (Join-Path $Root "dist\SHA256SUMS.txt") $out
 Copy-Item (Join-Path $Root "README.md") $out
-foreach ($d in "GUIDE.md", "RULE_GAN_NHAN.md", "CONTRACTS.md", "DESKTOP_APP_PLAN.md", "LICENSE") {
+foreach ($d in "RELEASE_NOTES.md", "GUIDE.md", "METHODOLOGY.md", "HUONG_DAN_GUI.md", "RULE_GAN_NHAN.md", "CONTRACTS.md", "DESKTOP_APP_PLAN.md", "LICENSE") {
     $src = Join-Path $Root $d
     if (Test-Path $src) { Copy-Item $src (Join-Path $out "docs") }
 }
