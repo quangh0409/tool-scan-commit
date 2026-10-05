@@ -1,5 +1,5 @@
 /* Wizard 4/5 — Nơi lưu: thư mục kết quả/làm việc, tên DB/export tự sinh, validate đường dẫn, DB đã tồn tại, định dạng xuất. */
-import { api, t, h, btn, card, dialog, toast, notice, clear, debounce, busy, wiz, fmt } from '../app.js';
+import { api, t, h, btn, card, dialog, toast, notice, skeleton, clear, debounce, busy, wiz, fmt } from '../app.js';
 
 let alive = true;
 let frame = null;
@@ -13,10 +13,14 @@ export async function render(root, ctx) {
   frame = wiz.frame(root, { step: 4, title: t('w4.title'), lead: t('w4.lead'), backHref: '#/wizard/3', nextHref: '#/wizard/5',
     headerRight: p.repo ? h('span', { class: 'tag mono' }, `${fmt.repoShort(p.repo)} · ${p.branch || 'HEAD'}`) : null });
 
-  // settings mặc định (out_dir/work_dir/sonar_port) — lấy 1 lần
+  // settings mặc định (out_dir/work_dir/sonar_port) — lấy 1 lần; W4-1: hiện skeleton trong lúc chờ, không để trang trống
   if (!meta.settings) {
+    const sk = card({ title: t('w4.out_dir'), body: skeleton(3, { lines: true }) });
+    frame.body.append(sk, card({ title: t('w4.work_dir'), body: skeleton(1, { lines: true }) }));
+    frame.next.disabled = true;
     try { const s = await api('/api/settings'); meta = wiz.setMeta({ settings: s }); } catch (_) { meta = wiz.setMeta({ settings: {} }); }
     if (!alive) return;
+    clear(frame.body);
   }
   const s = meta.settings || {};
   let outDir = meta.out_dir || s.out_dir || '';

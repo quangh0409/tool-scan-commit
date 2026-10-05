@@ -16,6 +16,7 @@ import copy
 import json
 import threading
 import time
+from pathlib import Path
 
 from . import FIXTURES_DIR
 from .errors import ApiError
@@ -29,6 +30,10 @@ try:
 except Exception:  # pragma: no cover - chỉ khi chạy ngoài repo
     prof = None
     keys = None
+
+
+_FIX_DETAIL = {"start_docker": "Docker Desktop đã chạy", "pick_port": "Dùng port 9100",
+               "git_longpaths": "core.longpaths=true", "pull_images": "Đã tải/build đủ image"}
 
 
 def _fx(name: str):
@@ -86,7 +91,11 @@ class MockApi:
                 if it.get("fix_id") in self._fixed:
                     it["level"] = "ok"
                     it["fix_available"] = False
+                    it["detail"] = _FIX_DETAIL.get(it["fix_id"], "Đã sửa") + " (đã sửa tự động)"   # PF-3
             data["ready"] = all(it["level"] in ("ok", "warn") for it in data["items"])
+        if (req.query.get("light") or "0") in ("1", "true"):          # HM-2: chỉ docker_daemon
+            data["items"] = [it for it in data["items"] if it["id"] == "docker_daemon"]
+            data["light"] = True
         return data
 
     def preflight_fix(self, req: Request):
@@ -104,9 +113,7 @@ class MockApi:
                 self._fix_progress.pop(fix_id, None)
             time.sleep(0.2)
             self._fixed.add(fix_id)
-        detail = {"start_docker": "Docker Desktop đã chạy", "pick_port": "Dùng port 9100",
-                  "git_longpaths": "core.longpaths=true", "pull_images": "Đã tải/build đủ image"}
-        return {"ok": True, "done": True, "progress": 100, "detail": detail.get(fix_id, "Đã sửa")}
+        return {"ok": True, "done": True, "progress": 100, "detail": _FIX_DETAIL.get(fix_id, "Đã sửa")}
 
     # ---- wizard ----
     def repo_check(self, req: Request):
@@ -169,7 +176,10 @@ class MockApi:
         p = (req.body or {}).get("profile") or {}
         errs = prof.validate(p) if prof is not None else []
         db = (p.get("paths") or {}).get("db") or ""
-        exists = st == "partial" or "exists" in db.lower()
+        # W4-2: không dò substring — "đã tồn tại" khi file thật có, hoặc trùng tên DB của một run trong fixture runs.json
+        # (QA: đặt tên DB = dataset_FudanSELab__train-ticket_master_20261005.sqlite để kích hoạt Resume/Đổi tên/Ghi đè)
+        known = {Path(r.get("db") or "").name.lower() for r in self._runs + self._started if r.get("db")}
+        exists = st == "partial" or (bool(db) and (Path(db).exists() or Path(db).name.lower() in known))
         return {"errors": errs, "warnings": [], "db_exists": exists, "export_exists": exists,
                 "db_user_version": 2 if exists else None}
 

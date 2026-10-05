@@ -198,8 +198,8 @@ export const fmt = {
 export function btn(label, o = {}) {
   const cls = ['btn', o.kind || '', o.small ? 'small' : '', o.icon ? 'icon' : '', o.cls || ''].filter(Boolean).join(' ');
   const el = o.href
-    ? h('a', { class: cls, href: o.href, 'aria-label': o.ariaLabel, 'aria-disabled': o.disabled ? 'true' : undefined, title: o.title })
-    : h('button', { class: cls, type: o.type || 'button', disabled: !!o.disabled, 'aria-label': o.ariaLabel, title: o.title });
+    ? h('a', { class: cls, href: o.href, 'aria-label': o.ariaLabel, 'aria-disabled': o.disabled ? 'true' : undefined, title: o.title, 'data-test': o.test })
+    : h('button', { class: cls, type: o.type || 'button', disabled: !!o.disabled, 'aria-label': o.ariaLabel, title: o.title, 'data-test': o.test });
   if (o.spinner) el.append(h('span', { class: 'spin', 'aria-hidden': 'true' }));
   if (label !== undefined && label !== null) el.append(typeof label === 'string' ? document.createTextNode(label) : label);
   if (o.onClick) el.addEventListener('click', (ev) => { if (o.href && o.disabled) { ev.preventDefault(); return; } o.onClick(ev, el); });
@@ -307,8 +307,10 @@ export function dialog({ title, body, confirmText, cancelText, typedConfirm, dan
     }
     const ok = btn(confirmText || t('ok'), { kind: danger ? 'danger' : 'primary', disabled: !!typedConfirm });
     const cancel = btn(cancelText || t('cancel'));
-    const close = (v) => { back.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const close = (v) => { back.remove(); document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHashNav); resolve(v); };
     const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    const onHashNav = () => close(false);          // đổi route -> đóng hộp thoại (không để overlay chặn màn mới)
+    window.addEventListener('hashchange', onHashNav);
     const validate = () => {
       let good = true;
       if (typed) good = typed.value.trim() === typedConfirm;
@@ -557,8 +559,21 @@ function renderDockerChip() {
   el.append(h('span', { class: `dot ${dot}`, 'aria-hidden': 'true' }), lvl === 'ok' ? t('docker.running') : lvl === 'bad' ? t('docker.down') : lvl ? t('docker.fix') : t('docker.unknown'));
   el.title = port ? String(port) : t('docker.recheck');
 }
-export async function refreshPreflight({ force = false } = {}) {
+export async function refreshPreflight({ force = false, light = false } = {}) {
   const pf = preflightCache.get();
+  if (light) {
+    // HM-2: chỉ kiểm docker_daemon (nhanh) rồi gộp vào cache; không có cache -> dùng kết quả light
+    try {
+      const d = await api('/api/preflight', { query: { light: 1 } });
+      const items = (d && d.items) || [];
+      if (pf && pf.items && items.length) {
+        const merged = pf.items.map(it => items.find(x => x.id === it.id) || it);
+        for (const it of items) if (!merged.some(x => x.id === it.id)) merged.push(it);
+        preflightCache.set(Object.assign({}, pf, { items: merged, light_at: Date.now() }));
+      } else preflightCache.set(Object.assign({}, d, { light: true }));
+      return preflightCache.get();
+    } catch (e) { return pf; }
+  }
   if (!force && pf && Date.now() - (pf.at || 0) < 60000) return pf;
   try { const d = await api('/api/preflight'); preflightCache.set(d); return d; } catch (e) { return pf; }
 }
