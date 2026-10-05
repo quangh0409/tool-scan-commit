@@ -527,3 +527,25 @@ def test_run_meta_timestamps_same_local_iso_format(orch_env, scratch_db):
         assert iso.match(st.kappa_rows("test-run")[0]["computed_at"])
     finally:
         st.close()
+
+
+def test_export_experiment_gets_exp_suffix(orch_env, fake_docker, monkeypatch):
+    """CONTRACTS §2: ORCH_EXPERIMENT=1 -> thư mục export gắn `_exp` trước khi xét `_2/_3`; manifest.experiment giữ nguyên."""
+    exp = _m("orchestrator.export_dataset")
+    st = _store()
+    try:
+        out = orch_env / "export_x"
+        assert Path(exp.export_all(st, out)["out"]) == out                         # v1: không hậu tố
+        monkeypatch.setenv("ORCH_EXPERIMENT", "1")
+        monkeypatch.setenv("ORCH_EXPERIMENT_REASON", "sensitivity W=5 cho RQ2")
+        r1 = exp.export_all(st, out)
+        assert Path(r1["out"]) == orch_env / "export_x_exp"
+        man = json.loads((Path(r1["out"]) / "run_manifest.json").read_text(encoding="utf-8"))
+        assert man["experiment"] == {"enabled": True, "reason": "sensitivity W=5 cho RQ2"}
+        r2 = exp.export_all(st, out)                                              # đích _exp đã có dữ liệu -> _exp_2
+        assert Path(r2["out"]) == orch_env / "export_x_exp_2"
+        r3 = exp.export_all(st, orch_env / "export_y_exp")                        # đã có hậu tố -> không nhân đôi
+        assert Path(r3["out"]) == orch_env / "export_y_exp"
+        assert exp.resolve_out_dir(orch_env / "khong_ton_tai") == orch_env / "khong_ton_tai_exp"
+    finally:
+        st.close()
