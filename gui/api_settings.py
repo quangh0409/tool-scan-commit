@@ -19,6 +19,9 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import api_common as C
@@ -103,7 +106,7 @@ def _parse_size(s: str) -> int:
     return int(float(m.group(1)) * _MULT.get(m.group(2).upper(), 1))
 
 
-def _docker_images(timeout: float = 15) -> list[dict]:
+def _docker_images(timeout: float = 8) -> list[dict]:
     """[{repo_tag, id, bytes}] của image tool (docker có trong PATH); lỗi/không có → []."""
     if not shutil.which("docker"):
         return []
@@ -125,7 +128,7 @@ def _docker_images(timeout: float = 15) -> list[dict]:
     return out
 
 
-def _docker_volume_bytes(name: str, timeout: float = 15) -> int | None:
+def _docker_volume_bytes(name: str, timeout: float = 8) -> int | None:
     if not shutil.which("docker"):
         return None
     try:
@@ -157,8 +160,32 @@ def _running_works() -> set[str]:
             if r.get("status") == "running" and r.get("work")}
 
 
+_STORAGE_CACHE: dict = {"at": 0.0, "data": None}
+_STORAGE_LOCK = threading.Lock()
+STORAGE_TTL_S = 30
+
+
 def storage(params: dict | None = None, body: dict | None = None) -> dict:
+    """Dung lượng theo mục. Lỗi thật 2026-10-05: khi Docker đang build, `docker system df -v` + `docker images`
+    chạy NỐI TIẾP (15 s timeout mỗi lệnh) + duyệt thư mục -> vượt 60 s của GUI ("Hết thời gian chờ").
+    Nay: 2 lệnh docker chạy SONG SONG với nhau và với việc duyệt thư mục, mỗi lệnh ≤ 8 s; Docker bận -> mục
+    đó ghi "Docker đang bận" chứ không chặn cả màn; kết quả nhớ 30 s (`?refresh=1` để tính lại)."""
+    refresh = str((params or {}).get("refresh") or "") in ("1", "true")
+    with _STORAGE_LOCK:
+        c = _STORAGE_CACHE
+        if not refresh and c["data"] is not None and time.time() - c["at"] < STORAGE_TTL_S:
+            return dict(c["data"], cached=True)
+        data = _storage_compute()
+        c["data"], c["at"] = data, time.time()
+        return dict(data, cached=False)
+
+
+def _storage_compute() -> dict:
     s = get_settings()
+    pool = ThreadPoolExecutor(max_workers=2)
+    f_vol = pool.submit(_docker_volume_bytes, "secjit-m2") if s.get("m2_volume") else None
+    f_img = pool.submit(_docker_images)
+    pool.shutdown(wait=False)
     work = Path(s["work_dir"])
     out_dir = Path(s["out_dir"])
     items: list[dict] = []
@@ -170,14 +197,14 @@ def storage(params: dict | None = None, body: dict | None = None) -> dict:
                   "bytes": sum(_dir_size(p) for p in clones), "count": len(clones),
                   "detail": ", ".join(p.name for p in clones[:5]) + (" …" if len(clones) > 5 else "") or "clone lại khi cần"})
     m2_dir = work / ".m2cache"
-    vol = _docker_volume_bytes("secjit-m2") if s.get("m2_volume") else None
+    vol = f_vol.result() if f_vol is not None else None
     items.append({"id": "m2", "title": "Cache Maven", "path": "docker volume secjit-m2" if vol is not None else str(m2_dir),
                   "safety": "slow", "bytes": (vol or 0) + (_dir_size(m2_dir) if m2_dir.exists() else 0),
                   "detail": "xoá sẽ làm build chậm 3–5 lần"})
-    imgs = _docker_images()
+    imgs = f_img.result()
     items.append({"id": "images", "title": "Image Docker", "path": ", ".join(i["repo_tag"] for i in imgs[:6]) + (" …" if len(imgs) > 6 else ""),
                   "safety": "rebuild", "bytes": sum(i["bytes"] for i in imgs), "count": len(imgs),
-                  "detail": "tải/build lại khi dùng" if imgs else "docker không chạy hoặc chưa có image"})
+                  "detail": "tải/build lại khi dùng" if imgs else "Docker đang bận/không chạy — chưa đo được (thử lại sau)"})
     run_dirs = [p for p in work.iterdir() if p.is_dir() and p.name.startswith("r-")] if work.exists() else []
     items.append({"id": "runs", "title": "Log/progress các run", "path": str(work / "r-*"), "safety": "safe",
                   "bytes": sum(_dir_size(p) for p in run_dirs), "count": len(run_dirs),
@@ -253,6 +280,8 @@ def clean(params: dict | None = None, body: dict | None = None) -> dict:
             raise conflict("Có run đang chạy dùng thư mục làm việc này", "Dừng run (Dừng an toàn) trước khi dọn")
     C.ensure_src_on_path()
     from orchestrator import control
+    if not dry:
+        _STORAGE_CACHE["data"] = None   # xoá thật -> màn Dung lượng phải đo lại
     plan = {"would_delete": [], "errors": [], "items": list(items)}
     ctl_items = [(k, None) for k in items if k in ("pool", "m2")]
     if ctl_items:

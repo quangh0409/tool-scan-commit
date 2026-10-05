@@ -77,7 +77,7 @@ async function tabDocker() {
 async function tabStorage() {
   const { C, ctx } = S;
   setBody(C.skeleton(8));
-  const r = await tryApi(ctx, '/api/storage');
+  const r = await tryApi(ctx, '/api/storage', { timeout: 120000 });  // Docker bận có thể chậm
   if (!S || S.dead) return;
   if (!r.ok) { setBody(C.errorBox(r.err, tabStorage)); return; }
   const d = r.data || {}; const items = d.items || [];

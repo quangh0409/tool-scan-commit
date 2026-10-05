@@ -122,3 +122,27 @@ def test_server_silences_client_disconnect(capsys):
         assert "ValueError" in capsys.readouterr().err   # lỗi thật vẫn được in
     finally:
         s.server_close()
+
+
+def test_storage_not_blocked_by_slow_docker(monkeypatch, tmp_path):
+    """Docker bận (mỗi lệnh treo tới timeout) không được làm /api/storage vượt giới hạn GUI."""
+    import time as _t
+    from gui import api_settings as S
+    monkeypatch.setattr(S, "get_settings", lambda: {"work_dir": str(tmp_path / "w"), "out_dir": str(tmp_path / "o"), "m2_volume": True})
+    monkeypatch.setattr(S, "_running_works", lambda: set())
+
+    def slow(*a, **k):
+        _t.sleep(1.0)
+        return None
+    monkeypatch.setattr(S, "_docker_volume_bytes", slow)
+    monkeypatch.setattr(S, "_docker_images", lambda *a, **k: (_t.sleep(1.0), [])[1])
+    S._STORAGE_CACHE["data"] = None
+    t0 = _t.time()
+    r = S.storage({}, None)
+    assert _t.time() - t0 < 1.8          # 2 lệnh docker chạy song song, không cộng dồn
+    assert r["cached"] is False
+    t0 = _t.time()
+    assert S.storage({}, None)["cached"] is True and _t.time() - t0 < 0.2
+    assert S.storage({"refresh": "1"}, None)["cached"] is False
+    img = next(i for i in r["items"] if i["id"] == "images")
+    assert "chưa đo được" in img["detail"]
