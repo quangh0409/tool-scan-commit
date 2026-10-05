@@ -158,3 +158,41 @@ là SNAPSHOT data-availability (không sửa được bằng JDK/pipeline — xe
 - **Núm chi phí phễu** = `--include-clean` (x2–5 số commit lên tầng đắt, đổi lấy verified-clean GOLD)
   + `CLEAN_PER_BUGGY` + top-K ở select.
 - Tăng tốc thêm (chưa làm): container ấm, cache theo blob-sha, scale ngang nhiều VM.
+
+## Runner nền → progress → GUI, stop-file (desktop, 2026-10-05)
+
+```
+GUI (pywebview / python -m gui)                       tiến trình orchestrator (tách rời, sống độc lập cửa sổ)
+  Wizard 1–5 ──► profile.json ──► POST /api/run/start ──► runner.start(profile, run_id, work)
+                                                           │  Popen DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP (Win)
+                                                           │  / start_new_session (Linux); stdout/err -> <work>/<run_id>/run.log
+                                                           │  env = profile.to_env() + ORCH_RUN_ID + ORCH_PROGRESS_FILE
+                                                           │        + ORCH_STOP_FILE + PYTHONUTF8/PYTHONIOENCODING
+                                                           ▼
+                                        python -m orchestrator.cli pipeline --profile P.json
+                                          │ apply_profile(): env TRƯỚC -> config.reload() -> argv từ profile
+                                          │ scan ─ select ─ analyze ─ relabel ─ kappa ─ export  (mỗi bước exit 0/2/3)
+                                          │ progress.emit(...) ──► <work>/<run_id>/progress.jsonl (1 dòng JSON / sự kiện)
+                                          │     {ts, run_id, phase∈scan|select|analyze|relabel|kappa|export|review|stats,
+                                          │      event∈start|item|done|error|stop, done, total, worker, sha, status, msg}
+  Dashboard ◄── GET /api/run/{id}/progress (SSE, replay 200 dòng cuối) ◄── registry runs.json + progress.jsonl
+  "Dừng an toàn" ──► POST /api/run/{id}/stop ──► tạo <work>/<run_id>/stop
+                                          │ scan/analyze kiểm progress.should_stop() GIỮA mỗi commit:
+                                          │   không claim commit mới, chờ commit đang chạy xong, emit event=stop, exit 3
+  "Dừng cưỡng bức" ──► stop(force) ──► taskkill /T /F | killpg SIGTERM ──► cli stop-cleanup --run <id>
+                                          │   docker rm -f (label orch.run=<id>) · network rm orch-sonar-net-<id>
+                                          │   reset-claims: building/analyzing -> pending, xoá raw đắt bán phần
+  Results ◄── stats (DB mode=ro) · export dir (run_manifest.json, dataset.jsonl có cluster_key/evidence)
+```
+
+- **Vì sao tách tiến trình:** run nhiều giờ không được chết theo cửa sổ GUI (REVIEW §II.E #2); GUI chỉ *attach*
+  (pid + log + progress), đóng/mở lại vẫn theo dõi được (`registry` `runs.json`, `status=interrupted` khi pid chết
+  mà DB còn `building/analyzing` → nút "Dọn & tiếp tục" = `stop-cleanup` + `pipeline --profile` resume).
+- **Stop-file là hợp tác:** chỉ dừng ở ranh giới commit nên không để lại raw bán phần; exit 3 phân biệt với lỗi (2).
+  Tự dừng khi ≥`ORCH_INFRA_STOP_AFTER` (3) `infra_error` liên tiếp (Docker tắt/đĩa đầy) — commit về `pending`,
+  không đếm là dữ liệu.
+- **Lock DB:** `<db>.lock` (pid, run_id) — run thứ hai trên cùng DB bị từ chối; `clean` từ chối xoá DB/pool đang dùng.
+- **Batch:** `batch --queue Q.json` chạy tuần tự nhiều profile (mỗi profile 1 `pipeline --profile`, `ORCH_RUN_ID=<batch>-<i>`),
+  1 SonarQube tại một thời điểm; dừng cả hàng đợi khi `<Q>.stop` xuất hiện hoặc run con trả 3.
+- **Chẩn đoán:** `diagnostics --run <id> --out Z.zip` gói log/progress/run_meta/docker info/preflight, che token/PAT.
+

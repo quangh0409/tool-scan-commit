@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -23,10 +24,38 @@ _JAVA_VER_RE = re.compile(
 _JDK_AVAILABLE = (8, 11, 17, 21)   # tag temurin có sẵn trên Docker Hub
 
 
-def _m2_cache() -> Path:
-    d = config.WORK_DIR / ".m2cache"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+M2_VOLUME_NAME = "secjit-m2"          # tên Docker named volume khi ORCH_M2_VOLUME=1
+_M2_VOLUME_READY: set[str] = set()      # volume đã `docker volume create/inspect` trong tiến trình này
+
+
+def _m2_cache() -> "Path | str":
+    """Nguồn mount cho `/m2` (dùng chung build/CodeQL/Sonar: `-v {_m2_cache()}:/m2`).
+
+    - `ORCH_M2_VOLUME` rỗng hoặc `0` (mặc định): bind mount thư mục `WORK_DIR/.m2cache` (hành vi cũ).
+    - `ORCH_M2_VOLUME=1`: Docker **named volume** `secjit-m2` (`docker volume create` nếu chưa có) — nhanh hơn
+      bind mount trên Windows/WSL2 và không lệ thuộc file-sharing ổ đĩa. Giá trị khác `0/1` = tên volume tuỳ ý.
+    - Không tạo được volume (daemon tắt…) -> cảnh báo và quay về bind mount để build vẫn chạy.
+    """
+    v = (config.M2_VOLUME or "").strip()
+    if v in ("", "0"):
+        d = config.WORK_DIR / ".m2cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    name = M2_VOLUME_NAME if v == "1" else v
+    if name not in _M2_VOLUME_READY:
+        try:
+            ins = docker_run(["volume", "inspect", name], timeout=30)
+            if ins.returncode != 0:
+                cr = docker_run(["volume", "create", "--label", "orch.m2=1", name], timeout=60)
+                if cr.returncode != 0:
+                    raise RuntimeError((cr.stderr or cr.stdout or "").strip()[:200])
+        except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+            print(f"[m2] CẢNH BÁO: không tạo được volume {name} ({e}) -> dùng bind mount .m2cache", file=sys.stderr)
+            d = config.WORK_DIR / ".m2cache"
+            d.mkdir(parents=True, exist_ok=True)
+            return d
+        _M2_VOLUME_READY.add(name)
+    return name
 
 
 def changed_modules(clone_dir: Path, commit_id: str) -> list[str]:
