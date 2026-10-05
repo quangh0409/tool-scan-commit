@@ -31,6 +31,7 @@ Orchestrator: input = 1 link GitHub → duyệt từng commit → chạy nhiều
 ## Chạy & kiểm thử
 - Python **stdlib-only** (3.10+), KHÔNG có pip install, KHÔNG có test. Xác minh = chạy smoke trên scratch DB (`ORCH_SQLITE=/tmp/x.sqlite ... scan <url> --max 3`).
 - Lint: `python -m ruff check src scripts` (config `pyproject.toml`, chỉ bật lỗi thật F/E9 — không ép style). Chạy sau khi sửa code Python.
+- **Gotcha Git Bash trên Windows:** env đường dẫn (`ORCH_SQLITE`, `ORCH_WORK_DIR`…) phải là đường dẫn Windows (`D:\...`), KHÔNG dùng `$PWD` kiểu `/d/...` — Python hiểu `/d/x` thành `\d\x` và `mkdir` fail "Access is denied: '\\d'". Dùng `R="$(cygpath -w "$PWD")"`.
 - Chạy CLI từ gốc repo: `PYTHONPATH=src python3 -m orchestrator.cli <enumerate|scan|select|analyze|relabel|kappa|features|export|pipeline|clean>`.
 - Mỗi tool wrapper parse thẳng output của nó → `RawFinding`; `normalize/` chỉ là stub. Raw SARIF/XML/JSON lưu bảng `raw_output` để audit. Lưu SQLite (không Parquet).
 - `LINE_WINDOW=3` là **hằng số** trong `config.py` (không phải env). W=7 chỉ dùng cho gold qua `scripts/relabel_gold_w7.py` trên bản copy DB, không đụng DB chính.
