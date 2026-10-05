@@ -3,7 +3,7 @@
 // B2 GET  /api/review/:id/next?sample_id=&rater= -> chỉ code_lines/diff flag/cwe_claim/messages_anon (KHÔNG nhãn, tool, precision)
 //    POST /api/review/:id/verdict {sample_id, rater, cluster_key, verdict, note}
 // B3 POST /api/review/:id/close {sample_id} -> precision + CI, Cohen κ 2 rater, bất đồng -> adjudication (rater "adjudicated").
-import { h, clear, makeT, fmt, banner, tryApi, errText, qs, field, resultsHeader, findRun } from './_util.js';
+import { h, clear, makeT, fmt, banner, tryApi, errText, qs, field, resultsHeader, findRun, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -12,7 +12,7 @@ const SS_KEY = (id) => `secjit.review.${id}`;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
+  const C = getComponents(ctx); const t = makeT(ctx);
   const id = ctx.params.id;
   let saved = {};
   try { saved = JSON.parse(sessionStorage.getItem(SS_KEY(id)) || '{}'); } catch (_) { saved = {}; }
@@ -36,6 +36,12 @@ function persist() { try { sessionStorage.setItem(SS_KEY(S.id), JSON.stringify({
 
 function draw() {
   if (!S || S.dead) return;
+  if (S.drawing) { S.redraw = true; return; }      // REV-3: không tái render lồng nhau (blur/change -> nextItem -> draw)
+  S.drawing = true;
+  try { drawInner(); } finally { if (S) { S.drawing = false; if (S.redraw) { S.redraw = false; queueMicrotask(() => draw()); } } }
+}
+
+function drawInner() {
   const { root, C, t, ctx, id } = S;
   clear(root);
   root.append(resultsHeader(ctx, id, 'review', S.run));
@@ -65,9 +71,11 @@ function stepSample() {
       if (!S || S.dead) return;
       S.busy = false;
       if (!r.ok) { C.toast(errText(r.err), 'error'); draw(); return; }
-      S.sample = r.data; S.sampleId = r.data.sample_id; persist(); draw();
+      if (r.data.empty) { S.sample = null; S.sampleId = null; S.emptyMsg = r.data.message || 'Chưa có cụm gold / verified-clean để kiểm tay.'; persist(); draw(); return; }
+      S.emptyMsg = null; S.sample = r.data; S.sampleId = r.data.sample_id; persist(); draw();
     } })));
   const parts = [C.card(form, { title: tr('rv.title.buoc_1_tao_mau', 'Bước 1 · Tạo mẫu') })];
+  if (S.emptyMsg) parts.push(C.empty(S.emptyMsg));
   if (S.sample) {
     const st = S.sample.strata;
     parts.push(C.card(h('div', { class: 's-stack' },
@@ -82,7 +90,11 @@ function stepSample() {
 function stepRate() {
   const { C } = S;
   const raterIn = h('input', { type: 'text', class: 's-input', value: S.rater, placeholder: 'vd. rater1 (tác giả), rater2 (đồng nghiệp)', 'aria-label': 'Người chấm' });
-  raterIn.addEventListener('change', () => { S.rater = raterIn.value.trim(); persist(); if (S.rater) nextItem(); else draw(); });
+  raterIn.addEventListener('change', () => {
+    const v = raterIn.value.trim();
+    if (v === S.rater && S.item) return;           // change lặp (fill + blur) -> không gọi nextItem 2 lần
+    S.rater = v; persist(); if (S.rater) nextItem(); else draw();
+  });
   const head = h('div', { class: 's-row' },
     h('span', { class: 's-tag s-mono', text: S.sampleId || '—' }),
     field('Người chấm (rater)', raterIn, 'lưu trong phiên; mỗi rater chấm độc lập'),
@@ -98,6 +110,12 @@ function stepRate() {
   if (!it || !it.cluster_key) { parts.push(C.card(h('div', { class: 's-stack' }, h('p', { text: tr('rv.text.rater_nay_da_cham_het_mau', 'Rater này đã chấm hết mẫu.') }), h('div', { class: 's-row' }, C.btn({ label: tr('rv.btn.dong_phien_xem_precision', 'Đóng phiên · xem precision'), kind: 'primary', onClick: () => { S.step = 3; draw(); closeSession(); } }))), { title: tr('rv.title.xong', 'Xong') })); return h('div', { class: 's-stack' }, parts); }
 
   const flagged = new Set((it.diff_lines || []).filter((d) => d.kind === 'flag').map((d) => d.n));
+  for (const l of (it.code_lines || [])) if (l && l.flag) flagged.add(l.n);
+  // cwe_claim: chuỗi (hợp đồng cũ) hoặc object {cwe[], group, category, claim} (A1 review.py)
+  const cc = it.cwe_claim;
+  const claimText = typeof cc === 'string' ? cc : cc && typeof cc === 'object'
+    ? [((cc.cwe || []).join(', ') || null), cc.group ? `(${cc.group})` : null, cc.claim || null].filter(Boolean).join(' ') || '—' : '—';
+  const isNeg = it.kind === 'neg' || (cc && typeof cc === 'object' && !(cc.cwe || []).length && !it.file_path);
   const code = h('div', { class: 's-review-code', role: 'region', 'aria-label': 'Mã nguồn' });
   if (it.code_lines === undefined) code.append(h('div', { class: 'ln', text: 'Backend chưa trả code_lines — chỉ có diff:' }));
   for (const l of (it.code_lines || it.diff_lines || [])) code.append(h('div', { class: `ln ${flagged.has(l.n) || l.kind === 'flag' ? 'flag' : ''}`.trim() }, h('span', { class: 'n', text: l.n ?? '' }), h('span', { text: l.text || '' })));
@@ -105,7 +123,10 @@ function stepRate() {
   noteIn.addEventListener('input', () => { S.note = noteIn.value; });
   S.noteEl = noteIn;
   const body = h('div', { class: 's-stack' },
-    h('div', { class: 's-row' }, h('strong', { text: tr('rv.text.tuyen_bo', 'Tuyên bố: ') }), h('span', { class: 's-tag', text: it.cwe_claim || '—' }), h('span', { class: 's-sub s-mono', text: `cụm ${String(it.cluster_key).slice(0, 8)}…` })),
+    h('div', { class: 's-row' }, h('strong', { text: tr('rv.text.tuyen_bo', 'Tuyên bố: ') }), h('span', { class: 's-tag', text: claimText }), h('span', { class: 's-sub s-mono', text: `cụm ${String(it.cluster_key).slice(0, 8)}…` }),
+      it.file_path ? h('span', { class: 's-sub s-mono', text: `${it.file_path}${it.s_line ? ' : ' + it.s_line : ''}` }) : null),
+    isNeg ? h('div', { class: 's-note', text: 'Mẫu ÂM (verified-clean): commit không có cụm nào — câu hỏi: trong các file thay đổi dưới đây có lỗ hổng mới mà cả 2 tool đắt bỏ sót không? TP = có bỏ sót (nhãn âm sai), FP = thật sự sạch.' }) : null,
+    isNeg && (it.files || []).length ? h('ul', { class: 's-list s-mono s-small' }, (it.files || []).map((f, i) => h('li', {}, (it.file_urls || [])[i] ? h('a', { href: it.file_urls[i], target: '_blank', rel: 'noopener', text: f }) : f))) : null,
     code,
     h('div', { class: 's-small', text: 'Dòng tô vàng = vị trí tool báo. Câu hỏi: tại dòng đó có thật lỗi thuộc CWE nêu trên không?' }),
     it.messages_anon && it.messages_anon.length ? h('div', { class: 's-stack', style: { gap: '4px' } }, h('strong', { class: 's-small', text: tr('rv.text.thong_diep_an_danh_tool', 'Thông điệp (ẩn danh tool):') }), h('ul', { class: 's-list s-small' }, it.messages_anon.map((m) => h('li', { text: m })))) : null,

@@ -1,7 +1,7 @@
 // dashboard.js — màn #/run/:id (A5). export render(root, ctx), destroy().
 // Dữ liệu: GET /api/runs (tìm run) + SSE GET /api/run/:id/progress (ctx.sse nếu A4 cung cấp; không có -> poll ctx.api 2 s).
 // Quy tắc: KHÔNG hiện nhãn gold/silver khi status=running; chỉ đếm raw.
-import { h, clear, makeT, fmt, repoName, statusTag, partialNote, banner, kv, segBar, tryApi, errStatus, errText } from './_util.js';
+import { h, clear, makeT, fmt, repoName, statusTag, partialNote, banner, kv, segBar, tryApi, errStatus, errText, getComponents, openSse } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -10,9 +10,9 @@ let S = null; // state của màn hiện tại
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components;
+  const C = getComponents(ctx);
   const t = makeT(ctx);
-  S = { root, ctx, C, t, id: ctx.params.id, run: null, lines: [], overview: null, logFilter: 'all', stopping: false, cleaned: null, timer: null, closer: null, dead: false, partialFields: new Set(), onHash: null, onUnload: null };
+  S = { root, ctx, C, t, id: ctx.params.id, run: null, lines: [], overview: null, logFilter: 'all', stopping: false, cleaned: null, timer: null, closer: null, dead: false, partialFields: new Set(), onHash: null, onUnload: null, seen: new Set(), waitingSse: false };
   clear(root);
   root.append(C.skeleton(6));
 
@@ -27,10 +27,16 @@ export async function render(root, ctx) {
   tryApi(ctx, `/api/results/${encodeURIComponent(S.id)}/overview`).then((r) => { if (!S.dead && r.ok) { S.overview = r.data; draw(); } });
 
   // progress: lần đầu đợi 1 lượt rồi vẽ
-  const first = await tryApi(ctx, `/api/run/${encodeURIComponent(S.id)}/progress`);
-  if (S.dead) return;
-  if (!first.ok) { clear(root); root.append(C.errorBox(first.err, () => render(root, ctx))); return; }
-  ingest(first.data);
+  const hasSse = typeof ctx.sse === 'function' || (typeof window !== 'undefined' && window.SecJIT && typeof window.SecJIT.sse === 'function');
+  if (hasSse) {
+    S.waitingSse = true;                       // SSE replay 200 dòng cuối -> không fetch JSON đầu (DASH-1: tránh cộng dồn)
+    setTimeout(() => { if (S && !S.dead && S.waitingSse) { S.waitingSse = false; draw(); } }, 4000);
+  } else {
+    const first = await tryApi(ctx, `/api/run/${encodeURIComponent(S.id)}/progress`);
+    if (S.dead) return;
+    if (!first.ok) { clear(root); root.append(C.errorBox(first.err, () => render(root, ctx))); return; }
+    ingest(first.data);
+  }
   draw();
   startStream();
   guardLeave();
@@ -50,12 +56,12 @@ export function destroy() {
 function startStream() {
   const { ctx, id } = S;
   const path = `/api/run/${encodeURIComponent(id)}/progress`;
-  if (typeof ctx.sse === 'function') {
-    try {
-      S.closer = ctx.sse(path, (line) => { if (S && !S.dead) { ingest([typeof line === 'string' ? JSON.parse(line) : line], true); draw(); } });
-      return;
-    } catch (_) { /* rơi về poll */ }
-  }
+  try {
+    const closer = openSse(ctx, path,
+      (line) => { if (S && !S.dead && line && !line.raw) { S.waitingSse = false; ingest([typeof line === 'string' ? JSON.parse(line) : line], true); draw(); } },
+      () => { if (S && !S.dead) { S.closer = null; S.waitingSse = false; draw(); } });
+    if (closer) { S.closer = closer; return; }
+  } catch (_) { /* rơi về poll */ }
   S.timer = setInterval(async () => {
     if (!S || S.dead) return;
     if (status() !== 'running' && !S.stopping) return; // không poll khi run đã kết thúc
@@ -64,9 +70,19 @@ function startStream() {
   }, POLL_MS);
 }
 
+function lineKey(l) { return [l.ts, l.phase, l.event, l.sha || '', l.done ?? '', l.worker || '', l.status || ''].join('|'); }
+
 function ingest(data, appendMode = false) {
   const arr = Array.isArray(data) ? data : (data && Array.isArray(data.lines) ? data.lines : []);
-  if (appendMode) S.lines.push(...arr); else if (arr.length >= S.lines.length) S.lines = arr;
+  if (!appendMode && arr.length >= S.lines.length) { S.lines = []; S.seen = new Set(); }
+  if (appendMode || arr.length >= S.lines.length) {
+    for (const l of arr) {                      // DASH-1: dedupe theo (ts, phase, event, sha, done, worker)
+      if (!l || typeof l !== 'object') continue;
+      const k = lineKey(l);
+      if (S.seen.has(k)) continue;
+      S.seen.add(k); S.lines.push(l);
+    }
+  }
   for (const l of S.lines) {
     if (l.phase === 'analyze' && l.event === 'item' && l.worker === undefined) S.partialFields.add('worker');
     if (l.phase === 'analyze' && l.event === 'start' && l.total === undefined) S.partialFields.add('analyze.total');
@@ -122,7 +138,10 @@ function status() {
   return S.run.status || 'unknown';
 }
 
-function isScratch() { const r = S.run; return /scratch/i.test(r.run_id || '') || /scratch/i.test(r.db || ''); }
+function isScratch() {
+  const r = S.run; const q = (S.ctx && S.ctx.query) || {};
+  return r.smoke === true || !!(r.summary && r.summary.smoke === true) || q.smoke === '1';   // DASH-2: chỉ theo cờ registry
+}
 
 // ---------- vẽ ----------
 function draw() {
@@ -155,7 +174,8 @@ function draw() {
   if (S.stopping) root.append(banner('info', t('dash.stopping', 'Đang dừng an toàn'), 'Đang chờ commit hiện tại xong (không nhận commit mới). Có thể mất tới một chu kỳ build.'));
   if (S.cleaned) root.append(banner('info', tr('dash.banner.da_dung_cuong_buc_da_don', 'Đã dừng cưỡng bức · đã dọn'), null, [h('ul', { class: 's-list s-mono' }, S.cleaned.length ? S.cleaned.map((c) => h('li', { text: c })) : h('li', { text: 'không có gì cần dọn' }))]));
   const pn = partialNote([...S.partialFields]); if (pn) root.append(pn);
-  if (S.lines.length === 0) root.append(C.empty(t('dash.no_progress', 'Chưa có dòng tiến độ nào — run chưa ghi progress.jsonl (có thể đang clone/khởi động).')));
+  if (S.lines.length === 0 && S.waitingSse) root.append(C.card(C.skeleton(3)));
+  else if (S.lines.length === 0) root.append(C.empty(t('dash.no_progress', 'Chưa có dòng tiến độ nào — run chưa ghi progress.jsonl (có thể đang clone/khởi động).')));
 
   // 3 thanh
   const phases = h('div', { class: 's-stack', style: { gap: '18px' } });
@@ -192,7 +212,7 @@ function draw() {
   if (raw && typeof raw === 'object' && Object.keys(raw).length) {
     grid.append(C.card(Object.entries(raw).map(([k, v]) => kv(k, h('span', { class: 's-mono', text: fmt.int(v) }))), { title: tr('dash.title.finding_tho_theo_tool', 'Finding thô theo tool') }));
   }
-  const labelsCard = C.card([], { title: running ? 'Nhãn' : 'Nhãn (sau relabel)' });
+  const labelsCard = h('div', { class: 's-stack' });
   if (running || st === 'interrupted' || st === 'infra_stop') {
     labelsCard.append(h('div', { class: 's-note', text: t('dash.labels_hidden', 'Nhãn hiện sau khi relabel. Khi run đang chạy chỉ đếm finding thô — không hiện gold/silver tạm để tránh neo kỳ vọng và tinh chỉnh theo kết quả.') }));
   } else if (!run.summary || run.summary.gold === null || run.summary.gold === undefined) {
@@ -205,7 +225,7 @@ function draw() {
     labelsCard.append(kv('κ Fleiss', h('span', { class: 's-mono', text: fmt.num(s.kappa) })));
     labelsCard.append(h('a', { href: `#/results/${run.run_id}/overview`, class: 's-small', text: 'Xem kết quả →', onclick: (e) => { e.preventDefault(); S.ctx.navigate(`#/results/${run.run_id}/overview`); } }));
   }
-  grid.append(labelsCard);
+  grid.append(C.card(labelsCard, { title: running ? 'Nhãn' : 'Nhãn (sau relabel)' }));
   root.append(grid);
 
   // log
@@ -285,9 +305,18 @@ async function diagnostics() {
   const r = await tryApi(ctx, '/api/diagnostics');
   if (!S || S.dead) return;
   if (!r.ok) { C.toast(errStatus(r.err) === 501 || errStatus(r.err) === 404 ? 'Gói chẩn đoán chưa được backend hỗ trợ' : errText(r.err), 'warn'); return; }
-  const url = typeof ctx.url === 'function' ? ctx.url('/api/diagnostics') : '/api/diagnostics';
-  C.toast(`Đang tải gói chẩn đoán: ${url}`, 'ok');
-  if (!String(url).startsWith('harness-')) window.open(url, '_blank');
+  // app.js api() trả Response khi content-type không phải JSON (zip) -> tải xuống qua blob, không cần token trên URL
+  if (typeof Response !== 'undefined' && r.data instanceof Response) {
+    try {
+      const blob = await r.data.blob();
+      const a = h('a', { href: URL.createObjectURL(blob), download: `secjit-diagnostics-${S.id}.zip` });
+      document.body.append(a); a.click(); a.remove();
+      C.toast('Đã tải gói chẩn đoán (zip).', 'ok');
+    } catch (e) { C.toast(`Không tải được gói chẩn đoán: ${errText(e)}`, 'error'); }
+    return;
+  }
+  const url = typeof ctx.url === 'function' ? ctx.url('/api/diagnostics') : (r.data && r.data.path) || '/api/diagnostics';
+  C.toast(`Gói chẩn đoán: ${url}`, 'ok');
 }
 
 // Rời màn khi run đang chạy: chỉ cảnh báo (không chặn) — Chạy nền / Dừng / Huỷ (quay lại)

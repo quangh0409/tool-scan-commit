@@ -1,7 +1,7 @@
 // settings.js — #/settings/:tab (A5). Tab: docker | storage | profiles | language | mode.
 // docker: GET /api/preflight + GET/POST /api/settings · storage: GET /api/storage, POST /api/clean {items, dry_run}
 // profiles: GET /api/profiles, DELETE /api/profiles/:name · language: POST /api/settings {language} · mode: chỉ Local.
-import { h, clear, makeT, fmt, kv, banner, tryApi, errStatus, errText, tabs, field, segBar, partialNote } from './_util.js';
+import { h, clear, makeT, fmt, kv, banner, tryApi, errStatus, errText, tabs, field, segBar, partialNote, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -14,8 +14,10 @@ let S = null;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
-  const tab = TABS.some((x) => x.id === ctx.params.tab) ? ctx.params.tab : 'docker';
+  const C = getComponents(ctx); const t = makeT(ctx);
+  const alias = { general: 'docker', resources: 'docker', disk: 'storage', lang: 'language' };
+  const want = alias[ctx.params.tab] || ctx.params.tab;
+  const tab = TABS.some((x) => x.id === want) ? want : 'docker';
   S = { dead: false, ctx, C, t, root, tab, body: null, preview: null };
   clear(root);
   root.append(h('div', { class: 's-head' }, h('h1', { text: t('set.title', 'Cài đặt') })));

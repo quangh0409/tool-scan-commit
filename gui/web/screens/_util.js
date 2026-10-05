@@ -26,7 +26,104 @@ export function append(el, children) {
   return el;
 }
 
-export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+export function clear(el) {
+  // replaceChildren() xoá nguyên tử — tránh 'removeChild: node is no longer a child' khi blur/change handler
+  // tái render giữa chừng (REV-3). Fallback: kiểm parentNode trước khi gỡ.
+  if (typeof el.replaceChildren === 'function') { el.replaceChildren(); return el; }
+  let c = el.firstChild;
+  while (c) { const nx = c.nextSibling; if (c.parentNode === el) el.removeChild(c); c = nx; }
+  return el;
+}
+
+// ----------------------------------------------------------------------------- tích hợp khung A4
+/** Bảo đảm screens.css được nạp khi index.html của A4 chưa import. */
+export function ensureScreensCss() {
+  if (typeof document === 'undefined') return;
+  if (document.querySelector('link[href*="screens.css"]')) return;
+  const base = (document.currentScript && document.currentScript.src) || '';
+  const link = h('link', { rel: 'stylesheet', href: base ? new URL('screens.css', base).href : 'screens/screens.css' });
+  link.dataset.a5 = '1';
+  document.head.append(link);
+}
+
+function normErr(err) {
+  if (!err) return { message: 'Lỗi không rõ' };
+  if (err.error && typeof err.error === 'object') return { status: err.status || err.error.status, ...err.error };
+  return err;
+}
+
+/** Bọc component của app.js (A4, `window.SecJIT`) về chữ ký A5 (CONTRACTS §10/§12). */
+export function adaptSecJIT(S) {
+  const kindMap = { default: '', primary: 'primary', danger: 'danger', ghost: 'ghost' };
+  const toastKind = { ok: 'ok', error: 'bad', bad: 'bad', warn: 'warn', info: 'info' };
+  return {
+    btn({ label, kind = 'default', onClick, disabled = false, small = false, title, ariaLabel } = {}) {
+      return S.btn(label, { kind: kindMap[kind] || kind, onClick: onClick ? (ev) => onClick(ev) : undefined, disabled, small, title, ariaLabel });
+    },
+    card(children, { title, extraClass } = {}) {
+      const body = h('div', { class: `s-stack ${extraClass || ''}`.trim() });
+      append(body, [children]);
+      return S.card({ title, body, cls: extraClass });
+    },
+    table({ columns, rows, page = 1, size, total, onPage, onRow, rowKey, selected, emptyMsg } = {}) {
+      const keyOf = rowKey || ((r) => r.cluster_key || r.commit || r.id || r.name || JSON.stringify(r));
+      const wrap = S.table({ columns: columns.map((c) => ({ key: c.key, label: c.label, render: c.render })), rows: rows || [],
+        page, size: size || 20, total, onPage, rowKey: keyOf, emptyMsg });
+      if (onRow && rows && rows.length) {
+        const byKey = new Map(rows.map((r) => [String(keyOf(r)), r]));
+        for (const tr of wrap.querySelectorAll('tbody tr[data-key]')) {
+          const r = byKey.get(tr.dataset.key);
+          if (!r) continue;
+          tr.classList.add('s-row-click');
+          if (selected !== undefined && String(selected) === tr.dataset.key) tr.classList.add('s-row-sel');
+          tr.tabIndex = 0; tr.setAttribute('role', 'button');
+          tr.addEventListener('click', () => onRow(r));
+          tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRow(r); } });
+        }
+      }
+      return wrap;
+    },
+    toast(msg, kind = 'info') { return S.toast(msg, toastKind[kind] || 'info'); },
+    dialog({ title, body, confirmText, typedConfirm, onConfirm, cancelText, kind } = {}) {
+      const listeners = [];
+      const fake = { returnValue: '', addEventListener(type, fn) { if (type === 'close') listeners.push(fn); }, querySelector() { return null; }, close() {} };
+      const fire = () => { for (const fn of listeners) { try { fn({ target: fake }); } catch (_) { /* bỏ qua */ } } };
+      S.dialog({ title, body, confirmText, cancelText, typedConfirm, danger: kind === 'danger' }).then(async (ok) => {
+        if (ok) {
+          try { await (onConfirm && onConfirm(undefined)); fake.returnValue = 'ok'; } catch (e) { S.toast(errText(e), 'bad'); fake.returnValue = 'cancel'; }
+        } else fake.returnValue = 'cancel';
+        fire();
+      });
+      return fake;
+    },
+    empty(msg) { return S.empty(msg); },
+    errorBox(err, onRetry) { return S.errorBox(normErr(err), onRetry); },
+    skeleton(n = 4) { return S.skeleton(n, { lines: true }); },
+    badgeLabel(label, evidence) { return S.badgeLabel(label, evidence); },
+  };
+}
+
+/** Component cho màn: ctx.components (harness/hợp đồng §12) → window.SecJIT (app.js A4) → lỗi rõ ràng. */
+export function getComponents(ctx) {
+  ensureScreensCss();
+  if (ctx && ctx.components) return ctx.components;
+  const S = typeof window !== 'undefined' ? window.SecJIT : null;
+  if (S && typeof S.btn === 'function') {
+    if (!S.__a5) S.__a5 = adaptSecJIT(S);
+    return S.__a5;
+  }
+  throw new Error('Thiếu components: ctx.components (CONTRACTS §12) hoặc window.SecJIT (app.js)');
+}
+
+/** SSE: ctx.sse → window.SecJIT.sse → null. Trả hàm closer hoặc null. */
+export function openSse(ctx, path, onLine, onEnd) {
+  const fn = (ctx && typeof ctx.sse === 'function') ? ctx.sse : (typeof window !== 'undefined' && window.SecJIT && window.SecJIT.sse);
+  if (typeof fn !== 'function') return null;
+  const r = fn(path, onLine, { onEnd });
+  if (typeof r === 'function') return r;
+  if (r && typeof r.close === 'function') return () => r.close();
+  return () => {};
+}
 
 /** t() có fallback: A4 trả về khoá khi thiếu -> dùng chuỗi tiếng Việt cục bộ. */
 export function makeT(ctx) {

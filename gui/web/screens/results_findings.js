@@ -1,7 +1,7 @@
 // results_findings.js — #/results/:id/findings (A5). Lọc + phân trang server-side; bấm dòng -> panel Bằng chứng.
 // GET /api/results/:id/findings?label=&cwe_group=&min_tools=&tier=&in_diff=&q=&page=&size=
 // GET /api/results/:id/finding/:cluster_key ; GET /api/results/:id/raw?path= (404 -> toast)
-import { h, clear, makeT, fmt, partialNote, banner, tryApi, errStatus, errText, qs, debounce, select, field, resultsHeader, findRun } from './_util.js';
+import { h, clear, makeT, fmt, partialNote, banner, tryApi, errStatus, errText, qs, debounce, select, field, resultsHeader, findRun, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -11,7 +11,7 @@ let S = null;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
+  const C = getComponents(ctx); const t = makeT(ctx);
   const id = ctx.params.id;
   S = { dead: false, ctx, C, t, id, filters: { label: '', cwe_group: '', min_tools: '', tier: '', in_diff: '', q: '' }, page: 1, data: null, loading: true, err: null, selected: ctx.params.cluster_key || null, detail: null, detailErr: null, detailLoading: false, run: null, missing: new Set() };
   clear(root);

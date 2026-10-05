@@ -1,6 +1,6 @@
 // results_overview.js — #/results/:id/overview (A5). GET /api/results/:id/overview.
 // Phễu · bảng nhãn 3 mức + 2 mức âm (wording bắt buộc) · CWE-group × nhãn · κ + giải thích · precision kiểm tay · giới hạn · params_v1/experiment · xuất CSV/LaTeX.
-import { h, clear, makeT, fmt, partialNote, banner, kv, segBar, tryApi, errText, resultsHeader, findRun } from './_util.js';
+import { h, clear, makeT, fmt, partialNote, banner, kv, segBar, tryApi, errText, resultsHeader, findRun, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -8,7 +8,7 @@ let S = null;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
+  const C = getComponents(ctx); const t = makeT(ctx);
   S = { dead: false };
   const id = ctx.params.id;
   clear(root);
@@ -118,7 +118,7 @@ function precisionLine(p) {
 }
 
 async function doExport(ctx, id, format) {
-  const C = ctx.components;
+  const C = getComponents(ctx);
   const r = await tryApi(ctx, `/api/results/${encodeURIComponent(id)}/export`, { method: 'POST', body: { formats: [format] } });
   if (!r.ok) { C.toast(errText(r.err), 'error'); return; }
   C.toast(`Đã xuất ${format.toUpperCase()}: ${r.data.export_dir || ''} (${(r.data.files || []).length} file)`, 'ok');
