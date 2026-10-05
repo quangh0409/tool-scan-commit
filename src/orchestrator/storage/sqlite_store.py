@@ -636,13 +636,78 @@ class SQLiteStore:
         return [dict(zip(("run_id", "scope", "grp", "value", "n", "computed_at"), r))
                 for r in self.conn.execute(q + " ORDER BY scope, grp", args)]
 
-    # ---------------- gold_review (đợt 2 dùng; export đọc) ----------------
-    def gold_review_verdicts(self) -> dict[str, list[str]]:
-        """{cluster_key: [verdict theo rater]} — export dùng để điền evidence.validation."""
-        out: dict[str, list[str]] = {}
-        for ck, v in self.conn.execute("SELECT cluster_key, verdict FROM gold_review"):
-            out.setdefault(ck, []).append(v)
+    # ---------------- gold_review / gold_sample (review.py; export đọc) ----------------
+    def gold_review_verdicts(self) -> dict[str, list[tuple[str, str]]]:
+        """{cluster_key: [(rater, verdict)…]} — export dùng để điền evidence.validation
+        (ưu tiên rater 'adjudicated' > đa số > hoà = unclear)."""
+        out: dict[str, list[tuple[str, str]]] = {}
+        for ck, rater, v in self.conn.execute("SELECT cluster_key, rater, verdict FROM gold_review"):
+            out.setdefault(ck, []).append((rater, v))
         return out
+
+    def findings_rows(self, label: str | None = None) -> list[dict]:
+        """Mọi dòng findings (tuỳ chọn lọc label) dạng dict (JSON còn là text)."""
+        q, args = "SELECT * FROM findings", []
+        if label:
+            q += " WHERE label=?"; args = [label]
+        cur = self.conn.execute(q + " ORDER BY commit_id, file_path, s_line, id", args)
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def verified_clean_commits(self) -> list[str]:
+        """Commit negative_level='verified-clean' (n_expensive_ok>=2, không finding in_diff)."""
+        cands = [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT commit_id FROM expensive_runs WHERE phase='analyze' AND status='ok' "
+            "ORDER BY commit_id")]
+        return [c for c in cands if self.negative_level(c) == "verified-clean"]
+
+    def scanned_files_for_commit(self, commit_id: str) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT file_path FROM scanned_files WHERE commit_id=? ORDER BY file_path",
+            [commit_id])]
+
+    def replace_gold_sample(self, sample_id: str, rows: list[dict]) -> int:
+        """Ghi đè mẫu kiểm tay: rows = [{cluster_key, stratum, kind, seed}]."""
+        with self._write():
+            self.conn.execute("DELETE FROM gold_sample WHERE sample_id=?", [sample_id])
+            self.conn.executemany(
+                "INSERT INTO gold_sample (sample_id,cluster_key,stratum,kind,seed,created_at) "
+                "VALUES (?,?,?,?,?,datetime('now'))",
+                [[sample_id, r["cluster_key"], r["stratum"], r["kind"], r.get("seed")] for r in rows])
+            self.conn.commit()
+        return len(rows)
+
+    def gold_sample_rows(self, sample_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            "SELECT sample_id, cluster_key, stratum, kind, seed, created_at FROM gold_sample "
+            "WHERE sample_id=? ORDER BY CASE kind WHEN 'pos' THEN 0 ELSE 1 END, stratum, cluster_key",
+            [sample_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def gold_sample_ids(self) -> list[dict]:
+        """[{sample_id, seed, n_pos, n_neg, created_at}] mọi mẫu đã tạo."""
+        cur = self.conn.execute(
+            "SELECT sample_id, MIN(seed), SUM(kind='pos'), SUM(kind='neg'), MIN(created_at) "
+            "FROM gold_sample GROUP BY sample_id ORDER BY MIN(created_at), sample_id")
+        return [dict(zip(("sample_id", "seed", "n_pos", "n_neg", "created_at"), r)) for r in cur.fetchall()]
+
+    def gold_review_rows(self, sample_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            "SELECT cluster_key, rater, verdict, note, at FROM gold_review WHERE sample_id=? "
+            "ORDER BY cluster_key, rater", [sample_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def upsert_gold_review(self, sample_id: str, rater: str, cluster_key: str,
+                           verdict: str, note: str | None = None) -> None:
+        if verdict not in ("TP", "FP", "unclear"):
+            raise ValueError(f"verdict phải là TP|FP|unclear, nhận {verdict!r}")
+        with self._write():
+            self.conn.execute(
+                "INSERT OR REPLACE INTO gold_review (cluster_key,sample_id,rater,verdict,note,at) "
+                "VALUES (?,?,?,?,?,datetime('now'))", [cluster_key, sample_id, rater, verdict, note])
+            self.conn.commit()
 
     # --- chọn commit cho tầng đắt ---
     def scanned_commit_ids(self) -> list[str]:
