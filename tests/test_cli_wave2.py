@@ -314,3 +314,174 @@ def test_stats_precision_prefers_review_summary(orch_env, scratch_db, monkeypatc
     assert p["source"] == "review.summary" and any("kiểm tay" in s for s in ov["limits"])
     monkeypatch.setattr(review, "summary", lambda store: [])
     assert stats.overview(scratch_db)["precision"] is None          # không mẫu -> fallback gold_review (không có) -> None
+
+
+# ----------------------------------------------------------------------------- rescan
+class _RescanTool:
+    name = "semgrep"
+    calls: list = []
+
+    def scan(self, clone, cid, repo, changed, raw_out=None):
+        _RescanTool.calls.append((self.name, cid))
+        raw_out.append(("json", "[]"))
+        return []
+
+
+def _tool(name):
+    return type(f"T_{name}", (_RescanTool,), {"name": name})
+
+
+def _patch_rescan(monkeypatch, tmp_path, cid):
+    from orchestrator import cli, enumerate_commits as enm
+    import orchestrator.repo_pool as rp
+    from orchestrator.enumerate_commits import CommitInfo
+    _RescanTool.calls.clear()
+    monkeypatch.setattr(cli, "cheap_tool_classes", lambda: {n: _tool(n) for n in cli.config.CHEAP_TOOLS_ALL})
+    monkeypatch.setattr(enm, "clone_or_update", lambda repo, dest=None, fetch=True: tmp_path)
+    monkeypatch.setattr(enm, "verify_sha", lambda repo_dir, sha, what="sha": cid if cid.startswith(sha) else (_ for _ in ()).throw(enm.ScopeError(f"{what}={sha} không tồn tại")))
+    monkeypatch.setattr(enm, "get_commit_info", lambda repo_dir, c: CommitInfo(
+        commit_id=c, parent_commit=None, author_date="2022-11-01", message="m", is_merge=False, changed_files=["A.java"]))
+    monkeypatch.setattr(rp, "RepoPool", _FakePoolW2)
+    (tmp_path / "A.java").write_text("class A {}", encoding="utf-8")   # file đổi phải tồn tại trong clone
+    _FakePoolW2.root = tmp_path
+    return cli
+
+
+class _FakePoolW2:
+    root = Path(".")
+
+    def __init__(self, main_repo, size, **kw):
+        pass
+
+    def acquire(self):
+        return _FakePoolW2.root
+
+    def checkout(self, clone, sha):
+        pass
+
+    def release(self, clone):
+        pass
+
+    def cleanup(self):
+        pass
+
+
+def test_rescan_defaults_to_failed_tools_and_clears_errors(orch_env, scratch_db, fake_docker, monkeypatch, tmp_path, capsys):
+    import sqlite3
+    cid = "313886e99befb94be6cd45f085c98e0019f59829"
+    cli = _patch_rescan(monkeypatch, tmp_path, cid)
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    SQLiteStore(scratch_db).close()
+    conn = sqlite3.connect(scratch_db)
+    n_raw_before = conn.execute("SELECT COUNT(*) FROM raw_findings WHERE commit_id=? AND tier='cheap'", [cid]).fetchone()[0]
+    conn.execute("INSERT INTO scan_tool_errors (commit_id,tool,tier,kind,msg,at) VALUES (?,?,?,?,?,'')",
+                 [cid, "semgrep", "cheap", "tool_timeout", "x"])
+    conn.execute("INSERT INTO scan_tool_errors (commit_id,tool,tier,kind,msg,at) VALUES (?,?,?,?,?,'')",
+                 [cid, "horusec", "cheap", "tool_error", "y"])
+    conn.execute("INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) VALUES (?,?,?,?,?,'')",
+                 [cid, "semgrep", "cheap", "error", '{"kind":"tool_timeout"}'])
+    conn.commit(); conn.close()
+    rc = cli.main(["rescan", "--db", str(scratch_db), "--commit", cid[:10], "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    r = out["results"][0]
+    assert r["commit"] == cid and r["tools"] == ["horusec", "semgrep"] and r["reason"] == "tool_errors"
+    assert r["errors_cleared"] == 2 and sorted(c[0] for c in _RescanTool.calls) == ["horusec", "semgrep"]
+    assert out["repo"].startswith("https://github.com/FudanSELab")
+    conn = sqlite3.connect(scratch_db)
+    assert conn.execute("SELECT COUNT(*) FROM scan_tool_errors WHERE commit_id=?", [cid]).fetchone()[0] == 0
+    # raw của tool KHÁC (bearer) giữ nguyên; raw error semgrep đã xoá
+    assert conn.execute("SELECT COUNT(*) FROM raw_findings WHERE commit_id=? AND tool='bearer'", [cid]).fetchone()[0] \
+        == n_raw_before
+    assert conn.execute("SELECT COUNT(*) FROM raw_output WHERE commit_id=? AND fmt='error'", [cid]).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM scanned_files WHERE commit_id=?", [cid]).fetchone()[0] == 1
+    assert conn.execute("SELECT 1 FROM scan_done WHERE commit_id=?", [cid]).fetchone()
+    conn.close()
+
+
+def test_rescan_explicit_tools_and_errors(orch_env, scratch_db, fake_docker, monkeypatch, tmp_path, capsys):
+    cid = "313886e99befb94be6cd45f085c98e0019f59829"
+    cli = _patch_rescan(monkeypatch, tmp_path, cid)
+    assert cli.main(["rescan", "--db", str(scratch_db), "--commit", cid, "--tools", "gitleaks", "--json"]) == 0
+    r = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["results"][0]
+    assert r["tools"] == ["gitleaks"] and r["reason"] == "explicit" and [c[0] for c in _RescanTool.calls] == ["gitleaks"]
+    assert cli.main(["rescan", "--db", str(scratch_db), "--commit", "deadbeef"]) == 1          # SHA sai -> 1
+    assert cli.main(["rescan", "--db", str(scratch_db), "--commit", cid, "--tools", "codeql"]) == 1
+    assert cli.main(["rescan", "--db", str(tmp_path / "no.sqlite"), "--commit", cid]) == 1
+    # không lỗi tool nào -> đủ 5 tool (reason=all); progress scan start/item/done
+    _RescanTool.calls.clear()
+    from orchestrator import progress
+    assert cli.main(["rescan", "--db", str(scratch_db), "--commit", cid, "--json"]) == 0
+    r = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["results"][0]
+    assert r["reason"] == "all" and len(r["tools"]) == 5
+    ev = [e for e in progress.read(os.environ["ORCH_PROGRESS_FILE"]) if e.get("msg", "").startswith("rescan")]
+    assert [e["event"] for e in ev][-3:] == ["start", "item", "done"]
+
+
+# ----------------------------------------------------------------------------- batch: ủy quyền runner.batch_runner
+def test_batch_delegates_to_runner_when_available(orch_env, tmp_path, monkeypatch, capsys):
+    from orchestrator import cli
+    paths = _mk_profiles(tmp_path, 1)
+    q = tmp_path / "Q.json"
+    q.write_text(json.dumps([str(paths[0])]), encoding="utf-8")
+    seen = {}
+    fake = types.ModuleType("runner.batch_runner")
+
+    def run_queue(queue_path, work_dir, python_exe=None, batch_id=None, stop_file=None, state_path=None, **kw):
+        seen.update(queue=str(queue_path), work=str(work_dir), stop=stop_file, state=state_path)
+        return {"batch_id": "b", "status": "done", "exit_code": 0, "counts": {"done": 1}, "items": [], "stop_file": "s"}
+
+    fake.run_queue = run_queue
+    monkeypatch.setitem(sys.modules, "runner.batch_runner", fake)
+    assert cli.main(["batch", "--queue", str(q), "--work", str(tmp_path / "w"), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["mode"] == "runner" and seen["queue"] == str(q) and seen["work"] == str(tmp_path / "w")
+    # --local -> đường cũ (subprocess) — mock runner cục bộ của batch.py
+    from orchestrator import batch
+    monkeypatch.setattr(batch, "_default_runner", lambda argv, env, log: 0)
+    assert cli.main(["batch", "--queue", str(q), "--local", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["mode"] == "local"
+    # không import được runner -> fallback local
+    monkeypatch.setitem(sys.modules, "runner.batch_runner", None)
+    monkeypatch.setitem(sys.modules, "runner", None)
+    assert cli.main(["batch", "--queue", str(q), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["mode"] == "local"
+
+
+# ----------------------------------------------------------------------------- compare --format md: bảng RESULTS.md
+def test_compare_markdown_table_for_results(orch_env, tmp_path):
+    from orchestrator import compare
+    repo = "https://github.com/o/r"
+    rows_a, rows_b = [], []
+    for i in range(30):                                     # 30 cụm chỉ ở A -> bảng cắt 20 + dòng "còn 10"
+        rows_a.append({"repo": repo, "commit_id": f"{i:040x}", "file_path": f"F{i}.java", "cwe_group": "csrf",
+                       "s_line": 10 + i, "label": "silver"})
+    common = {"repo": repo, "commit_id": "c" * 40, "file_path": "Common.java", "cwe_group": "crypto", "s_line": 5}
+    rows_a.append({**common, "label": "gold"})
+    rows_b.append({**common, "label": "silver"})
+    da, dbb = tmp_path / "A", tmp_path / "B"
+    da.mkdir(); dbb.mkdir()
+    (da / "dataset.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows_a), encoding="utf-8")
+    (dbb / "dataset.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows_b), encoding="utf-8")
+    (da / "run_manifest.json").write_text(json.dumps({"tool_timeout": [f"{i:040x}" for i in range(5)],
+                                                      "params_v1": {"line_window": 3}}), encoding="utf-8")
+    (dbb / "run_manifest.json").write_text(json.dumps({"params_v1": {"line_window": 3}}), encoding="utf-8")
+    res = compare.compare(da, dbb)
+    assert len(res["diffs"]) == 31 and res["explained_by"]["tool_timeout"] == 5 and not res["ok"]
+    assert res["diffs"][0]["reason"] == "unexplained"       # chưa giải thích xếp trước
+    md = compare.to_markdown(res)
+    lines = md.splitlines()
+    assert lines[0].startswith("### Tái lập A ↔ B — **LỆCH**")
+    assert "| same (cùng khoá, cùng nhãn) | 0 |" in md and "| only_a | 30 |" in md and "| label_changed | 1 |" in md
+    assert "| lệch giải thích được (manifest) | 5 |" in md and "| lệch KHÔNG giải thích | **26** |" in md
+    assert "| tool_timeout | 5 |" in md
+    table = [l for l in lines if l.startswith("| ") and l.split("|")[1].strip().isdigit()]
+    assert len(table) == 20 and "còn 11 cụm" in md
+    assert any("label_changed" in l and "gold" in l and "silver" in l and "Common.java" in l for l in table)
+    assert md.count("**KHÔNG giải thích**") == 20 and "CHƯA đạt" in md
+    # khớp hoàn toàn -> kết luận ĐẠT, không có bảng cụm lệch
+    ok = compare.compare(dbb, dbb)
+    md2 = compare.to_markdown(ok)
+    assert "**KHỚP**" in md2 and "ĐẠT tiêu chí" in md2 and "Cụm lệch" not in md2
+    from orchestrator import cli
+    assert cli.main(["compare", "--a", str(da), "--b", str(dbb), "--format", "md"]) == 1

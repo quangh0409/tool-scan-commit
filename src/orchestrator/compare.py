@@ -124,15 +124,22 @@ def compare(a: str | Path, b: str | Path) -> dict:
 
     explained = {k: 0 for k in _ALL_EXPLAIN}
     unexplained: list[dict] = []
+    diff_rows: list[dict] = []
     diffs = ([("only_a", k, A["rows"][k]) for k in only_a] + [("only_b", k, B["rows"][k]) for k in only_b]
              + [("label_changed", k, A["rows"][k]) for k in changed])
     for kind, k, row in diffs:
         r = _reason(row["commit"])
+        la = A["rows"][k]["label"] if k in A["rows"] else None
+        lb = B["rows"][k]["label"] if k in B["rows"] else None
+        diff_rows.append({"kind": kind, "cluster_key": k, "commit": row["commit"], "file_path": row["file_path"],
+                          "cwe_group": row["cwe_group"], "s_line": row.get("s_line"), "a": la, "b": lb,
+                          "reason": r or "unexplained"})
         if r:
             explained[r] += 1
         else:
             unexplained.append({"kind": kind, "cluster_key": k, "commit": row["commit"],
                                 "file_path": row["file_path"], "cwe_group": row["cwe_group"]})
+    diff_rows.sort(key=lambda d: (d["reason"] != "unexplained", d["kind"], str(d["commit"]), str(d["file_path"])))
     res = {
         "a": {"path": A["path"], "kind": A["kind"], "n": len(ka), "line_window": A["line_window"]},
         "b": {"path": B["path"], "kind": B["kind"], "n": len(kb), "line_window": B["line_window"]},
@@ -144,6 +151,7 @@ def compare(a: str | Path, b: str | Path) -> dict:
                           for k in changed],
         "explained_by": {k: explained[k] for k in EXPLAIN_KEYS} | {"build_failed": explained["build_failed"]},
         "unexplained": unexplained,
+        "diffs": diff_rows,
         "ok": not unexplained,
     }
     if A["line_window"] and B["line_window"] and A["line_window"] != B["line_window"]:
@@ -153,20 +161,45 @@ def compare(a: str | Path, b: str | Path) -> dict:
     return res
 
 
-def to_markdown(res: dict) -> str:
-    L = [f"# compare A/B — {'KHỚP' if res['ok'] else 'LỆCH'}", "",
-         f"- A: `{res['a']['path']}` ({res['a']['kind']}, {res['a']['n']} cụm)",
-         f"- B: `{res['b']['path']}` ({res['b']['kind']}, {res['b']['n']} cụm)",
-         f"- same: **{res['same']}** · only_a: {len(res['only_a'])} · only_b: {len(res['only_b'])} · "
-         f"label_changed: {len(res['label_changed'])}",
-         f"- giải thích được: {res['explained_by']} · KHÔNG giải thích: {len(res['unexplained'])}"]
+MD_MAX_DIFFS = 20
+
+
+def _md_cell(v) -> str:
+    return str("" if v is None else v).replace("|", "\\|").replace("\n", " ")
+
+
+def to_markdown(res: dict, max_diffs: int = MD_MAX_DIFFS) -> str:
+    """Bảng Markdown dán thẳng vào RESULTS.md (§ tái lập Run A ↔ Run B)."""
+    ex = res["explained_by"]
+    n_ex = sum(ex.values())
+    n_un = len(res["unexplained"])
+    verdict = "KHỚP" if res["ok"] else "LỆCH"
+    L = [f"### Tái lập A ↔ B — **{verdict}** (compare theo `cluster_key`)", "",
+         f"- A: `{res['a']['path']}` ({res['a']['kind']}, {res['a']['n']} cụm, LINE_WINDOW={res['a']['line_window']})",
+         f"- B: `{res['b']['path']}` ({res['b']['kind']}, {res['b']['n']} cụm, LINE_WINDOW={res['b']['line_window']})"]
     if res.get("warning"):
         L.append(f"- ⚠ {res['warning']}")
-    if res["unexplained"]:
-        L += ["", "| loại | commit | file | nhóm |", "|---|---|---|---|"]
-        L += [f"| {u['kind']} | {str(u['commit'])[:8]} | {u['file_path']} | {u['cwe_group']} |"
-              for u in res["unexplained"][:50]]
-    if res["label_changed"]:
-        L += ["", "| commit | file | A | B |", "|---|---|---|---|"]
-        L += [f"| {str(c['commit'])[:8]} | {c['file_path']} | {c['a']} | {c['b']} |" for c in res["label_changed"][:50]]
+    L += ["", "| Chỉ số | Số cụm |", "|---|---:|",
+          f"| same (cùng khoá, cùng nhãn) | {res['same']} |",
+          f"| only_a | {len(res['only_a'])} |",
+          f"| only_b | {len(res['only_b'])} |",
+          f"| label_changed | {len(res['label_changed'])} |",
+          f"| lệch giải thích được (manifest) | {n_ex} |",
+          f"| lệch KHÔNG giải thích | **{n_un}** |",
+          "", "| Lý do (manifest) | Số cụm lệch |", "|---|---:|"]
+    L += [f"| {k} | {v} |" for k, v in ex.items()]
+    diffs = res.get("diffs") or []
+    if diffs:
+        shown = diffs[:max_diffs]
+        L += ["", f"**Cụm lệch** ({len(shown)}/{len(diffs)} dòng; chưa giải thích xếp trước):", "",
+              "| # | Loại | Commit | File | Nhóm CWE | Dòng | Nhãn A | Nhãn B | Lý do |",
+              "|--:|---|---|---|---|--:|---|---|---|"]
+        for i, d in enumerate(shown, 1):
+            reason = "**KHÔNG giải thích**" if d["reason"] == "unexplained" else d["reason"]
+            L.append(f"| {i} | {d['kind']} | `{str(d['commit'])[:8]}` | `{_md_cell(d['file_path'])}` | "
+                     f"{_md_cell(d['cwe_group'])} | {_md_cell(d.get('s_line'))} | {_md_cell(d['a'])} | "
+                     f"{_md_cell(d['b'])} | {reason} |")
+        if len(diffs) > max_diffs:
+            L.append(f"| … | | | *còn {len(diffs) - max_diffs} cụm — xem `--format json`* | | | | | |")
+    L += ["", f"Kết luận: {'cùng số cụm theo nhãn hoặc lệch chỉ ở commit tool_timeout/infra_error/skipped/build_failed của manifest — ĐẠT tiêu chí tái lập (METHODOLOGY §6).' if res['ok'] else f'{n_un} cụm lệch không nằm trong manifest — CHƯA đạt; cần xem lại tool/raw của các commit trên.'}"]
     return "\n".join(L) + "\n"

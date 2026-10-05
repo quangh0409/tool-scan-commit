@@ -60,6 +60,19 @@ def wilson(tp: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return round((centre - half) / den, 4), round((centre + half) / den, 4)
 
 
+def _universe(conn, tabs: set[str]) -> set[str]:
+    """Commit đã qua tầng rẻ = scan_done ∪ scanned_files ∪ raw_output ∪ raw_findings ∪ findings
+    (khớp store.all_commit_ids()/export_dataset: commit clean không có file code vẫn có raw_output)."""
+    parts = []
+    for tab, col in (("scan_done", "commit_id"), ("scanned_files", "commit_id"), ("raw_output", "commit_id"),
+                     ("raw_findings", "commit_id"), ("findings", "commit_id")):
+        if tab in tabs:
+            parts.append(f"SELECT {col} FROM {tab}")
+    if not parts:
+        return set()
+    return {r[0] for r in conn.execute(" UNION ".join(parts)) if r[0]}
+
+
 def _funnel(conn, tabs: set[str]) -> dict:
     commits = _n(conn, "SELECT COUNT(*) FROM commit_features") if "commit_features" in tabs else 0
     after = _n(conn, "SELECT COUNT(*) FROM scan_done") if "scan_done" in tabs else 0
@@ -73,9 +86,11 @@ def _funnel(conn, tabs: set[str]) -> dict:
         built = _n(conn, "SELECT COUNT(*) FROM selected_commits WHERE status='done'")
         build_failed = _n(conn, "SELECT COUNT(*) FROM selected_commits WHERE status='build_failed'")
     # clean = commit đã quét rẻ nhưng không có finding (universe - commit có finding)
-    universe = _n(conn, "SELECT COUNT(DISTINCT commit_id) FROM scanned_files")
-    has_any = _n(conn, "SELECT COUNT(DISTINCT commit_id) FROM findings")
-    clean = max(0, universe - has_any)
+    universe = _universe(conn, tabs)
+    has_any = {r[0] for r in conn.execute("SELECT DISTINCT commit_id FROM findings")}
+    clean = len(universe - has_any)
+    after = max(after, len(universe))
+    commits = max(commits, after)
     if "expensive_runs" in tabs:
         skipped = _n(conn, "SELECT COUNT(DISTINCT commit_id) FROM expensive_runs WHERE status='skipped'")
         infra = _n(conn, "SELECT COUNT(DISTINCT commit_id) FROM expensive_runs WHERE status='infra_error'")
@@ -86,8 +101,7 @@ def _funnel(conn, tabs: set[str]) -> dict:
 def _negatives(conn, tabs: set[str]) -> tuple[int, int]:
     """(verified_clean, cheap_clean) theo CONTRACTS §1: verified-clean CHỈ khi n_expensive_ok >= 2."""
     positive = {r[0] for r in conn.execute("SELECT DISTINCT commit_id FROM findings WHERE finding_in_diff=1")}
-    universe = {r[0] for r in conn.execute("SELECT DISTINCT commit_id FROM scanned_files")}
-    negatives = universe - positive
+    negatives = _universe(conn, tabs) - positive
     ok_count: dict[str, int] = {}
     if "selected_commits" in tabs and "n_expensive_ok" in _cols(conn, "selected_commits"):
         ok_count = dict(conn.execute("SELECT commit_id, COALESCE(n_expensive_ok,0) FROM selected_commits"))

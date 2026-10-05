@@ -124,6 +124,17 @@ def verify_db(con, rep: Report, params: dict) -> None:
                     f"{len(rows)} hàng analyze; thiếu digest: {missing or 'không'}; "
                     f"orchestrator_git_sha={'ok' if sha_ok else rows[0][1]!r}")
 
+    # --- run_meta.started_at / finished_at: ISO-8601 có 'T' (A1 đề xuất; A2 thêm) ---
+    if {"started_at", "finished_at"} <= rm_cols:
+        iso = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        bad_ts = [(rid, t, st, fi) for rid, t, st, fi in con.execute(
+            "SELECT run_id, tier, started_at, finished_at FROM run_meta")
+            if not (st and iso.match(str(st))) or (fi is not None and not iso.match(str(fi)))]
+        rep.add("run_meta_timestamps", not bad_ts,
+                "started_at/finished_at ISO có 'T'" if not bad_ts else f"sai định dạng: {bad_ts[:3]}")
+    elif "run_meta" in tables:
+        rep.add("run_meta_timestamps", None, "run_meta chưa có started_at/finished_at")
+
     # --- expensive_runs.status ---
     bad = [r for r in con.execute("SELECT status, COUNT(*) FROM expensive_runs GROUP BY status")
            if r[0] not in STATUS_ENUM]

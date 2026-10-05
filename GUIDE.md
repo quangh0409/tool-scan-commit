@@ -104,7 +104,8 @@ hoặc tên trong `ORCH_M2_VOLUME`), `export:<dir>`, `db:<path>` — **export/db
 | `stop-cleanup --run ID` | `docker rm -f` container `label=orch.run=<id>`, gỡ network `orch-sonar-net-<id>`, rồi `reset-claims` theo run; exit 0 kể cả khi không có gì dọn |
 | `reset-claims [--run ID] [--all-stale] [--db DB]` | `building/analyzing` → `pending` + xoá raw đắt bán phần (`claimed_by '<run_id>:wN'`; `--all-stale` = mọi hàng) |
 | `review sample\|next\|verdict\|close --db DB …` | Kiểm tay GOLD mù: mẫu phân tầng seed cố định → chấm TP/FP/unclear → precision + Wilson + Cohen κ (METHODOLOGY §4) |
-| `batch --queue Q.json [--state F] [--stop-file F]` | Chạy **tuần tự** nhiều profile (`pipeline --profile` từng cái, 1 Sonar), `batch_state.json`, dừng theo `<Q>.stop` |
+| `batch --queue Q.json [--state F] [--stop-file F] [--work DIR]` | Chạy **tuần tự** nhiều profile (1 Sonar tại một thời điểm), `batch_state.json` cạnh Q.json, dừng theo `<Q>.stop`. Đường duy nhất: ủy quyền `runner.batch_runner.run_queue` (mỗi profile = run nền tách rời, ghi registry `runs.json` + lock DB, GUI thấy từng run); `--local` chỉ để debug khi không có `runner/` |
+| `rescan --db DB --commit SHA[,SHA…] [--tools a,b] [--repo URL]` | Quét lại tầng rẻ cho commit cụ thể (TC-15 / sau khi vá tool): mặc định chỉ chạy tool có lỗi trong `scan_tool_errors` của commit (không có → đủ 5), xoá raw rẻ + lỗi của tool đó, relabel; exit 3 nếu gặp infra_error |
 | `verify --db DB [--export DIR] [--json]` | Nghiệm thu run theo CONTRACTS §1/§4/§6 (gọi `scripts/verify_run.run`): user_version, run_meta/tools_json, enum status, `n_expensive_ok`, nhãn tính lại luật v1, κ, manifest + SHA256SUMS + cluster_key/evidence; exit 1 nếu FAIL |
 | `diagnostics --run ID --out Z.zip [--profile F] [--work DIR]` | Gói chẩn đoán: run.log, progress.jsonl, meta, profile, run_meta/kappa (DB ro), `docker info/version/ps`, preflight.json, env (che token/PAT/mật khẩu) |
 

@@ -8,6 +8,7 @@ Dùng:
   python -m orchestrator.cli estimate|stats|sensitivity|compare|stop|stop-cleanup|reset-claims|clean ...
   python -m orchestrator.cli review sample|next|verdict|close ... | batch --queue Q.json | diagnostics --run ID --out Z.zip
   python -m orchestrator.cli verify --db DB --export DIR [--json]      -> nghiệm thu CONTRACTS, exit 0/1
+  python -m orchestrator.cli rescan --db DB --commit SHA[,SHA] [--tools a,b]  -> quét lại tầng rẻ 1 commit
 
 `--profile F` (mọi subcommand): nạp profile.json, áp `profile.to_env()` vào os.environ,
 `config.reload()`, rồi dựng lại argv từ profile — mọi arg khác bị BỎ QUA (có cảnh báo).
@@ -270,6 +271,122 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     store.mark_scan_done(ci.commit_id)            # mốc resume — ghi CUỐI CÙNG
     status = f"[{ci.commit_id[:8]}] {len(changed)} file đổi | {len(all_findings)} findings -> {len(rows)} cụm"
     return status, 1, len(rows), clean, 0
+
+
+def rescan_commit(store, ci, clone: Path, tools, repo: str) -> dict:
+    """Quét lại tầng rẻ 1 commit với TẬP TOOL CHỈ ĐỊNH (TC-15 "Quét lại commit này" / sau khi vá tool).
+    Khác _scan_one_commit: chỉ xoá raw rẻ + scan_tool_errors của các tool đó (giữ raw tool khác), rồi relabel.
+    Trả {commit, tools, findings, clusters, errors_cleared, infra}."""
+    from .consensus.labeler import relabel_commit
+    names = [t.name for t in tools]
+    q = ",".join("?" * len(names))
+    with store._lock:
+        store.conn.execute(f"DELETE FROM raw_findings WHERE commit_id=? AND tier='cheap' AND tool IN ({q})",
+                           [ci.commit_id, *names])
+        store.conn.execute(f"DELETE FROM raw_output WHERE commit_id=? AND tier='cheap' AND tool IN ({q})",
+                           [ci.commit_id, *names])
+        cleared = store.conn.execute(f"DELETE FROM scan_tool_errors WHERE commit_id=? AND tool IN ({q})",
+                                     [ci.commit_id, *names]).rowcount
+        store.conn.execute("DELETE FROM scanned_files WHERE commit_id=?", [ci.commit_id])
+        store.conn.commit()
+    changed = [f for f in ci.code_files if (clone / f).exists()]
+    infra: list[str] = []
+    found = []
+    for t in tools:
+        raw = []
+        try:
+            fs = t.scan(clone, ci.commit_id, repo, changed, raw_out=raw)
+        except Exception as e:  # noqa: BLE001
+            print(f"[{t.name}] lỗi @ {ci.commit_id[:8]}: {e}")
+            fs = []
+        if raw:
+            store.insert_raw_output(ci.commit_id, t.name, raw[0][0], raw[0][1])
+            if raw[0][0] == "error" and _error_kind(raw[0][1]) == "infra_error":
+                infra.append(t.name)
+        found += fs
+    found = [f for f in found if not enm.is_excluded_path(f.file_path)]
+    store.insert_raw(found)
+    rows = relabel_commit(store, ci.commit_id, clone, repo)
+    ran = [r[0] for r in store.conn.execute(
+        "SELECT DISTINCT tool FROM raw_output WHERE commit_id=? AND tier='cheap' AND COALESCE(fmt,'')!='error'",
+        [ci.commit_id])]
+    files_with = {r.file_path for r in rows}
+    store.insert_scanned_files([{
+        "repo": repo, "commit_id": ci.commit_id, "parent_commit": ci.parent_commit, "author_date": ci.author_date,
+        "file_path": f, "n_tools_ran": len(ran), "tools": ran,
+        "n_findings": sum(1 for r in rows if r.file_path == f)} for f in changed])
+    if not infra:
+        store.mark_scan_done(ci.commit_id)
+    return {"commit": ci.commit_id, "tools": names, "findings": len(found), "clusters": len(rows),
+            "clean_files": sum(1 for f in changed if f not in files_with), "errors_cleared": cleared,
+            "infra": infra, "tools_ran_total": ran}
+
+
+def _repo_from_db(store) -> str | None:
+    for sql in ("SELECT repo FROM run_meta WHERE repo IS NOT NULL ORDER BY id DESC LIMIT 1",
+                "SELECT repo FROM scanned_files WHERE repo IS NOT NULL LIMIT 1",
+                "SELECT repo FROM findings WHERE repo IS NOT NULL LIMIT 1"):
+        try:
+            r = store.conn.execute(sql).fetchone()
+        except Exception:  # noqa: BLE001 — bảng thiếu ở DB cũ
+            r = None
+        if r and r[0]:
+            return r[0]
+    return None
+
+
+def cmd_rescan(args):
+    """rescan --db DB --commit SHA[,SHA…] [--tools a,b] [--repo URL]: quét lại tầng rẻ cho commit cụ thể."""
+    from .repo_pool import RepoPool
+    from .storage.sqlite_store import SQLiteStore
+    db = Path(args.db or config.SQLITE_PATH)
+    if not db.exists():
+        raise CliError(f"DB không tồn tại: {db}")
+    shas = [s.strip() for s in str(args.commit).split(",") if s.strip()]
+    if not shas:
+        raise CliError("--commit trống")
+    explicit = parse_tools(args.tools, config.CHEAP_TOOLS_ALL, "--tools") if args.tools else None
+    store = SQLiteStore(db)
+    repo = args.repo or _repo_from_db(store)
+    if not repo:
+        store.close()
+        raise CliError("không xác định được repo từ DB; truyền --repo URL")
+    registry = cheap_tool_classes()
+    repo_dir = enm.clone_or_update(repo)
+    pool = RepoPool(repo_dir, 1, repo=repo)
+    results = []
+    progress.emit(phase="scan", event="start", total=len(shas), msg="rescan")
+    try:
+        for i, sha in enumerate(shas, 1):
+            try:
+                full = enm.verify_sha(repo_dir, sha, "--commit")
+            except enm.ScopeError as e:
+                raise CliError(str(e)) from None
+            errs = store.scan_tool_errors_rows(full)
+            names = explicit or sorted({e["tool"] for e in errs if e["tool"] in config.CHEAP_TOOLS_ALL}) \
+                or list(config.CHEAP_TOOLS)
+            tools = [registry[n]() for n in names]
+            clone = pool.acquire()
+            try:
+                pool.checkout(clone, full)
+                ci = enm.get_commit_info(clone, full)
+                res = rescan_commit(store, ci, clone, tools, repo)
+            finally:
+                pool.release(clone)
+            res["reason"] = "explicit" if explicit else ("tool_errors" if errs else "all")
+            results.append(res)
+            progress.emit(phase="scan", event="item", done=i, total=len(shas), sha=full,
+                          status=("infra_error" if res["infra"] else "ok"),
+                          msg=f"rescan {','.join(names)}: {res['findings']} findings -> {res['clusters']} cụm")
+            print(f"[{full[:8]}] rescan {names} ({res['reason']}): {res['findings']} findings -> "
+                  f"{res['clusters']} cụm | xoá {res['errors_cleared']} lỗi tool"
+                  + (f" | INFRA_ERROR {res['infra']}" if res["infra"] else ""))
+    finally:
+        pool.cleanup()
+        store.close()
+    progress.emit(phase="scan", event="done", done=len(results), total=len(shas), msg="rescan")
+    _out(args, {"db": str(db), "repo": repo, "results": results}, None if args.json else "")
+    return EXIT_STOP if any(r["infra"] for r in results) else EXIT_OK
 
 
 def _error_kind(payload) -> str | None:
@@ -776,13 +893,31 @@ def cmd_review(args):
     return EXIT_OK
 
 
+def _batch_runner():
+    """runner/batch_runner (A3: detached + registry + lock DB). Không có (chỉ src/) -> None -> đường cũ."""
+    if str(config.ROOT) not in sys.path:
+        sys.path.append(str(config.ROOT))
+    try:
+        import importlib
+        batch_runner = importlib.import_module("runner.batch_runner")
+    except Exception:  # noqa: BLE001 — thiếu package runner/registry
+        return None
+    return batch_runner if hasattr(batch_runner, "run_queue") else None
+
+
 def cmd_batch(args):
     from . import batch
     q = Path(args.queue)
     if not q.exists():
         raise CliError(f"queue không tồn tại: {q}")
+    br = None if args.local else _batch_runner()
     try:
-        state = batch.run(q, state_path=args.state, stop_file=args.stop_file)
+        if br is not None:
+            state = br.run_queue(q, args.work or config.WORK_DIR, state_path=args.state, stop_file=args.stop_file)
+            state.setdefault("mode", "runner")
+        else:
+            state = batch.run(q, state_path=args.state, stop_file=args.stop_file)
+            state.setdefault("mode", "local")
     except (ValueError, FileNotFoundError) as e:
         raise CliError(str(e)) from None
     _out(args, state, batch.format_text(state))
@@ -960,7 +1095,18 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--queue", required=True, help="Q.json: [\"a.json\", ...] hoặc {profiles:[...], stop_on_error}")
     pb.add_argument("--state", default=None, help="batch_state.json (mặc định cạnh Q.json)")
     pb.add_argument("--stop-file", dest="stop_file", default=None, help="mặc định <Q.json>.stop")
+    pb.add_argument("--work", default=None, help="thư mục work cho runner nền (mặc định ORCH_WORK_DIR)")
+    pb.add_argument("--local", action="store_true",
+                    help="ép đường cũ (subprocess tuần tự, không registry) dù runner/batch_runner có sẵn")
     pb.set_defaults(func=cmd_batch)
+
+    prs = sub.add_parser("rescan", parents=[parent], help="quét lại tầng rẻ cho commit cụ thể (sau khi vá tool / TC-15)")
+    prs.add_argument("--db", default=None)
+    prs.add_argument("--commit", required=True, help="SHA[,SHA…] (đủ hoặc rút gọn; verify bằng git rev-parse)")
+    prs.add_argument("--tools", default=None,
+                     help="tool rẻ a,b; mặc định = tool có lỗi trong scan_tool_errors của commit, không có -> đủ 5")
+    prs.add_argument("--repo", default=None, help="URL repo (mặc định đọc từ DB)")
+    prs.set_defaults(func=cmd_rescan)
 
     pdg = sub.add_parser("diagnostics", parents=[parent], help="gói chẩn đoán ZIP cho 1 run (log, progress, run_meta, docker…)")
     pdg.add_argument("--run", required=True)
