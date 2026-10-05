@@ -1,0 +1,37 @@
+{
+  "cluster_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "code_lines": [
+    {
+      "n": 22,
+      "text": "    @Override"
+    },
+    {
+      "n": 23,
+      "text": "    protected void configure(HttpSecurity http) throws Exception {"
+    },
+    {
+      "n": 24,
+      "text": "        http.cors().and()"
+    },
+    {
+      "n": 26,
+      "text": "            .csrf().disable()"
+    },
+    {
+      "n": 27,
+      "text": "            .authorizeRequests()"
+    }
+  ],
+  "diff_lines": [
+    {
+      "n": 26,
+      "kind": "flag",
+      "text": "            .csrf().disable()"
+    }
+  ],
+  "cwe_claim": "CWE-352 Cross-Site Request Forgery",
+  "messages_anon": [
+    "Disabling CSRF protection is unsafe for standard web applications."
+  ],
+  "remaining": 7
+}

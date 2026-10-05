@@ -1,0 +1,8 @@
+{"ts": "2026-10-05T11:00:01", "run_id": "r-20261005-A", "phase": "scan", "event": "start", "total": 27}
+{"ts": "2026-10-05T11:02:10", "run_id": "r-20261005-A", "phase": "scan", "event": "item", "done": 12, "total": 27, "sha": "313886e9", "status": "ok", "msg": "18 findings -> 17 cụm"}
+{"ts": "2026-10-05T11:08:00", "run_id": "r-20261005-A", "phase": "scan", "event": "done", "done": 27, "total": 27}
+{"ts": "2026-10-05T11:08:01", "run_id": "r-20261005-A", "phase": "select", "event": "done", "done": 27, "total": 27, "msg": "buggy 9 · clean 18"}
+{"ts": "2026-10-05T11:08:02", "run_id": "r-20261005-A", "phase": "analyze", "event": "start", "total": 27}
+{"ts": "2026-10-05T11:23:30", "run_id": "r-20261005-A", "phase": "analyze", "event": "item", "done": 1, "total": 27, "worker": "w0", "sha": "313886e9", "status": "ok", "msg": "build 881s · fsb 238 · sonar 68"}
+{"ts": "2026-10-05T11:26:00", "run_id": "r-20261005-A", "phase": "analyze", "event": "item", "done": 2, "total": 27, "worker": "w0", "sha": "7c1d02aa", "status": "build_failed", "msg": "Could not resolve ...-SNAPSHOT"}
+{"ts": "2026-10-05T11:27:00", "run_id": "r-20261005-A", "phase": "analyze", "event": "item", "done": 3, "total": 27, "worker": "w0", "sha": "4a9599f4", "status": "skipped", "msg": "0 module Java"}

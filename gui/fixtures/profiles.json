@@ -1,0 +1,9 @@
+{
+  "profiles": [
+    {
+      "name": "train-ticket-30",
+      "repo": "https://github.com/FudanSELab/train-ticket",
+      "saved": "2026-10-05T10:00:00"
+    }
+  ]
+}

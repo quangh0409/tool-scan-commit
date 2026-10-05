@@ -1,0 +1,102 @@
+{
+  "ready": true,
+  "docker_mem_gb": 7.0,
+  "cpu": 8,
+  "items": [
+    {
+      "id": "os_wsl2",
+      "title": "Windows 11 64-bit · WSL2",
+      "level": "ok",
+      "detail": "WSL2 đã bật",
+      "fix_available": false
+    },
+    {
+      "id": "docker_installed",
+      "title": "Docker Desktop",
+      "level": "ok",
+      "detail": "4.x đã cài",
+      "fix_available": false
+    },
+    {
+      "id": "docker_daemon",
+      "title": "Docker daemon",
+      "level": "ok",
+      "detail": "Chưa chạy. Tool sẽ bật Docker Desktop và chờ tối đa 90 giây.",
+      "fix_available": false,
+      "fix_id": "start_docker"
+    },
+    {
+      "id": "docker_mem",
+      "title": "RAM cấp cho Docker",
+      "level": "warn",
+      "detail": "7,0 GB (WSL2 mặc định 50 %). Đủ FindSecBugs + Sonar với 1 luồng; CodeQL sẽ chậm.",
+      "fix_available": false
+    },
+    {
+      "id": "sonar_port",
+      "title": "Port SonarQube",
+      "level": "ok",
+      "detail": "9000 đang bị container giapha-minio dùng. Sẽ dùng 9100.",
+      "fix_available": false,
+      "fix_id": "pick_port"
+    },
+    {
+      "id": "disk_free",
+      "title": "Đĩa trống D:",
+      "level": "ok",
+      "detail": "209 GB",
+      "fix_available": false
+    },
+    {
+      "id": "git",
+      "title": "Git",
+      "level": "ok",
+      "detail": "Chưa cài. winget install Git.Git",
+      "fix_available": false
+    },
+    {
+      "id": "git_longpaths",
+      "title": "core.longpaths",
+      "level": "ok",
+      "detail": "Chưa bật",
+      "fix_available": false,
+      "fix_id": "git_longpaths"
+    },
+    {
+      "id": "images",
+      "title": "Image tool",
+      "level": "ok",
+      "detail": "Thiếu semgrep (1,5 GB), sonarqube (1,0 GB); orch-findsecbugs cần build (~5 phút)",
+      "fix_available": false,
+      "fix_id": "pull_images"
+    },
+    {
+      "id": "images_pinned",
+      "title": "Phiên bản image",
+      "level": "warn",
+      "detail": "5 image tầng rẻ dùng :latest — digest được ghi vào run_meta",
+      "fix_available": false
+    },
+    {
+      "id": "max_map_count",
+      "title": "vm.max_map_count (WSL2)",
+      "level": "ok",
+      "detail": "262144",
+      "fix_available": false
+    },
+    {
+      "id": "network",
+      "title": "Mạng",
+      "level": "ok",
+      "detail": "github.com, registry-1.docker.io OK",
+      "fix_available": false
+    },
+    {
+      "id": "webview2",
+      "title": "WebView2 runtime",
+      "level": "ok",
+      "detail": "154.0",
+      "fix_available": false
+    }
+  ]
+}

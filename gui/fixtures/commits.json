@@ -1,0 +1,73 @@
+{
+  "total": 30,
+  "rows": [
+    {
+      "commit": "313886e9",
+      "date": "2019-03-12",
+      "role": "buggy",
+      "status": "done",
+      "n_expensive_ok": 2,
+      "negative_level": null,
+      "kamei": {
+        "ns": 3,
+        "nd": 8,
+        "nf": 14,
+        "la": 320,
+        "ld": 41,
+        "exp": 12
+      },
+      "build_error": null
+    },
+    {
+      "commit": "7c1d02aa",
+      "date": "2019-03-15",
+      "role": "buggy",
+      "status": "build_failed",
+      "n_expensive_ok": 0,
+      "negative_level": null,
+      "kamei": {
+        "ns": 1,
+        "nd": 2,
+        "nf": 3,
+        "la": 40,
+        "ld": 5,
+        "exp": 13
+      },
+      "build_error": "Could not resolve ...-SNAPSHOT"
+    },
+    {
+      "commit": "9bdd9a28",
+      "date": "2019-03-20",
+      "role": "clean",
+      "status": "done",
+      "n_expensive_ok": 2,
+      "negative_level": "verified-clean",
+      "kamei": {
+        "ns": 1,
+        "nd": 1,
+        "nf": 1,
+        "la": 2,
+        "ld": 1,
+        "exp": 14
+      },
+      "build_error": null
+    },
+    {
+      "commit": "4a9599f4",
+      "date": "2019-03-21",
+      "role": "clean",
+      "status": "skipped",
+      "n_expensive_ok": 0,
+      "negative_level": "cheap-clean",
+      "kamei": {
+        "ns": 1,
+        "nd": 1,
+        "nf": 1,
+        "la": 5,
+        "ld": 0,
+        "exp": 15
+      },
+      "build_error": null
+    }
+  ]
+}

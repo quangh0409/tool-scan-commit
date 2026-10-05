@@ -1,0 +1,118 @@
+{
+  "funnel": {
+    "commits": 30,
+    "after_filter": 27,
+    "buggy": 9,
+    "clean": 18,
+    "built": 22,
+    "build_failed": 3,
+    "skipped": 2,
+    "infra_error": 0
+  },
+  "labels": {
+    "gold": 4,
+    "silver": 61,
+    "candidate": 38,
+    "verified_clean": 14,
+    "cheap_clean": 4
+  },
+  "by_cwe_group": [
+    {
+      "group": "csrf",
+      "gold": 2,
+      "silver": 9,
+      "candidate": 0
+    },
+    {
+      "group": "sensitive_exposure",
+      "gold": 1,
+      "silver": 22,
+      "candidate": 14
+    },
+    {
+      "group": "crypto",
+      "gold": 1,
+      "silver": 6,
+      "candidate": 2
+    },
+    {
+      "group": "hardcoded_secret",
+      "gold": 0,
+      "silver": 3,
+      "candidate": 5
+    },
+    {
+      "group": "other",
+      "gold": 0,
+      "silver": 21,
+      "candidate": 17
+    }
+  ],
+  "kappa": {
+    "total": -0.36,
+    "by_category": [
+      {
+        "group": "code",
+        "value": -0.33,
+        "n": 40
+      },
+      {
+        "group": "info",
+        "value": -0.41,
+        "n": 63
+      }
+    ],
+    "by_group": [
+      {
+        "group": "csrf",
+        "value": -0.28,
+        "n": 11
+      },
+      {
+        "group": "sensitive_exposure",
+        "value": -0.4,
+        "n": 37
+      }
+    ],
+    "pairs": [
+      {
+        "group": "findsecbugs|sonar",
+        "value": 0.31,
+        "n": 22
+      },
+      {
+        "group": "semgrep|bearer",
+        "value": 0.12,
+        "n": 30
+      },
+      {
+        "group": "semgrep|sonar",
+        "value": 0.08,
+        "n": 18
+      }
+    ]
+  },
+  "coverage": {
+    "one": 71,
+    "two": 28,
+    "three_plus": 4
+  },
+  "precision": null,
+  "limits": [
+    "Tầng đắt không phủ 3/27 commit (build_failed 11 %) — nhãn ở đó chỉ từ tool rẻ.",
+    "2 commit không có module Java (skipped) — không tính verified-clean.",
+    "Secret trần (gitleaks/trufflehog) chỉ tới silver vì không có tool đắt xác nhận.",
+    "CWE-117 (log injection) đã lọc như nhiễu theo cấu hình v1.",
+    "Nhãn là đồng thuận máy, chưa kiểm tay (n=0)."
+  ],
+  "params_v1": {
+    "line_window": 3,
+    "gold_min_expensive": 2,
+    "gold_allow_1exp_1cheap": 1,
+    "silver_min_cheap": 2,
+    "noise_cwe": [
+      "CWE-117"
+    ]
+  },
+  "experiment": null
+}

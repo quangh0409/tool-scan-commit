@@ -1,0 +1,70 @@
+{
+  "runs": [
+    {
+      "run_id": "r-20261004-scratch",
+      "repo": "https://github.com/FudanSELab/train-ticket",
+      "branch": "master",
+      "db": "tests/fixtures/scratch.db",
+      "export": "",
+      "work": "",
+      "profile": "",
+      "started": "2026-10-04T16:30:00",
+      "finished": "2026-10-04T17:15:00",
+      "status": "done",
+      "pid": null,
+      "summary": {
+        "commits": 3,
+        "gold": 0,
+        "silver": 0,
+        "candidate": 17,
+        "verified_clean": 0,
+        "cheap_clean": 2,
+        "kappa": -0.5
+      }
+    },
+    {
+      "run_id": "r-20261005-A",
+      "repo": "https://github.com/FudanSELab/train-ticket",
+      "branch": "master",
+      "db": "D:\\secjit\\results\\dataset_FudanSELab__train-ticket_master_20261005.sqlite",
+      "export": "",
+      "work": "D:\\secjit\\work",
+      "profile": "",
+      "started": "2026-10-05T11:00:00",
+      "finished": null,
+      "status": "running",
+      "pid": 31337,
+      "summary": {
+        "commits": 30,
+        "gold": null,
+        "silver": null,
+        "candidate": null,
+        "verified_clean": null,
+        "cheap_clean": null,
+        "kappa": null
+      }
+    },
+    {
+      "run_id": "r-20261005-int",
+      "repo": "https://github.com/apache/skywalking",
+      "branch": "master",
+      "db": "D:\\secjit\\results\\dataset_apache__skywalking_master_20261005.sqlite",
+      "export": "",
+      "work": "",
+      "profile": "",
+      "started": "2026-10-05T09:00:00",
+      "finished": null,
+      "status": "interrupted",
+      "pid": null,
+      "summary": {
+        "commits": 5904,
+        "gold": 28,
+        "silver": 5392,
+        "candidate": 2100,
+        "verified_clean": 60,
+        "cheap_clean": 3900,
+        "kappa": -0.41
+      }
+    }
+  ]
+}

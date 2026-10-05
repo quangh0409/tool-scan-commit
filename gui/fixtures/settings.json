@@ -1,0 +1,8 @@
+{
+  "language": "vi",
+  "out_dir": "D:\\secjit\\results",
+  "work_dir": "D:\\secjit\\work",
+  "sonar_port": 9100,
+  "codeql_ram_mb": 5000,
+  "m2_volume": true
+}

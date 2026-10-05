@@ -1,0 +1,25 @@
+{
+  "canon": "https://github.com/FudanSELab/train-ticket",
+  "slug": "FudanSELab__train-ticket",
+  "public": true,
+  "default_branch": "master",
+  "branches": [
+    "master",
+    "dev",
+    "release-1.0",
+    "feature/k8s"
+  ],
+  "tags": [
+    "v1.0.0",
+    "v0.9"
+  ],
+  "java_maven": true,
+  "jdk": 8,
+  "modules": 43,
+  "snapshot_risk": false,
+  "security_config_count": 31,
+  "commit_count": null,
+  "warnings": [
+    "Số commit chỉ biết sau khi clone (đang clone nền)"
+  ]
+}

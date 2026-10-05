@@ -1,0 +1,46 @@
+{
+  "total_bytes": 11170000000,
+  "free_bytes": 224000000000,
+  "items": [
+    {
+      "id": "pool",
+      "title": "Pool clone rác",
+      "path": "D:\\secjit\\work\\pool_*",
+      "bytes": 300000000,
+      "safety": "safe",
+      "detail": "còn lại từ run bị ngắt"
+    },
+    {
+      "id": "clone",
+      "title": "Clone repo",
+      "path": "D:\\secjit\\work\\FudanSELab__train-ticket",
+      "bytes": 1200000000,
+      "safety": "safe",
+      "detail": "clone lại khi cần"
+    },
+    {
+      "id": "m2",
+      "title": "Cache Maven",
+      "path": "docker volume secjit-m2",
+      "bytes": 900000000,
+      "safety": "slow",
+      "detail": "xoá sẽ làm build chậm 3–5 lần"
+    },
+    {
+      "id": "images",
+      "title": "Image Docker",
+      "path": "semgrep, sonarqube, maven, orch-findsecbugs…",
+      "bytes": 6100000000,
+      "safety": "rebuild",
+      "detail": "tải/build lại ~6 GB"
+    },
+    {
+      "id": "results",
+      "title": "Kết quả đã xuất",
+      "path": "D:\\secjit\\results",
+      "bytes": 1900000000,
+      "safety": "forbidden",
+      "detail": "không bao giờ tự xoá"
+    }
+  ]
+}

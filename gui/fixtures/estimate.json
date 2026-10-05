@@ -1,0 +1,9 @@
+{
+  "commits_after_filter": 27,
+  "buggy_est": 9,
+  "cheap_minutes": 8,
+  "expensive_minutes_cold": 210,
+  "expensive_minutes_warm": 95,
+  "disk_gb": 1.4,
+  "speed_source": "default"
+}

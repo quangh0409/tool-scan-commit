@@ -1,0 +1,137 @@
+{
+  "total": 103,
+  "page": 1,
+  "size": 6,
+  "rows": [
+    {
+      "cluster_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "commit": "313886e9",
+      "file_path": "ts-admin-order-service/src/main/java/adminorder/config/SecurityConfig.java",
+      "s_line": 26,
+      "cwe_group": "csrf",
+      "cwe": [
+        "CWE-352"
+      ],
+      "tools": [
+        "findsecbugs",
+        "sonar"
+      ],
+      "n_agree": 2,
+      "tier": "expensive",
+      "label": "gold",
+      "evidence": {
+        "consensus": "gold",
+        "validation": "unreviewed"
+      },
+      "in_diff": 1
+    },
+    {
+      "cluster_key": "b2c3d4e5f60718293a4b5c6d7e8f90a1",
+      "commit": "313886e9",
+      "file_path": "ts-admin-order-service/src/main/java/adminorder/config/SecurityConfig.java",
+      "s_line": 48,
+      "cwe_group": "other",
+      "cwe": [
+        "CWE-942"
+      ],
+      "tools": [
+        "findsecbugs",
+        "sonar"
+      ],
+      "n_agree": 2,
+      "tier": "expensive",
+      "label": "gold",
+      "evidence": {
+        "consensus": "gold",
+        "validation": "TP"
+      },
+      "in_diff": 1
+    },
+    {
+      "cluster_key": "c3d4e5f60718293a4b5c6d7e8f90a1b2",
+      "commit": "a81c0f22",
+      "file_path": "ts-common/src/main/java/edu/fudan/common/util/RandomUtil.java",
+      "s_line": 14,
+      "cwe_group": "crypto",
+      "cwe": [
+        "CWE-330"
+      ],
+      "tools": [
+        "findsecbugs",
+        "semgrep"
+      ],
+      "n_agree": 2,
+      "tier": "mixed",
+      "label": "gold",
+      "evidence": {
+        "consensus": "gold",
+        "validation": "unreviewed"
+      },
+      "in_diff": 0
+    },
+    {
+      "cluster_key": "d4e5f60718293a4b5c6d7e8f90a1b2c3",
+      "commit": "9f20d1ab",
+      "file_path": "ts-ui-dashboard/src/main/resources/application.yml",
+      "s_line": 7,
+      "cwe_group": "hardcoded_secret",
+      "cwe": [
+        "CWE-798"
+      ],
+      "tools": [
+        "gitleaks",
+        "bearer"
+      ],
+      "n_agree": 2,
+      "tier": "cheap",
+      "label": "silver",
+      "evidence": {
+        "consensus": "silver",
+        "validation": "unreviewed"
+      },
+      "in_diff": 1
+    },
+    {
+      "cluster_key": "e5f60718293a4b5c6d7e8f90a1b2c3d4",
+      "commit": "7c1d02aa",
+      "file_path": "ts-order-service/src/main/java/order/controller/OrderController.java",
+      "s_line": 52,
+      "cwe_group": "other",
+      "cwe": [
+        "CWE-915"
+      ],
+      "tools": [
+        "sonar"
+      ],
+      "n_agree": 1,
+      "tier": "expensive",
+      "label": "silver",
+      "evidence": {
+        "consensus": "silver",
+        "validation": "unreviewed"
+      },
+      "in_diff": 1
+    },
+    {
+      "cluster_key": "f60718293a4b5c6d7e8f90a1b2c3d4e5",
+      "commit": "313886e9",
+      "file_path": "ts-ui-dashboard/static/assets/js/client_collect.js",
+      "s_line": 70,
+      "cwe_group": "sensitive_exposure",
+      "cwe": [
+        "CWE-489"
+      ],
+      "tools": [
+        "bearer"
+      ],
+      "n_agree": 1,
+      "tier": "cheap",
+      "label": "candidate",
+      "evidence": {
+        "consensus": "candidate",
+        "validation": "unreviewed"
+      },
+      "in_diff": 1
+    }
+  ]
+}

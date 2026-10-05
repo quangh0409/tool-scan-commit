@@ -1,0 +1,23 @@
+{
+  "sample_id": "s-42-20261005",
+  "n_pos": 4,
+  "n_neg": 4,
+  "strata": [
+    {
+      "stratum": "csrf|expensive",
+      "n": 2
+    },
+    {
+      "stratum": "crypto|mixed",
+      "n": 1
+    },
+    {
+      "stratum": "other|expensive",
+      "n": 1
+    },
+    {
+      "stratum": "neg|verified-clean",
+      "n": 4
+    }
+  ]
+}

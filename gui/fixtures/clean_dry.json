@@ -1,0 +1,14 @@
+{
+  "would_delete": [
+    {
+      "path": "D:\\secjit\\work\\pool_12188",
+      "bytes": 180000000
+    },
+    {
+      "path": "D:\\secjit\\work\\pool_12468",
+      "bytes": 120000000
+    }
+  ],
+  "deleted": [],
+  "errors": []
+}
