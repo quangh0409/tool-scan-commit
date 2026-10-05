@@ -69,7 +69,8 @@ async function loadEstimate(body, p) {
       h('div', {}, warm === undefined ? notice('warn', t('w5.partial_estimate')) : null));
   } catch (e) {
     if (!alive) return;
-    clear(body).append(notice('warn', h('div', {}, h('strong', {}, t('w2.est_unavailable')), ' ', e.message || '')));
+    clear(body).append(notice('warn', h('div', {}, h('strong', {}, t('w2.est_unavailable')), ' ', e.message || '', e.hint ? h('div', { class: 'small' }, e.hint) : null)));
+    if (e.code === 'clone_pending') setTimeout(() => { if (alive) loadEstimate(body, p); }, 5000);   // clone nền -> thử lại
   }
 }
 
