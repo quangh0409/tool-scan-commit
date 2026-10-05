@@ -111,7 +111,7 @@ def test_gui_default_and_fallback(monkeypatch, capsys):
         def release(self):
             pass
     monkeypatch.setattr(registry.locks, "single_instance", lambda name="secjit-gui": _Held())
-    monkeypatch.setattr(gm, "main", lambda argv: 0 if argv == ["--dev", "--no-browser"] else 9)
+    monkeypatch.setattr(gm, "main", lambda argv: 0 if argv[:2] == ["--dev", "--no-browser"] else 9)
     assert launcher.main(["--dev", "--no-browser"]) == 0
     assert launcher.main([]) == 9
     # bản build không có gui → hướng dẫn, exit 1
