@@ -317,3 +317,4 @@ orchestrator.review` có cả `list`).
   `ORCH_EXPERIMENT=1`, trước `_2/_3`, manifest `experiment` giữ nguyên (test `test_export_experiment_gets_exp_suffix`);
   (2) §7 `smoke`/`preflight_skipped` ghi cả cấp bản ghi lẫn `summary`; (3) §9 `run/start` body: A5 đọc `profile, smoke,
   workers`; wrapper A4 xử lý `overwrite` (.bak), `formats`, `notify`, `preflight_skipped`; `resume` chỉ qua `/run/{id}/resume`.
+- §9 (A1 đợt 10, 2026-10-05 tối): `review/next` và `results/{id}/finding` trả thêm `code_lines[{n,text,flag}]` + `code_source ∈ diff|snippet|git_show|none` (git_show = đọc file tại commit từ clone local qua `review.code_context`).
