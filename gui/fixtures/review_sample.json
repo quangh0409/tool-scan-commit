@@ -1,23 +1,13 @@
 {
   "sample_id": "s-42-20261005",
-  "n_pos": 4,
-  "n_neg": 4,
+  "seed": 42,
+  "n_pos": 5,
+  "n_neg": 2,
   "strata": [
-    {
-      "stratum": "csrf|expensive",
-      "n": 2
-    },
-    {
-      "stratum": "crypto|mixed",
-      "n": 1
-    },
-    {
-      "stratum": "other|expensive",
-      "n": 1
-    },
-    {
-      "stratum": "neg|verified-clean",
-      "n": 4
-    }
-  ]
+    {"stratum": "csrf|expensive", "kind": "pos", "n": 1, "total": 1},
+    {"stratum": "sql_injection|mixed", "kind": "pos", "n": 1, "total": 3},
+    {"stratum": "xss|expensive", "kind": "pos", "n": 3, "total": 6},
+    {"stratum": "verified-clean", "kind": "neg", "n": 2, "total": 3}
+  ],
+  "available": {"gold_clusters": 10, "verified_clean": 3}
 }

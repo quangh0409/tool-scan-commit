@@ -12,6 +12,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -508,3 +509,21 @@ def test_rmtree_force_readonly(orch_env, tmp_path):
     rp.rmtree_force(tmp_path / "pool_x")
     assert not (tmp_path / "pool_x").exists()
     rp.rmtree_force(tmp_path / "khong_ton_tai")                # không raise
+
+
+def test_run_meta_timestamps_same_local_iso_format(orch_env, scratch_db):
+    """started_at và finished_at cùng local ISO có 'T' (không trộn datetime('now') UTC) — lỗi smoke 2026-10-05."""
+    import re
+    iso = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+    st = _store()
+    try:
+        rid = st.insert_run_meta("analyze", repo=REPO)
+        st.finish_run_meta(rid)
+        st.save_kappa("test-run", "total", "", 0.1, 3)
+        row = [r for r in st.run_meta_rows() if r["id"] == rid][0]
+        assert iso.match(row["started_at"]) and iso.match(row["finished_at"]), row
+        assert row["finished_at"] >= row["started_at"]
+        assert abs(int(row["finished_at"][11:13]) - int(time.strftime("%H"))) <= 1   # giờ local, không lệch UTC
+        assert iso.match(st.kappa_rows("test-run")[0]["computed_at"])
+    finally:
+        st.close()

@@ -13,3 +13,9 @@ venv/
 # Tool temp
 *.sarif
 *.log
+
+# Build artefact (PyInstaller)
+/build/
+/dist/
+packaging/_version_build.txt
+*.spec.bak

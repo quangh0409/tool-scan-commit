@@ -176,7 +176,8 @@ def reload() -> None:
     STALE_CLAIM_SEC = _int("ORCH_STALE_CLAIM_SEC", "7200")
     # Số infra_error LIÊN TIẾP trước khi run tự dừng (CONTRACTS §1; expensive_runner đọc env trực tiếp).
     INFRA_STOP_AFTER = _int("ORCH_INFRA_STOP_AFTER", "3")
-    # Volume Docker đặt tên cho cache Maven (placeholder — A1/build.py quyết cách dùng; rỗng = bind .m2cache).
+    # Cache Maven /m2: ''/'0' = bind mount WORK_DIR/.m2cache; '1' = Docker named volume `secjit-m2`
+    # (tools_expensive/build._m2_cache tạo nếu chưa có); tên khác = volume tên đó.
     M2_VOLUME = os.environ.get("ORCH_M2_VOLUME", "")
 
     # --- Run / tiến độ (CONTRACTS §3) ---

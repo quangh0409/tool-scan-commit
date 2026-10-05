@@ -48,18 +48,58 @@ python3 -m orchestrator.cli pipeline $REPO --max 50 --include-clean
 #   nhánh + quét hết:         pipeline $REPO --branch master --max 0
 ```
 `pipeline` = **scan → select → analyze → relabel → kappa → export** tuần tự, in tiến độ từng bước.
-Tuỳ chọn: `--max --branch --codeql 0/1 --include-clean --workers --flag-limit --no-meta --out`.
+Tuỳ chọn: `--max --branch --since --until --from-sha --to-sha --tools a,b --expensive-tools a,b --codeql 0/1
+--include-clean --workers --flag-limit --no-meta --out --json`.
+
+**Phạm vi commit** (chọn 1): `--max N` (N mới nhất; `0` = hết) · `--since/--until YYYY-MM-DD` (committer-date)
+· `--from-sha A --to-sha B` (= `A..B`, verify bằng `git rev-parse`). Có since/until/sha mà bỏ trống `--max`
+→ tự ép `--max 0` (có cảnh báo).
+
+**Chọn tool:** `--tools semgrep,bearer` (tầng rẻ, env `ORCH_CHEAP_TOOLS`), `--expensive-tools findsecbugs,sonar`
+(env `ORCH_EXPENSIVE_TOOLS`). Bỏ tool → CLI cảnh báo vì đổi **mẫu số `eligible`/κ** (RULE_GAN_NHAN §3) —
+không so trực tiếp với run đủ tool.
+
+### Chạy bằng profile (cách GUI/exe dùng — tái lập 1 lệnh) 📄
+```bash
+python3 -m orchestrator.cli pipeline --profile D:/secjit/profiles/train-ticket.json
+python3 -m orchestrator.cli estimate --profile P.json --json     # ước tính phút/GB trước khi chạy
+```
+`--profile F` nhận ở **mọi** subcommand: áp `profile.to_env()` vào env **trước** khi đọc config, rồi dựng lại
+argv từ profile — **mọi arg khác bị bỏ qua** (có cảnh báo). Cấu trúc `profile.json`: CONTRACTS.md §2;
+`params_v1` khác v1 bắt buộc `experiment={"enabled":true,"reason":"…"}` (METHODOLOGY.md §3).
 
 ### DỌN sau khi xong 1 project 🧹
 Sau khi đã tải dataset/export về, dọn clone + export để **giải phóng đĩa** trước project kế:
 ```bash
-python3 -m orchestrator.cli clean $REPO --export        # xoá clone + pool + export (giữ DB + cache .m2)
-python3 -m orchestrator.cli clean $REPO --all           # xoá HẾT: clone + pool + export + cache + DB
+python3 -m orchestrator.cli clean $REPO --dry-run                         # liệt kê {path, bytes} — không xoá
+python3 -m orchestrator.cli clean $REPO                                   # mặc định: clone + pool
+python3 -m orchestrator.cli clean $REPO --items clone,pool,m2             # + cache Maven .m2cache
+python3 -m orchestrator.cli clean $REPO --items export:data/export_x,db:data/dataset_x.sqlite
 ```
-Mặc định `clean $REPO` chỉ xoá **clone + pool** (giữ export/DB/cache). Cờ `--export --cache --db --all`
-để xoá thêm. (Giữ `.m2cache` giúp project Java kế build nhanh — chỉ `--cache`/`--all` mới xoá.)
+`--items` tách từng mục: `clone`, `pool`, `m2`, `export:<dir>`, `db:<path>` — **export/db bắt buộc chỉ rõ đường dẫn**
+(không còn `--all`/`--export`/`--db` xoá theo env mặc định — tránh xoá nhầm `data/export`). `clean` **từ chối** khi
+`<db>.lock` còn pid sống hoặc `pool_<pid>` thuộc tiến trình đang chạy. Dọn bằng `repo_pool.rmtree_force`
+(chịu file read-only Windows). `--json` in `{would_delete, deleted, errors}`.
 
-**Quy trình nhiều project:** `pipeline repoA` → tải export/DB về → `clean repoA --export` → `pipeline repoB` …
+**Quy trình nhiều project:** `pipeline repoA` → tải export/DB về → `clean repoA --items clone,pool,export:<dir>`
+→ `pipeline repoB` …
+
+### Lệnh vận hành & phân tích (mới) 🧰
+| Lệnh | Việc |
+|---|---|
+| `estimate --profile F [--json]` | Ước tính commit sau lọc, buggy, phút tầng rẻ/đắt (cache lạnh/ấm), GB — từ `%LOCALAPPDATA%/secjit/speed.json` (đo) hoặc mặc định |
+| `stats [--db DB] [--run-id ID] [--format json\|csv\|latex] [--out DIR]` | Overview: funnel, labels, by_cwe_group, κ (tổng/category/nhóm/cặp tool), coverage, precision (nếu đã kiểm tay), **limits** ≥5 câu — DB mở chỉ-đọc |
+| `sensitivity --db DB --out DIR [--grid line_window=3,5,7 gold_allow_1exp_1cheap=0,1 noise=on,off]` | Lưới tham số trên **BẢN SAO** DB → `sensitivity.json/.md` (METHODOLOGY §3) |
+| `compare --a X --b Y [--format json\|md]` | So A/B theo `cluster_key` (export dir hoặc DB): same/only_a/only_b/label_changed, lệch giải thích bởi manifest; exit 1 nếu lệch không giải thích |
+| `stop --run ID [--force]` | Tạo stop-file `<work>/<run>/stop` (dừng sau commit hiện tại, exit 3); `--force` kill cây tiến trình + `stop-cleanup` |
+| `stop-cleanup --run ID` | `docker rm -f` container `label=orch.run=<id>`, gỡ network `orch-sonar-net-<id>`, rồi `reset-claims` theo run; exit 0 kể cả khi không có gì dọn |
+| `reset-claims [--run ID] [--all-stale] [--db DB]` | `building/analyzing` → `pending` + xoá raw đắt bán phần (`claimed_by '<run_id>:wN'`; `--all-stale` = mọi hàng) |
+| `review sample\|next\|verdict\|close --db DB …` | Kiểm tay GOLD mù: mẫu phân tầng seed cố định → chấm TP/FP/unclear → precision + Wilson + Cohen κ (METHODOLOGY §4) |
+| `batch --queue Q.json [--state F] [--stop-file F]` | Chạy **tuần tự** nhiều profile (`pipeline --profile` từng cái, 1 Sonar), `batch_state.json`, dừng theo `<Q>.stop` |
+| `diagnostics --run ID --out Z.zip [--profile F] [--work DIR]` | Gói chẩn đoán: run.log, progress.jsonl, meta, profile, run_meta/kappa (DB ro), `docker info/version/ps`, preflight.json, env (che token/PAT/mật khẩu) |
+
+**Exit code chuẩn (CONTRACTS §11):** `0` ok · `1` lỗi tham số (profile/scope/tool lạ/argparse) · `2` lỗi runtime
+· `3` dừng theo stop-file (scan/analyze/pipeline/batch). Mọi lệnh có `--json` in JSON ra stdout (cảnh báo ra stderr).
 
 ### Hoặc chạy TỪNG BƯỚC (kiểm soát / debug)
 ```bash
@@ -111,6 +151,7 @@ python3 -m orchestrator.cli features $REPO   # [--branch <nhánh đã scan>] ~gi
 | `ORCH_EXPORT_DIR` | `data/export` | thư mục export |
 | `ORCH_STORE_FULL_FILE` | `0` | `1` = lưu TOÀN VĂN code_before/after (nặng); mặc định chỉ permalink |
 | `ORCH_DOCKER_SG` | (tắt) | `1` = bọc docker qua `sg docker -c` (khi chưa vào nhóm docker) |
+| `ORCH_M2_VOLUME` | (rỗng = `0`) | Cache Maven `/m2` cho build/CodeQL/Sonar: `0` = bind mount `WORK_DIR/.m2cache`; **`1` = Docker named volume `secjit-m2`** (tự `docker volume create`; nhanh hơn bind mount trên Windows/WSL2, không cần file-sharing ổ đĩa); tên khác = volume tên đó. Không tạo được volume → cảnh báo + quay về bind mount. Dọn: `docker volume rm secjit-m2` (`clean --items m2` chỉ xoá bind mount) |
 
 ### 3.1b — 14 đặc trưng Kamei (JIT defect prediction)
 
@@ -159,7 +200,10 @@ CLI: `select --include-clean` (thêm clean để verify), `select --require-in-d
 ### 3.5 Tầng đắt: build + tool
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `ORCH_EXPENSIVE_TOOLS` | `codeql,findsecbugs,sonar` | tool đắt bật (thứ tự chạy) |
+| `ORCH_EXPENSIVE_TOOLS` | `codeql,findsecbugs,sonar` | tool đắt bật (thứ tự chạy) — CLI `--expensive-tools` |
+| `ORCH_CHEAP_TOOLS` | `gitleaks,trufflehog,semgrep,bearer,horusec` | tool **rẻ** bật — CLI `--tools`; bỏ tool đổi mẫu số eligible/κ (cảnh báo) |
+| `ORCH_INFRA_STOP_AFTER` | `3` | số `infra_error` LIÊN TIẾP (Docker tắt, đĩa đầy) trước khi run tự dừng (`event=stop`, exit 3) |
+| `ORCH_SONAR_PORT` | `9000` | port host map vào SonarQube (đổi `9100` khi 9000 bị chiếm — preflight tự dò) |
 | `ORCH_USE_CODEQL` | `1` | công tắc riêng CodeQL (nút thắt ~95% time). `0`=chỉ FindSecBugs+Sonar (~30s/commit) |
 | `ORCH_MAVEN_IMAGE` | `maven:3.9-eclipse-temurin-8` | image build FALLBACK (khi không dò được JDK / tắt autodetect) |
 | `ORCH_JDK_AUTODETECT` | `1` | dò JDK TỪNG COMMIT từ pom.xml (`java.version`/`maven.compiler.*`) → image temurin 8/11/17/21. `0`=luôn dùng MAVEN_IMAGE |
@@ -183,7 +227,25 @@ CLI: `analyze --workers N --tools codeql,sonar --codeql 0/1 --dry-run`.
 | `ORCH_NOISE_CWE` | `CWE-117` | CWE FP-cao → bỏ khi gán nhãn (raw giữ nguyên). Thêm: `CWE-117,CWE-807` |
 | `ORCH_NOISE_RULES` | (rỗng) | rule_id FP-cao cần bỏ (vd `CRLF_INJECTION_LOGS`) |
 
-> `LINE_WINDOW=3` (±dòng gộp cụm) là hằng trong `config.py`. Đổi nhãn/lọc nhiễu → chạy `relabel` (không quét lại).
+> `LINE_WINDOW=3` là **cấu hình v1 đăng ký trước** (METHODOLOGY.md §1). `ORCH_LINE_WINDOW` **chỉ có hiệu lực khi
+> `ORCH_EXPERIMENT=1`** (xem §3.7); không bật → giữ 3 và in cảnh báo. Muốn xem ảnh hưởng W → dùng `sensitivity`
+> trên bản sao DB. Đổi nhãn/lọc nhiễu → `relabel` (không quét lại). `ORCH_VOTE_THRESHOLD` là tham số **chết**
+> (legacy single-tier) — không ghi run_meta, không hiển thị.
+
+### 3.7 Run, tiến độ, thí nghiệm (GUI/runner đặt; CLI đọc)
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `ORCH_RUN_ID` | `local` | định danh run; gắn vào mọi dòng progress, `run_meta.run_id`, `kappa.run_id`, label container `orch.run=<id>`, `claimed_by='<id>:wN'` |
+| `ORCH_PROGRESS_FILE` | (rỗng = không ghi) | `progress.jsonl` — 1 dòng JSON/sự kiện `{ts,run_id,phase,event,done,total,worker,sha,status,msg}` (CONTRACTS §3); GUI đọc SSE |
+| `ORCH_STOP_FILE` | (rỗng) | đường dẫn stop-file; tồn tại → orchestrator kết thúc commit hiện tại, **không claim mới**, `event=stop`, exit **3** (kiểm giữa mỗi commit ở scan và analyze) |
+| `ORCH_EXPERIMENT` | `0` | `1` = chế độ thí nghiệm: `run_meta.experiment=1`, export hậu tố `_exp`, **không gộp** gold_set_all |
+| `ORCH_EXPERIMENT_REASON` | (rỗng) | lý do bắt buộc (≥10 ký tự qua profile) — ghi `run_meta.reason` |
+| `ORCH_LINE_WINDOW` | `3` | ±dòng gộp cụm — **chỉ khi `ORCH_EXPERIMENT=1`**, ngược lại bị bỏ qua + cảnh báo |
+| `SECJIT_APP_VERSION` | `dev` | phiên bản app/exe → `run_meta.app_version`, manifest, `diagnostics/system.json` |
+
+Runner nền (`runner.start`) đặt: `ORCH_RUN_ID`, `ORCH_PROGRESS_FILE=<work>/<run_id>/progress.jsonl`,
+`ORCH_STOP_FILE=<work>/<run_id>/stop`, `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8` + toàn bộ `profile.to_env()`.
+Mọi biến hiệu lực được chụp vào `run_meta.config_snapshot_json` (bỏ `ORCH_SONAR_ADMIN_PW`).
 
 ---
 
@@ -232,6 +294,26 @@ ORCH_NOISE_CWE=CWE-117,CWE-807 python3 -m orchestrator.cli relabel $REPO
 
 # Chạy nhiều dataset độc lập (DB riêng)
 ORCH_SQLITE=data/repoX.sqlite python3 -m orchestrator.cli scan <repoX>
+
+# Chỉ quét 1 khoảng thời gian / 1 dải commit (ép --max 0 tự động)
+python3 -m orchestrator.cli pipeline $REPO --since 2024-01-01 --until 2024-06-30 --codeql 0
+python3 -m orchestrator.cli enumerate $REPO --from-sha v1.0.0 --to-sha v1.1.0 --json
+
+# Tái lập Run A ↔ Run B (train-ticket --max 30) rồi so
+python3 -m orchestrator.cli pipeline --profile P.json
+python3 -m orchestrator.cli compare --a data/export_A --b data/export_B --format md
+
+# Độ nhạy tham số trên bản sao DB (không đụng DB gốc) + thống kê cho paper
+python3 -m orchestrator.cli sensitivity --db data/dataset_x.sqlite --out data/sens_x
+python3 -m orchestrator.cli stats --db data/dataset_x.sqlite --format latex --out data/stats_x
+
+# Dừng an toàn run nền rồi dọn
+python3 -m orchestrator.cli stop --run 20261005-1 --profile P.json          # chờ commit hiện tại xong, exit 3
+python3 -m orchestrator.cli stop --run 20261005-1 --profile P.json --force  # kill + rm container + reset-claims
+
+# Hàng đợi nhiều repo (tuần tự, 1 Sonar) + gói chẩn đoán khi có sự cố
+python3 -m orchestrator.cli batch --queue D:/secjit/queue.json
+python3 -m orchestrator.cli diagnostics --run 20261005-1 --out D:/secjit/diag_20261005-1.zip --profile P.json
 ```
 
 ---
@@ -247,7 +329,13 @@ ORCH_SQLITE=data/repoX.sqlite python3 -m orchestrator.cli scan <repoX>
 | build_failed nhiều | sai JDK → đổi `ORCH_MAVEN_IMAGE`; hoặc commit lịch sử không build được (đã ghi lại, không crash) |
 | gold quá ít | bật CodeQL (trùng semgrep/sonar), hoặc nới ngưỡng `ORCH_GOLD_ALLOW_1EXP_1CHEAP=1` |
 | dataset nhiễu | thêm `ORCH_NOISE_CWE` rồi `relabel` |
-| kẹt clone-pool | dọn: `docker run --rm -v $PWD/../work:/w alpine rm -rf /w/pool_*` |
+| kẹt clone-pool | `clean $REPO --items pool` (từ chối pool của tiến trình còn sống; dùng `rmtree_force`) |
+| run chết giữa chừng, commit kẹt `building/analyzing` | `stop-cleanup --run <id>` (dọn container + `reset-claims`) rồi `analyze` tiếp; hoặc `reset-claims --all-stale --db <db>` |
+| `DB đang được run khác dùng (pid=…)` | `<db>.lock` còn pid sống → dừng run đó (`stop --run`) hoặc dùng DB khác; lock mồ côi tự được thay khi pid chết |
+| exit 3 bất ngờ | có stop-file (`ORCH_STOP_FILE`) hoặc ≥`ORCH_INFRA_STOP_AFTER` infra_error liên tiếp → xem `progress.jsonl` dòng `event=stop` |
+| `ORCH_LINE_WINDOW … bị BỎ QUA` | chỉ hiệu lực khi `ORCH_EXPERIMENT=1` (METHODOLOGY §3) — hoặc dùng `sensitivity` |
+| Git Bash đổi `/m2`, `/work` thành `C:/Program Files/Git/m2` | cygpath tự dịch đường dẫn container → đặt `MSYS_NO_PATHCONV=1` (xem CLAUDE.md) hoặc chạy PowerShell |
+| bind mount `.m2cache` chậm trên Windows | `ORCH_M2_VOLUME=1` (named volume `secjit-m2`) |
 
 > **Nguyên tắc VM:** dataset lưu THẲNG trên đĩa VM (không GCS). Chỉ **STOP** VM (đừng DELETE) để khỏi mất.
 > `relabel`/`kappa`/`export` đọc từ raw → tinh chỉnh nhãn **không tốn tiền scan lại**. 💪

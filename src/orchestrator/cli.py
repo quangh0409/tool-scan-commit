@@ -6,6 +6,7 @@ Dùng:
   python -m orchestrator.cli scan <repo_url> [...] [--tools a,b]
   python -m orchestrator.cli pipeline <repo_url> [...] | pipeline --profile F
   python -m orchestrator.cli estimate|stats|sensitivity|compare|stop|stop-cleanup|reset-claims|clean ...
+  python -m orchestrator.cli review sample|next|verdict|close ... | batch --queue Q.json | diagnostics --run ID --out Z.zip
 
 `--profile F` (mọi subcommand): nạp profile.json, áp `profile.to_env()` vào os.environ,
 `config.reload()`, rồi dựng lại argv từ profile — mọi arg khác bị BỎ QUA (có cảnh báo).
@@ -74,8 +75,18 @@ def cheap_tool_classes() -> dict:
             "bearer": BearerWrapper, "horusec": HorusecWrapper}
 
 
-def parse_tools(spec, allowed: list[str], label: str) -> list[str] | None:
-    """'a,b' -> [a,b] đã validate (giữ thứ tự, bỏ trùng). None -> None. Bỏ tool -> cảnh báo mẫu số."""
+# Tool đắt chạy MẶC ĐỊNH ở mọi run thật (CodeQL tắt qua --codeql 0 là chuẩn, không phải "bỏ tool").
+EXPENSIVE_BASELINE = ["findsecbugs", "sonar"]
+
+
+def expensive_baseline(codeql) -> list[str]:
+    """Tập tool đắt hiệu lực để so cảnh báo: findsecbugs+sonar, thêm codeql CHỈ khi --codeql 1."""
+    return EXPENSIVE_BASELINE + (["codeql"] if codeql == 1 else [])
+
+
+def parse_tools(spec, allowed: list[str], label: str, baseline: list[str] | None = None) -> list[str] | None:
+    """'a,b' -> [a,b] đã validate (giữ thứ tự, bỏ trùng). None -> None.
+    Cảnh báo "đổi mẫu số" CHỈ khi thiếu tool thuộc `baseline` (mặc định = allowed) — tool lẽ ra sẽ chạy."""
     if spec is None:
         return None
     names = spec if isinstance(spec, list) else [t.strip() for t in str(spec).split(",") if t.strip()]
@@ -88,7 +99,7 @@ def parse_tools(spec, allowed: list[str], label: str) -> list[str] | None:
     for n in names:
         if n not in seen:
             seen.append(n)
-    dropped = [t for t in allowed if t not in seen]
+    dropped = [t for t in (baseline if baseline is not None else allowed) if t not in seen]
     if dropped:
         _warn(f"{label}: bỏ tool {dropped} -> đổi MẪU SỐ eligible/κ (RULE_GAN_NHAN §3); "
               "kết quả không so trực tiếp với run đủ tool.")
@@ -395,7 +406,8 @@ def _expensive_tool_names(args) -> list[str] | None:
     if spec is None and legacy is not None:
         _warn("analyze --tools là alias cũ của --expensive-tools (tầng đắt); hãy dùng --expensive-tools")
         spec = legacy
-    return parse_tools(spec, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools")
+    return parse_tools(spec, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools",
+                       baseline=expensive_baseline(getattr(args, "codeql", None)))
 
 
 def cmd_analyze(args):
@@ -516,7 +528,8 @@ def cmd_pipeline(args):
     """Chạy TRỌN pipeline: scan -> select -> analyze -> relabel -> kappa -> export. Dừng khi 1 bước != 0."""
     scope = resolve_scope(args)
     cheap = parse_tools(args.tools, config.CHEAP_TOOLS_ALL, "--tools")
-    expensive = parse_tools(args.expensive_tools, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools")
+    expensive = parse_tools(args.expensive_tools, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools",
+                            baseline=expensive_baseline(args.codeql))
     ns = argparse.Namespace(
         repo=args.repo, max=args.max, branch=args.branch, since=args.since, until=args.until,
         from_sha=args.from_sha, to_sha=args.to_sha, flag_limit=args.flag_limit, no_meta=args.no_meta,
@@ -651,6 +664,83 @@ def cmd_clean(args):
 
 
 # --------------------------------------------------------------------------------------
+# Đợt 2: review (A1 module `orchestrator.review`) / batch / diagnostics
+# --------------------------------------------------------------------------------------
+def _open_store(db_arg, readonly: bool = False):
+    from .storage.sqlite_store import SQLiteStore
+    db = Path(db_arg or config.SQLITE_PATH)
+    if not db.exists():
+        raise CliError(f"DB không tồn tại: {db}")
+    try:
+        return SQLiteStore(db, readonly=readonly)
+    except TypeError:                                   # store cũ không có readonly
+        return SQLiteStore(db)
+
+
+def cmd_review(args):
+    """review sample|next|verdict|close -> orchestrator.review (A1). Import trễ: module có thể chưa tồn tại."""
+    try:
+        from . import review
+    except ImportError:
+        raise CliError("orchestrator.review chưa có (A1 đợt 2) — lệnh review chưa dùng được") from None
+    progress.emit(phase="review", event="start", msg=args.review_cmd)
+    store = _open_store(args.db, readonly=(args.review_cmd == "next"))
+    try:
+        if args.review_cmd == "sample":
+            res = review.sample(store, seed=args.seed, n_pos=args.n_pos, n_neg=args.n_neg)
+            text = (f"sample {res.get('sample_id')}: pos={res.get('n_pos')} neg={res.get('n_neg')} "
+                    f"| strata={res.get('strata')}")
+        elif args.review_cmd == "next":
+            res = review.next_item(store, sample_id=args.sample_id, rater=args.rater)
+            if not res:
+                res, text = {"done": True, "remaining": 0}, "hết mẫu cần chấm"
+            else:
+                text = (f"cluster {res.get('cluster_key')} | CWE claim: {res.get('cwe_claim')} "
+                        f"| còn {res.get('remaining')}\n" + "\n".join(
+                            f"  {d.get('n', ''):>5} {d.get('kind', ''):4} {d.get('text', '')}"
+                            for d in (res.get("code_lines") or res.get("diff_lines") or [])[:60]))
+        elif args.review_cmd == "verdict":
+            res = review.verdict(store, sample_id=args.sample_id, rater=args.rater, cluster_key=args.cluster_key,
+                                 verdict=args.verdict, note=args.note or "")
+            text = f"đã ghi {args.verdict} cho {args.cluster_key[:12]} | còn {res.get('remaining')}"
+        else:
+            raters = [r.strip() for r in args.raters.split(",")] if args.raters else None
+            res = review.close(store, sample_id=args.sample_id, raters=raters)
+            pr = res.get("precision") or {}
+            text = (f"close {args.sample_id}: precision={pr.get('point')} (n={pr.get('n')}, TP={pr.get('tp')}, "
+                    f"FP={pr.get('fp')}, unclear={pr.get('unclear')}) CI95=[{pr.get('ci_low')}, {pr.get('ci_high')}] "
+                    f"| κ rater={res.get('kappa_raters')} | bất đồng={len(res.get('disagreements') or [])}")
+    finally:
+        store.close()
+    _out(args, res, text)
+    progress.emit(phase="review", event="done", msg=args.review_cmd)
+    return EXIT_OK
+
+
+def cmd_batch(args):
+    from . import batch
+    q = Path(args.queue)
+    if not q.exists():
+        raise CliError(f"queue không tồn tại: {q}")
+    try:
+        state = batch.run(q, state_path=args.state, stop_file=args.stop_file)
+    except (ValueError, FileNotFoundError) as e:
+        raise CliError(str(e)) from None
+    _out(args, state, batch.format_text(state))
+    return int(state.get("exit_code", EXIT_OK))
+
+
+def cmd_diagnostics(args):
+    from . import diagnostics
+    out = Path(args.out)
+    if out.suffix.lower() != ".zip":
+        raise CliError(f"--out phải là file .zip: {out}")
+    m = diagnostics.collect(args.run, out, profile_path=args.profile, work=args.work)
+    _out(args, m, diagnostics.format_text(m))
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------------------
 # argparse
 # --------------------------------------------------------------------------------------
 def _add_scope(p, with_max_default_none=True):
@@ -777,6 +867,42 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--items", default="clone,pool", help="mặc định clone,pool")
     pc.add_argument("--dry-run", dest="dry_run", action="store_true")
     pc.set_defaults(func=cmd_clean)
+
+    prv = sub.add_parser("review", parents=[parent], help="kiểm tay GOLD (mù): sample | next | verdict | close")
+    prv.add_argument("--db", default=None)
+    rsub = prv.add_subparsers(dest="review_cmd", required=True)
+    # `--json` sau sub-subcommand: SUPPRESS để không ghi đè giá trị đã parse ở cấp `review --json`
+    rj = argparse.ArgumentParser(add_help=False)
+    rj.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    r1 = rsub.add_parser("sample", parents=[rj], help="tạo mẫu phân tầng (CWE-group × tier), seed cố định")
+    r1.add_argument("--seed", type=int, default=42)
+    r1.add_argument("--n-pos", dest="n_pos", type=int, default=200)
+    r1.add_argument("--n-neg", dest="n_neg", type=int, default=100)
+    r2 = rsub.add_parser("next", parents=[rj], help="lấy mục kế tiếp cho rater (ẩn nhãn/tool)")
+    r2.add_argument("--sample-id", dest="sample_id", required=True)
+    r2.add_argument("--rater", required=True)
+    r3 = rsub.add_parser("verdict", parents=[rj], help="ghi phán quyết TP|FP|unclear")
+    r3.add_argument("--sample-id", dest="sample_id", required=True)
+    r3.add_argument("--rater", required=True)
+    r3.add_argument("--cluster-key", dest="cluster_key", required=True)
+    r3.add_argument("--verdict", choices=("TP", "FP", "unclear"), required=True)
+    r3.add_argument("--note", default="")
+    r4 = rsub.add_parser("close", parents=[rj], help="đóng mẫu: precision + Wilson + Cohen κ + bất đồng")
+    r4.add_argument("--sample-id", dest="sample_id", required=True)
+    r4.add_argument("--raters", default=None, help="a,b (mặc định: mọi rater đã chấm)")
+    prv.set_defaults(func=cmd_review)
+
+    pb = sub.add_parser("batch", parents=[parent], help="chạy TUẦN TỰ nhiều profile: pipeline --profile từng cái")
+    pb.add_argument("--queue", required=True, help="Q.json: [\"a.json\", ...] hoặc {profiles:[...], stop_on_error}")
+    pb.add_argument("--state", default=None, help="batch_state.json (mặc định cạnh Q.json)")
+    pb.add_argument("--stop-file", dest="stop_file", default=None, help="mặc định <Q.json>.stop")
+    pb.set_defaults(func=cmd_batch)
+
+    pdg = sub.add_parser("diagnostics", parents=[parent], help="gói chẩn đoán ZIP cho 1 run (log, progress, run_meta, docker…)")
+    pdg.add_argument("--run", required=True)
+    pdg.add_argument("--out", required=True, help="đường dẫn file .zip")
+    pdg.add_argument("--work", default=None, help="thư mục work chứa <run_id>/ (mặc định ORCH_WORK_DIR)")
+    pdg.set_defaults(func=cmd_diagnostics)
 
     return p
 

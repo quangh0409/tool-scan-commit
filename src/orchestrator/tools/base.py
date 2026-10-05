@@ -15,6 +15,7 @@ stderr/stdout khớp INFRA_PATTERNS.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -141,10 +142,50 @@ def app_version() -> str:
     return os.environ.get("SECJIT_APP_VERSION", "dev")
 
 
+def classify_exception(e: BaseException) -> tuple[str, str]:
+    """Exception của 1 tool -> (kind, msg): tool_timeout | infra_error | tool_error (CONTRACTS §1)."""
+    msg = str(e)[:1000] or e.__class__.__name__
+    if isinstance(e, subprocess.TimeoutExpired):
+        return "tool_timeout", f"timeout {getattr(e, 'timeout', '?')}s"
+    if isinstance(e, FileNotFoundError) or is_infra_text(msg):
+        return "infra_error", msg
+    return "tool_error", msg
+
+
+def error_record(tool: str, kind: str, msg: str) -> str:
+    """Nội dung hàng raw_output fmt='error' (JSON) — store.insert_raw_output đọc để ghi scan_tool_errors."""
+    return json.dumps({"tool": tool, "kind": kind, "msg": msg}, ensure_ascii=False)
+
+
+def _guard_scan(fn):
+    """Bọc ToolWrapper.scan: lỗi tool KHÔNG nổ ra ngoài mà được ghi nhận (REVIEW TC-15, compare giải thích được):
+    chèn ("error", JSON{kind,msg}) vào ĐẦU raw_out -> cli ghi raw_output fmt='error' -> store ghi scan_tool_errors.
+    Trả [] (tool không có finding). cli.py không cần đổi."""
+    def wrapper(self, repo_dir, commit_id, repo, changed_files, raw_out=None, **kw):
+        try:
+            return fn(self, repo_dir, commit_id, repo, changed_files, raw_out=raw_out, **kw)
+        except Exception as e:  # noqa: BLE001 — 1 tool lỗi không được dừng phễu
+            kind, msg = classify_exception(e)
+            print(f"[{self.name}] {kind} @ {str(commit_id)[:8]}: {msg[:200]}")
+            if raw_out is not None:
+                raw_out.insert(0, ("error", error_record(self.name, kind, msg)))
+            return []
+    wrapper._guarded = True
+    wrapper.__wrapped__ = fn
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
+
+
 class ToolWrapper(ABC):
     name: str = "base"
     tier: str = "cheap"  # "cheap" (source-only) | "expensive" (cần build)
     image: str = ""      # Docker image (để lấy digest + version cho run_meta)
+
+    def __init_subclass__(cls, **kw):
+        super().__init_subclass__(**kw)
+        scan = cls.__dict__.get("scan")
+        if scan is not None and not getattr(scan, "_guarded", False):
+            cls.scan = _guard_scan(scan)
 
     def version(self) -> str | None:
         """Phiên bản tool (ghi run_meta). Mặc định None; wrapper override nếu lấy được."""

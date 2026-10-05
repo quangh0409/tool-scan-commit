@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: ["dev", "main", "feat/**"]
+  pull_request:
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install ruff pytest
+      - run: python -m ruff check src scripts gui runner registry preflight packaging tests
+      - run: python -m pytest -q
+        # Không chạy Docker trong CI: mọi test dùng mock; test cần docker thật tự skip.
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install ruff pytest pyinstaller pywebview pythonnet
+      - run: python -m ruff check src scripts gui runner registry preflight packaging tests
+      - run: python -m pytest -q
+      - name: preflight (chỉ đọc, không chặn — runner CI không có Docker)
+        run: python -m preflight --json
+        continue-on-error: true
+      - name: build exe (PyInstaller, 2 exe onefile)
+        shell: pwsh
+        run: ./build_exe.ps1 -Clean
+      - name: smoke exe
+        shell: pwsh
+        run: |
+          ./dist/secjit-scan.exe --version
+          ./dist/secjit-scan.exe --preflight --json --only os_wsl2,git,git_longpaths,disk_free,webview2 ; if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          ./dist/secjit-scan.exe --cli --help | Select-Object -First 3
+          Get-Content ./dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: secjit-scan-windows
+          path: |
+            dist/secjit-scan.exe
+            dist/secjit-scan-gui.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

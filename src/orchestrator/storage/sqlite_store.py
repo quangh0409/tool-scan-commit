@@ -174,6 +174,16 @@ CREATE TABLE IF NOT EXISTS expensive_runs (
     run_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_exp_commit ON expensive_runs(commit_id);
+
+-- Lỗi tool TẦNG RẺ (TC-15): 1 dòng / (commit, tool) khi tool crash/timeout/hạ tầng — compare giải thích được.
+-- Ghi tự động khi insert_raw_output(fmt='error') (tools/base._guard_scan chèn hàng này).
+CREATE TABLE IF NOT EXISTS scan_tool_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commit_id TEXT, tool TEXT, tier TEXT,
+    kind TEXT CHECK(kind IN ('tool_error','tool_timeout','infra_error')),
+    msg TEXT, at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ste_commit ON scan_tool_errors(commit_id);
 """
 
 # Cột mới của selected_commits cần ALTER khi DB cũ đã tạo bảng (CREATE IF NOT EXISTS không thêm cột).
@@ -206,6 +216,11 @@ _KAMEI_COLS = ["ns", "nd", "nf", "entropy", "la", "ld", "lt", "fix",
                "ndev", "age", "nuc", "exp", "rexp", "sexp"]
 
 _DISK_ERR_MARKERS = ("disk", "database or disk is full", "no space left")
+
+
+def _now() -> str:
+    """Thời điểm local ISO `%Y-%m-%dT%H:%M:%S` — thống nhất với progress.ts (datetime('now') của SQLite là UTC)."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _is_disk_error(msg: str) -> bool:
@@ -304,7 +319,7 @@ class SQLiteStore:
         try:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({"pid": os.getpid(), "run_id": progress.run_id(),
-                           "at": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
+                           "at": _now()}, f)
             os.replace(tmp, lp)
         except OSError as e:
             if e.errno == errno.ENOSPC:
@@ -452,7 +467,33 @@ class SQLiteStore:
                 "INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) "
                 "VALUES (?,?,?,?,?,datetime('now'))",
                 [commit_id, tool, tier_of(tool), fmt, content])
+            if fmt == "error":   # tool lỗi (tools/base._guard_scan) -> bảng scan_tool_errors
+                try:
+                    rec = json.loads(content) if content else {}
+                except ValueError:
+                    rec = {}
+                kind = rec.get("kind") if rec.get("kind") in ("tool_error", "tool_timeout", "infra_error") \
+                    else "tool_error"
+                self.conn.execute(
+                    "INSERT INTO scan_tool_errors (commit_id,tool,tier,kind,msg,at) VALUES (?,?,?,?,?,?)",
+                    [commit_id, tool, tier_of(tool), kind, (rec.get("msg") or content or "")[:1000], _now()])
             self.conn.commit()
+
+    def scan_tool_errors_rows(self, commit_id: str | None = None) -> list[dict]:
+        q, args = "SELECT commit_id, tool, tier, kind, msg, at FROM scan_tool_errors", []
+        if commit_id:
+            q += " WHERE commit_id=?"; args = [commit_id]
+        cols = ("commit", "tool", "tier", "kind", "msg", "at")
+        return [dict(zip(cols, r)) for r in self.conn.execute(q + " ORDER BY id", args)]
+
+    def tool_errors_all(self) -> list[dict]:
+        """Mọi lỗi tool cả 2 tầng: [{commit, tool, tier, kind, msg}] — manifest tool_error[]/tool_timeout[]."""
+        out = [{k: r[k] for k in ("commit", "tool", "tier", "kind", "msg")} for r in self.scan_tool_errors_rows()]
+        for cid, tool, st, err in self.conn.execute(
+                "SELECT commit_id, tool, status, error FROM expensive_runs "
+                "WHERE status IN ('tool_error','tool_timeout') ORDER BY id"):
+            out.append({"commit": cid, "tool": tool, "tier": "expensive", "kind": st, "msg": (err or "")[:1000]})
+        return out
 
     def raw_output_for_commit(self, commit_id: str) -> list[tuple]:
         """-> [(tool, fmt, content)] để export."""
@@ -571,7 +612,7 @@ class SQLiteStore:
         if tier not in ("scan", "analyze"):
             raise ValueError(f"tier phải là scan|analyze, nhận {tier!r}")
         row = {"run_id": progress.run_id(), "tier": tier,
-               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+               "started_at": _now(),
                "app_version": os.environ.get("SECJIT_APP_VERSION", "dev"),
                "experiment": 1 if os.environ.get("ORCH_EXPERIMENT") == "1" else 0,
                "reason": os.environ.get("ORCH_EXPERIMENT_REASON") or None}
@@ -589,7 +630,8 @@ class SQLiteStore:
 
     def finish_run_meta(self, run_meta_id: int, **fields) -> None:
         """Đặt finished_at (+ cập nhật tools_json… nếu truyền)."""
-        sets, vals = ["finished_at=datetime('now')"], []
+        # local ISO có 'T' — cùng định dạng/múi giờ với started_at và progress.ts (không dùng datetime('now') = UTC)
+        sets, vals = ["finished_at=?"], [_now()]
         for k, v in fields.items():
             if k in _RUN_META_V2_COLS:
                 if k in ("scope_json", "config_snapshot_json", "tools_json") and not isinstance(v, str):
@@ -625,8 +667,8 @@ class SQLiteStore:
             self.conn.execute(
                 "DELETE FROM kappa WHERE run_id=? AND scope=? AND grp=?", [run_id, scope, grp or ""])
             self.conn.execute(
-                "INSERT INTO kappa (run_id,scope,grp,value,n,computed_at) VALUES (?,?,?,?,?,datetime('now'))",
-                [run_id, scope, grp or "", value, n])
+                "INSERT INTO kappa (run_id,scope,grp,value,n,computed_at) VALUES (?,?,?,?,?,?)",
+                [run_id, scope, grp or "", value, n, _now()])
             self.conn.commit()
 
     def kappa_rows(self, run_id: str | None = None) -> list[dict]:
@@ -636,13 +678,78 @@ class SQLiteStore:
         return [dict(zip(("run_id", "scope", "grp", "value", "n", "computed_at"), r))
                 for r in self.conn.execute(q + " ORDER BY scope, grp", args)]
 
-    # ---------------- gold_review (đợt 2 dùng; export đọc) ----------------
-    def gold_review_verdicts(self) -> dict[str, list[str]]:
-        """{cluster_key: [verdict theo rater]} — export dùng để điền evidence.validation."""
-        out: dict[str, list[str]] = {}
-        for ck, v in self.conn.execute("SELECT cluster_key, verdict FROM gold_review"):
-            out.setdefault(ck, []).append(v)
+    # ---------------- gold_review / gold_sample (review.py; export đọc) ----------------
+    def gold_review_verdicts(self) -> dict[str, list[tuple[str, str]]]:
+        """{cluster_key: [(rater, verdict)…]} — export dùng để điền evidence.validation
+        (ưu tiên rater 'adjudicated' > đa số > hoà = unclear)."""
+        out: dict[str, list[tuple[str, str]]] = {}
+        for ck, rater, v in self.conn.execute("SELECT cluster_key, rater, verdict FROM gold_review"):
+            out.setdefault(ck, []).append((rater, v))
         return out
+
+    def findings_rows(self, label: str | None = None) -> list[dict]:
+        """Mọi dòng findings (tuỳ chọn lọc label) dạng dict (JSON còn là text)."""
+        q, args = "SELECT * FROM findings", []
+        if label:
+            q += " WHERE label=?"; args = [label]
+        cur = self.conn.execute(q + " ORDER BY commit_id, file_path, s_line, id", args)
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def verified_clean_commits(self) -> list[str]:
+        """Commit negative_level='verified-clean' (n_expensive_ok>=2, không finding in_diff)."""
+        cands = [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT commit_id FROM expensive_runs WHERE phase='analyze' AND status='ok' "
+            "ORDER BY commit_id")]
+        return [c for c in cands if self.negative_level(c) == "verified-clean"]
+
+    def scanned_files_for_commit(self, commit_id: str) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT file_path FROM scanned_files WHERE commit_id=? ORDER BY file_path",
+            [commit_id])]
+
+    def replace_gold_sample(self, sample_id: str, rows: list[dict]) -> int:
+        """Ghi đè mẫu kiểm tay: rows = [{cluster_key, stratum, kind, seed}]."""
+        with self._write():
+            self.conn.execute("DELETE FROM gold_sample WHERE sample_id=?", [sample_id])
+            self.conn.executemany(
+                "INSERT INTO gold_sample (sample_id,cluster_key,stratum,kind,seed,created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                [[sample_id, r["cluster_key"], r["stratum"], r["kind"], r.get("seed"), _now()] for r in rows])
+            self.conn.commit()
+        return len(rows)
+
+    def gold_sample_rows(self, sample_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            "SELECT sample_id, cluster_key, stratum, kind, seed, created_at FROM gold_sample "
+            "WHERE sample_id=? ORDER BY CASE kind WHEN 'pos' THEN 0 ELSE 1 END, stratum, cluster_key",
+            [sample_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def gold_sample_ids(self) -> list[dict]:
+        """[{sample_id, seed, n_pos, n_neg, created_at}] mọi mẫu đã tạo."""
+        cur = self.conn.execute(
+            "SELECT sample_id, MIN(seed), SUM(kind='pos'), SUM(kind='neg'), MIN(created_at) "
+            "FROM gold_sample GROUP BY sample_id ORDER BY MIN(created_at), sample_id")
+        return [dict(zip(("sample_id", "seed", "n_pos", "n_neg", "created_at"), r)) for r in cur.fetchall()]
+
+    def gold_review_rows(self, sample_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            "SELECT cluster_key, rater, verdict, note, at FROM gold_review WHERE sample_id=? "
+            "ORDER BY cluster_key, rater", [sample_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def upsert_gold_review(self, sample_id: str, rater: str, cluster_key: str,
+                           verdict: str, note: str | None = None) -> None:
+        if verdict not in ("TP", "FP", "unclear"):
+            raise ValueError(f"verdict phải là TP|FP|unclear, nhận {verdict!r}")
+        with self._write():
+            self.conn.execute(
+                "INSERT OR REPLACE INTO gold_review (cluster_key,sample_id,rater,verdict,note,at) "
+                "VALUES (?,?,?,?,?,?)", [cluster_key, sample_id, rater, verdict, note, _now()])
+            self.conn.commit()
 
     # --- chọn commit cho tầng đắt ---
     def scanned_commit_ids(self) -> list[str]:

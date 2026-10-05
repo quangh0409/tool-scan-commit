@@ -86,15 +86,11 @@ def resolve_out_dir(out_dir: Path) -> Path:
     raise RuntimeError(f"quá nhiều thư mục export cạnh {out_dir}")
 
 
-def _validation(verdicts: list[str] | None) -> str:
-    """Gộp verdict nhiều rater -> TP|FP|unclear; không có -> unreviewed."""
-    if not verdicts:
-        return "unreviewed"
-    c = Counter(verdicts)
-    top = c.most_common()
-    if len(top) > 1 and top[0][1] == top[1][1]:
-        return "unclear"
-    return top[0][0]
+def _validation(pairs) -> str:
+    """Gộp verdict nhiều rater -> TP|FP|unclear; không có -> unreviewed.
+    Ưu tiên rater 'adjudicated' > đa số > hoà = unclear (review.validation_of)."""
+    from .review import validation_of
+    return validation_of(pairs)
 
 
 def enrich_row(row: dict, reviews: dict[str, list[str]] | None = None) -> dict:
@@ -181,6 +177,10 @@ def write_merged(store: SQLiteStore, out_dir: Path) -> dict:
 def build_manifest(store: SQLiteStore, out_dir: Path, counts: dict, profile: dict | None,
                    started: str | None, run_id: str | None = None) -> dict:
     by_status = store.commits_by_expensive_status()
+    errs = store.tool_errors_all()          # cả tầng rẻ (scan_tool_errors) + đắt (expensive_runs)
+
+    def _errs(kind):
+        return [{"commit": e["commit"], "tool": e["tool"], "tier": e["tier"]} for e in errs if e["kind"] == kind]
     return {
         "schema": 1,
         "run_id": run_id or progress.run_id(),
@@ -192,8 +192,10 @@ def build_manifest(store: SQLiteStore, out_dir: Path, counts: dict, profile: dic
         "counts": counts,
         "build_failed": by_status.get("build_failed", []),
         "infra_error": by_status.get("infra_error", []),
-        "tool_timeout": by_status.get("tool_timeout", []),
-        "tool_error": by_status.get("tool_error", []),
+        # {commit, tool, tier} — gồm cả tầng rẻ; compare._shas đọc được cả dạng này
+        "tool_timeout": _errs("tool_timeout"),
+        "tool_error": _errs("tool_error"),
+        "cheap_infra_error": _errs("infra_error"),
         "skipped": by_status.get("skipped", []),
         "orchestrator_git_sha": orchestrator_git_sha(),
         "app_version": app_version(),

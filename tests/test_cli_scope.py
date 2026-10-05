@@ -150,6 +150,34 @@ def test_parse_tools_validation_and_warning(orch_env, capsys):
         cli.parse_tools(" , ", cli.config.CHEAP_TOOLS_ALL, "--tools")
 
 
+def test_expensive_tools_warning_only_when_effective_tool_dropped(orch_env, capsys):
+    """Run A thật: codeql:false + expensive_tools=[findsecbugs,sonar] KHÔNG được cảnh báo 'bỏ tool codeql'."""
+    import argparse
+    from orchestrator import cli
+    ns = argparse.Namespace(expensive_tools="findsecbugs,sonar", tools=None, codeql=0)
+    assert cli._expensive_tool_names(ns) == ["findsecbugs", "sonar"]
+    assert capsys.readouterr().err == ""
+    ns.codeql = None                                          # không nói gì về codeql -> vẫn không cảnh báo
+    cli._expensive_tool_names(ns)
+    assert capsys.readouterr().err == ""
+    ns.codeql = 1                                             # bật codeql mà không liệt kê -> cảnh báo
+    cli._expensive_tool_names(ns)
+    assert "bỏ tool ['codeql']" in capsys.readouterr().err
+    ns.codeql = 0
+    ns.expensive_tools = "sonar"                              # thiếu findsecbugs -> cảnh báo đúng
+    cli._expensive_tool_names(ns)
+    assert "bỏ tool ['findsecbugs']" in capsys.readouterr().err
+    # pipeline: profile mặc định (codeql False, 2 tool đắt) -> stderr sạch
+    from orchestrator import profile as prof
+    p = prof.default_profile("https://github.com/o/r", "main")
+    p["paths"]["db"] = "x.sqlite"
+    args = cli.build_parser().parse_args(prof.to_cli_args(p))
+    cli.parse_tools(args.expensive_tools, cli.config.EXPENSIVE_TOOLS_ALL, "--expensive-tools",
+                    baseline=cli.expensive_baseline(args.codeql))
+    assert capsys.readouterr().err == ""
+    assert cli.expensive_baseline(1) == ["findsecbugs", "sonar", "codeql"]
+
+
 def test_resolve_scope_forces_max_zero_with_warning(orch_env, capsys):
     import argparse
     from orchestrator import cli

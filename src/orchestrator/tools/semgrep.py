@@ -1,11 +1,20 @@
 """
 Wrapper Semgrep (Tầng ② — source-only, ra SARIF/CWE sẵn).
-Dùng ruleset 'p/security-audit' + 'p/secrets' cho pilot.
+Dùng ruleset 'p/default' + 'p/secrets'.
 Docker image: semgrep/semgrep:latest
+
+Diff-scoped NHƯNG KHÔNG truyền từng file vào argv: Windows giới hạn dòng lệnh ~32 k ký tự → commit
+nhiều file nổ `[WinError 206] The filename or extension is too long` (Run A 2026-10-05). Thay vào đó
+copy các file đổi vào thư mục tạm GIỮ CẤU TRÚC (như bearer/horusec) rồi `semgrep scan /src`.
+Ghi `.semgrepignore` rỗng vào thư mục tạm để semgrep KHÔNG áp bộ ignore mặc định (tests/, *_test…)
+— giữ đúng ngữ nghĩa cũ khi truyền file tường minh. Path output `/src/<rel>` → canon_path → path repo.
 """
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from ..schema import RawFinding, normalize_cwe
@@ -24,6 +33,29 @@ def _extract_cwe(meta: dict) -> list[str]:
     return [normalize_cwe(c) for c in raw] if raw else []
 
 
+def stage_changed_files(repo_dir: Path, changed_files: list[str], prefix: str) -> tuple[Path, int]:
+    """Copy các file đổi (còn tồn tại) vào temp dir giữ cấu trúc; mở quyền đọc cho user non-root
+    trong container. Trả (temp_dir, số file đã copy). Người gọi phải rmtree."""
+    proj = Path(tempfile.mkdtemp(prefix=prefix))
+    n = 0
+    for rel in changed_files:
+        src = repo_dir / rel
+        if not src.is_file():
+            continue
+        dst = proj / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        n += 1
+    for root, _dirs, files in os.walk(proj):
+        try:
+            os.chmod(root, 0o755)
+            for f in files:
+                os.chmod(os.path.join(root, f), 0o644)
+        except OSError:
+            pass
+    return proj, n
+
+
 class SemgrepWrapper(ToolWrapper):
     name = "semgrep"
     tier = "cheap"
@@ -37,15 +69,22 @@ class SemgrepWrapper(ToolWrapper):
              changed_files: list[str], raw_out: list | None = None) -> list[RawFinding]:
         if not changed_files:
             return []
-        cfg_args = []
-        for c in CONFIGS:
-            cfg_args += ["--config", c]
-        # chỉ quét các file thay đổi (diff-scoped), không quét toàn cây
-        targets = [f"/src/{f}" for f in changed_files]
-        proc = docker_run([
-            "run", "--rm", "-v", f"{repo_dir}:/src", IMAGE,
-            "semgrep", "scan", *cfg_args, "--json", "--quiet", *targets,
-        ], timeout=900)
+        proj, n = stage_changed_files(repo_dir, changed_files, "semgrep_proj_")
+        try:
+            if n == 0:
+                return []
+            # .semgrepignore rỗng -> không áp ignore mặc định (giữ ngữ nghĩa "quét đúng các file đã đổi")
+            (proj / ".semgrepignore").write_text("", encoding="utf-8")
+            cfg_args = []
+            for c in CONFIGS:
+                cfg_args += ["--config", c]
+            # argv NGẮN, không phụ thuộc số file (WinError 206); quét cả thư mục tạm = đúng tập file đổi
+            proc = docker_run([
+                "run", "--rm", "-v", f"{proj}:/src", IMAGE,
+                "semgrep", "scan", *cfg_args, "--json", "--quiet", "/src",
+            ], timeout=900)
+        finally:
+            shutil.rmtree(proj, ignore_errors=True)
         if raw_out is not None:
             raw_out.append(("json", proc.stdout or ""))
         try:
