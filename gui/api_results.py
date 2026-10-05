@@ -230,6 +230,18 @@ def finding(params: dict, body: dict | None = None) -> dict:
         row["code_before_url"] = full["code_before_url"] if "code_before_url" in keys_ else None
         row["code_after_url"] = full["code_after_url"] if "code_after_url" in keys_ else None
         diff_lines = _diff_lines(full)
+        # RV-1 (A1 review.code_context): dòng tool báo không nằm trong diff (in_diff=0) -> diff chỉ có 1 dòng placeholder;
+        # đọc ±8 dòng quanh s_line từ clone local (git show) để khung Bằng chứng không trống.
+        code_ctx = {"code_lines": [], "code_source": "none"}
+        if not any(d["kind"] == "flag" and d.get("n") == int(full["s_line"] or 0)
+                   and not str(d.get("text", "")).startswith("(dòng tool báo") for d in diff_lines):
+            try:
+                from orchestrator import review as _rv
+                code_ctx = _rv.code_context(None, full["repo"] if "repo" in keys_ else "", full["commit_id"],
+                                            full["file_path"], int(full["s_line"] or 0),
+                                            work_dir=run.get("work") or None)
+            except Exception as e:  # noqa: BLE001 — fallback không được làm hỏng panel
+                code_ctx = {"code_lines": [], "code_source": "none", "error": str(e)}
         tool_messages = _tool_messages(conn, tabs, full, w)
         prov = _provenance(conn, tabs, run, w)
         from orchestrator.consensus.tiers import eligible_tools
@@ -237,7 +249,8 @@ def finding(params: dict, body: dict | None = None) -> dict:
         elig = sorted(eligible_tools(cat))
         denom = full["eligible"] if "eligible" in keys_ and full["eligible"] else len(elig)
     return {"row": row, "diff_lines": diff_lines, "tool_messages": tool_messages, "provenance": prov,
-            "eligible": {"tools": elig, "denominator": int(denom or 0)}}
+            "eligible": {"tools": elig, "denominator": int(denom or 0)},
+            "code_lines": code_ctx.get("code_lines", []), "code_source": code_ctx.get("code_source", "none")}
 
 
 def _diff_lines(full: sqlite3.Row) -> list[dict]:

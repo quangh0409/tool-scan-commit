@@ -272,3 +272,85 @@ def test_cli_main(rv, orch_env, scratch_db, capsys):
     assert json.loads(capsys.readouterr().out)["precision"]["tp"] == 1
     assert rv.main(["list", "--db", db]) == 0
     assert json.loads(capsys.readouterr().out)["samples"][0]["sample_id"] == "cli"
+
+
+# ---------------------------------------------------------------- RV-1: code ngoài diff -> git show từ clone local
+def _git_repo_with_file(root, origin: str, n_lines: int = 120):
+    """Tạo repo git tạm có 1 commit chứa svc/Verify.java (n_lines dòng), origin = `origin`. Trả (dir, sha)."""
+    import subprocess
+    d = root / "clone"
+    d.mkdir(parents=True)
+    (d / "svc").mkdir()
+    (d / "svc" / "Verify.java").write_text("\n".join(f"line {i}  // Random r = new Random();" if i == 81 else f"line {i}"
+                                                     for i in range(1, n_lines + 1)) + "\n", encoding="utf-8")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    for cmd in (["git", "init", "-q"], ["git", "add", "."], ["git", "commit", "-qm", "init"],
+                ["git", "remote", "add", "origin", origin]):
+        subprocess.run(cmd, cwd=d, check=True, capture_output=True, env={**__import__("os").environ, **env})
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True, check=True).stdout.strip()
+    return d, sha
+
+
+def test_code_context_git_show_fallback(rv, orch_env, monkeypatch, tmp_path):
+    import shutil
+    if not shutil.which("git"):
+        pytest.skip("không có git")
+    keys = _m("orchestrator.keys")
+    work = tmp_path / "work"
+    d, sha = _git_repo_with_file(tmp_path, REPO)
+    # không có clone trong work -> none
+    cc = rv.code_context(None, REPO, sha, "svc/Verify.java", 81, work_dir=work)
+    assert cc == {"code_lines": [], "code_source": "none", "clone": None, "error": "không có clone trong ORCH_WORK_DIR"}
+    # clone đúng tên slug + origin khớp -> git_show ±8 dòng, flag đúng s_line
+    work.mkdir()
+    shutil.move(str(d), str(work / keys.repo_slug(REPO)))
+    cc = rv.code_context(None, REPO, sha, "svc/Verify.java", 81, work_dir=work)
+    assert cc["code_source"] == "git_show" and cc["clone"].endswith("FudanSELab__train-ticket")
+    assert [c["n"] for c in cc["code_lines"]] == list(range(73, 90))
+    assert [c for c in cc["code_lines"] if c["flag"]] == [{"n": 81, "text": "line 81  // Random r = new Random();", "flag": True}]
+    # biên file: s_line gần đầu/cuối
+    assert [c["n"] for c in rv.code_context(None, REPO, sha, "svc/Verify.java", 2, work_dir=work)["code_lines"]] == list(range(1, 11))
+    assert rv.code_context(None, REPO, sha, "svc/Verify.java", 500, work_dir=work)["code_source"] == "none"
+    # repo trùng tên khác org -> không đọc nhầm
+    assert rv.find_clone("https://github.com/OtherOrg/train-ticket", work) is None
+    assert rv.code_context(None, REPO, "deadbeef", "svc/Verify.java", 81, work_dir=work)["code_source"] == "none"
+    # tên cũ (legacy) vẫn được chấp nhận khi origin khớp
+    shutil.move(str(work / keys.repo_slug(REPO)), str(work / "train-ticket"))
+    assert rv.find_clone(REPO, work) == work / "train-ticket"
+
+
+def test_next_item_uses_git_show_when_outside_diff(rv, orch_env, monkeypatch, tmp_path):
+    """RV-1 (QA sống A4): cụm in_diff=0 (weak_random Verify.java:81) -> code_lines từ clone local, không trống."""
+    import shutil
+    if not shutil.which("git"):
+        pytest.skip("không có git")
+    keys = _m("orchestrator.keys")
+    work = tmp_path / "work"
+    work.mkdir()
+    d, sha = _git_repo_with_file(tmp_path, REPO)
+    shutil.move(str(d), str(work / keys.repo_slug(REPO)))
+    monkeypatch.setattr(_m("orchestrator.config"), "WORK_DIR", work)        # ORCH_WORK_DIR hiệu lực
+    st = _store()
+    try:
+        st.conn.execute(
+            "INSERT INTO findings (repo,commit_id,file_path,s_line,e_line,s_detail_line,finding_in_diff,tool,rule_id,cwe,"
+            "cwe_group,category,tier,label,agreeing_tools,n_tools_agree,n_tools_ran,n_expensive,n_cheap,diff_parsed) "
+            "VALUES (?,?,?,81,81,'[81]',0,'findsecbugs','PREDICTABLE_RANDOM','[\"CWE-330\"]','weak_random','crypto',"
+            "'expensive','gold','[\"findsecbugs\",\"sonar\"]',2,3,2,0,?)",
+            [REPO, sha, "svc/Verify.java", json.dumps({"added": [[10, "import x;"]], "deleted": []})])
+        st.conn.commit()
+        rv.sample(st, seed=1, n_pos=5, n_neg=0, sample_id="rv1")
+        it = rv.next_item(st, "rv1", "qa")
+        assert it["finding_in_diff"] == 0 and it["code_source"] == "git_show"
+        assert len(it["code_lines"]) == 17 and it["code_lines"][8] == {"n": 81, "text": "line 81  // Random r = new Random();", "flag": True}
+        assert it["diff_lines"] == [{"n": 10, "kind": "add", "text": "import x;"}]
+        # GUI panel Bằng chứng (api_results.finding) cũng có code_lines từ cùng hàm
+        from gui import api_results
+        fd = api_results.finding({"id": "rv1-run", "db": str(st.path), "cluster_key": it["cluster_key"], "work": str(work)}, None)
+        assert fd["code_source"] == "git_show" and fd["code_lines"][8]["n"] == 81
+        # không có clone -> rỗng + none (không nổ). (.git/objects read-only trên Windows -> rmtree_force)
+        _m("orchestrator.repo_pool").rmtree_force(work / keys.repo_slug(REPO))
+        it2 = rv.next_item(st, "rv1", "qa2")
+        assert it2["code_lines"] == [] and it2["code_source"] == "none"
+    finally:
+        st.close()

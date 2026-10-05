@@ -23,6 +23,7 @@ import json
 import math
 import random
 import re
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -179,7 +180,8 @@ def _anon(msg: str | None, rule_id: str | None) -> str:
     return s[:300]
 
 
-def _code_and_diff(row: dict) -> tuple[list[dict], list[dict]]:
+def _code_and_diff(row: dict) -> tuple[list[dict], list[dict], str]:
+    """-> (code_lines ±CODE_CONTEXT quanh s_line, diff_lines, code_source ∈ diff|snippet|none)."""
     s_line = int(row.get("s_line") or 0)
     detail = set(_loads(row.get("s_detail_line"), []) or [])
     dp = _loads(row.get("diff_parsed"), {}) or {}
@@ -187,13 +189,67 @@ def _code_and_diff(row: dict) -> tuple[list[dict], list[dict]]:
     deleted = [(int(n), t) for n, t in dp.get("deleted", []) if n is not None]
     lo, hi = s_line - CODE_CONTEXT, s_line + CODE_CONTEXT
     code = [{"n": n, "text": t, "flag": n in detail} for n, t in sorted(added) if lo <= n <= hi]
+    source = "diff" if code else "none"
     if not code and row.get("code_snippet"):
         code = [{"n": s_line + i, "text": t, "flag": i == 0}
                 for i, t in enumerate(str(row["code_snippet"]).splitlines()[:CODE_CONTEXT * 2 + 1])]
+        source = "snippet"
     diff = ([{"n": n, "kind": "del", "text": t} for n, t in deleted]
             + [{"n": n, "kind": "flag" if n in detail else "add", "text": t} for n, t in added])
     diff.sort(key=lambda d: (d["n"], d["kind"] != "del"))
-    return code, diff
+    return code, diff, source
+
+
+# ---------------------------------------------------------------- RV-1: code ngoài diff (in_diff=0) -> git show
+def find_clone(repo: str, work_dir: str | Path | None = None) -> Path | None:
+    """Clone của `repo` trong work_dir (mặc định config.WORK_DIR): `<slug>` (keys.repo_slug) hoặc tên cũ `<repo>`;
+    phải có .git và origin khớp keys.canon_repo (không đọc nhầm repo trùng tên). None nếu không có."""
+    from . import config
+    from .repo_pool import origin_url
+    if not repo:
+        return None
+    base = Path(work_dir) if work_dir else config.WORK_DIR
+    legacy = repo.rstrip("/").removesuffix(".git").split("/")[-1]
+    want = keys.canon_repo(repo).lower()
+    for name in (keys.repo_slug(repo), legacy):
+        d = base / name
+        if not (d / ".git").exists():
+            continue
+        org = origin_url(d)
+        if org and keys.canon_repo(org).lower() == want:
+            return d
+    return None
+
+
+def code_context(store, repo: str, commit: str, file_path: str, s_line: int,
+                 context: int = CODE_CONTEXT, work_dir: str | Path | None = None) -> dict:
+    """Code ±context dòng quanh s_line lấy từ `git show <commit>:<file_path>` trong clone local (không clone mới,
+    không mạng). `store` không dùng (giữ chữ ký chung với GUI). Trả
+    {"code_lines": [{n, text, flag}], "code_source": "git_show" | "none", "clone": str|None, "error": str|None}."""
+    out = {"code_lines": [], "code_source": "none", "clone": None, "error": None}
+    clone = find_clone(repo, work_dir)
+    if clone is None:
+        out["error"] = "không có clone trong ORCH_WORK_DIR"
+        return out
+    out["clone"] = str(clone)
+    try:
+        r = subprocess.run(["git", "-C", str(clone), "show", f"{commit}:{file_path}"],
+                           capture_output=True, text=True, errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        out["error"] = f"git show lỗi: {e}"
+        return out
+    if r.returncode != 0:
+        out["error"] = (r.stderr or "git show rc!=0").strip()[:200]
+        return out
+    lines = r.stdout.splitlines()
+    s = int(s_line or 0)
+    lo, hi = max(1, s - context), min(len(lines), s + context)
+    if s < 1 or s > len(lines):
+        out["error"] = f"s_line {s} ngoài file ({len(lines)} dòng)"
+        return out
+    out["code_lines"] = [{"n": n, "text": lines[n - 1], "flag": n == s} for n in range(lo, hi + 1)]
+    out["code_source"] = "git_show"
+    return out
 
 
 def _index(store) -> dict[str, dict]:
@@ -202,7 +258,11 @@ def _index(store) -> dict[str, dict]:
 
 
 def _item_pos(store, row: dict, line_window: int) -> dict:
-    code, diff = _code_and_diff(row)
+    code, diff, source = _code_and_diff(row)
+    if not code:    # RV-1: dòng tool báo ngoài diff (in_diff=0) -> đọc file tại commit từ clone local
+        cc = code_context(store, row.get("repo") or "", row["commit_id"], row.get("file_path") or "",
+                          int(row.get("s_line") or 0))
+        code, source = cc["code_lines"], cc["code_source"]
     cwes = _loads(row.get("cwe"), [])
     grp = row.get("cwe_group") or (_cwe_group(cwes[0])[0] if cwes else None)
     msgs = []
@@ -220,7 +280,7 @@ def _item_pos(store, row: dict, line_window: int) -> dict:
         "s_detail_line": _loads(row.get("s_detail_line"), []),
         "cwe_claim": {"cwe": cwes, "group": grp, "category": row.get("category")},
         "finding_in_diff": row.get("finding_in_diff"),
-        "code_lines": code, "diff_lines": diff, "messages_anon": msgs,
+        "code_lines": code, "code_source": source, "diff_lines": diff, "messages_anon": msgs,
         "code_after_url": row.get("code_after_url"), "code_before_url": row.get("code_before_url"),
     }
 
