@@ -116,6 +116,28 @@ Hai lỗi lịch sử đã sửa (REVIEW §I.3): *verified-clean giả* (commit 
 - *Conclusion:* κ Fleiss thường âm vì tool phủ miền rời nhau → đọc κ theo nhóm-CWE/cặp tool, không κ tổng;
   precision kiểm tay có CI rộng khi n nhỏ.
 
+## 8. Giới hạn của gộp cụm theo dòng (phát hiện trên smoke train-ticket, 2026-10-05)
+
+Cụm = `(file, nhóm-CWE, dòng ±W)`. Phân tích của A1 trên DB smoke train-ticket (`sensitivity` 12 cấu hình
+W∈{3,5,7} × 1E+1C∈{0,1} × noise on/off) cho **gold = 0 ở cả 12 cấu hình**; W=7 chỉ gộp thêm finding *cùng tool*.
+
+Các tool đắt neo cùng một lỗi vào mức cú pháp khác nhau: FindSecBugs báo tại **khai báo** (method `configure(...)`,
+field/class của controller), SonarQube báo tại **statement** (`.csrf().disable()`, tham số `@RequestBody`). Trên smoke
+train-ticket, cặp cùng nhóm CWE gần nhất lệch **18–43 dòng**, nên mọi W ∈ {3,5,7} đều không tạo được cụm liên-tool
+(gold = 0 ở 12 cấu hình; W=7 chỉ gộp thêm finding cùng tool). Nới W lớn hơn sẽ gộp nhầm các lỗi khác nhau cùng nhóm
+CWE trong một file dài. **Hệ quả:** gold trên app Spring bị **ước lượng thiếu có hệ thống**, và κ âm giữa FSB–Sonar
+phần lớn phản ánh **khác điểm neo**, không phải bất đồng về lỗi.
+
+Cách xử lý trong luận văn:
+- Báo cáo con số này như *giới hạn phương pháp* (câu tự sinh trong `stats.limits` khi DB có cả FSB và Sonar nhưng
+  0 cụm liên-tool; trường `overview.cross_tool{expensive_tools_seen, fsb_sonar_clusters, multi_tool_clusters}`).
+- **Không** nới W để "có gold": v1 giữ W=3; sensitivity đã chứng minh W∈{3,5,7} không đổi kết luận.
+- Hướng sau MVP: **method-level clustering** (neo cụm theo method/class thay vì dòng) — là **thay đổi phương pháp luận**,
+  chỉ được thử qua *experiment mode* (cờ `experiment`, export `_exp`, không gộp gold_set) và phải **kiểm tay** vì gộp
+  theo method làm tăng nguy cơ ghép hai lỗi khác nhau cùng nhóm CWE.
+- Threats (bổ sung §7): construct — "cùng lỗi" được định nghĩa bằng khoảng cách dòng; conclusion — số gold trên app
+  Spring là cận dưới.
+
 ## Tham khảo
 
 Brown, Cai & DasGupta (2001) *Interval estimation for a binomial proportion*. Statistical Science. ·

@@ -206,6 +206,7 @@ KHÔNG áp `ORCH_EXCLUDE_PATHS` (trung thành định nghĩa gốc).
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `ORCH_SUSPECT_REQUIRE_IN_DIFF` | (tắt) | `1` = chỉ coi buggy khi finding nằm TRONG diff commit (không tính nợ cũ) |
+| `ORCH_CLEAN_PER_BUGGY` | (rỗng = lấy hết) | `select --include-clean`: tối đa N commit **clean** cho mỗi commit buggy lên tầng đắt (cap = N × max(1, #buggy); chọn xác định theo commit_id, giữ clean đã có trong hàng đợi). GUI Wizard 2 "clean/buggy" → `profile.filters.clean_per_buggy`. Giảm để tiết kiệm build; `0` = không verify clean |
 
 CLI: `select --include-clean` (thêm clean để verify), `select --require-in-diff 0/1`.
 
@@ -347,6 +348,8 @@ python3 -m orchestrator.cli diagnostics --run 20261005-1 --out D:/secjit/diag_20
 | `DB đang được run khác dùng (pid=…)` | `<db>.lock` còn pid sống → dừng run đó (`stop --run`) hoặc dùng DB khác; lock mồ côi tự được thay khi pid chết |
 | exit 3 bất ngờ | có stop-file (`ORCH_STOP_FILE`) hoặc ≥`ORCH_INFRA_STOP_AFTER` infra_error liên tiếp → xem `progress.jsonl` dòng `event=stop` |
 | `ORCH_LINE_WINDOW … bị BỎ QUA` | chỉ hiệu lực khi `ORCH_EXPERIMENT=1` (METHODOLOGY §3) — hoặc dùng `sensitivity` |
+| xuất hiện `dataset.sqlite-shm` / `-wal` **0 byte** cạnh DB | DB ở `journal_mode=WAL`; mở chỉ-đọc (`mode=ro` — stats/compare/GUI/verify) vẫn tạo 2 file phụ rỗng. **Vô hại**, SQLite tự dọn khi kết nối ghi cuối đóng; đừng xoá khi còn tiến trình mở DB. `clean --items db:<path>` xoá cả 3 file |
+| gold = 0 dù FSB + Sonar đều chạy | không phải lỗi: hai tool neo khác dòng (18–43 dòng) nên không gộp được ở W≤7 — xem câu "giới hạn" trong `stats` và METHODOLOGY §8; không nới W |
 | Git Bash đổi `/m2`, `/work` thành `C:/Program Files/Git/m2` | cygpath tự dịch đường dẫn container → đặt `MSYS_NO_PATHCONV=1` (xem CLAUDE.md) hoặc chạy PowerShell |
 | bind mount `.m2cache` chậm trên Windows | `ORCH_M2_VOLUME=1` (named volume `secjit-m2`) |
 

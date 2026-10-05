@@ -537,7 +537,9 @@ def cmd_select(args):
              f"  buggy (có mã CWE/CVE{', in_diff' if config.SUSPECT_REQUIRE_IN_DIFF else ''}) "
              f"-> TẦNG ĐẮT (positive): {res['buggy']}"]
     if args.include_clean:
-        lines += [f"  clean -> CŨNG đưa vào tầng đắt để VERIFY (→ verified-clean GOLD): {res['negative_clean']}",
+        cap_txt = (f" (cap {res['clean_cap']} = {res['clean_per_buggy']}×buggy -> chọn {res['clean_selected']})"
+                   if res.get("clean_cap") is not None else "")
+        lines += [f"  clean -> CŨNG đưa vào tầng đắt để VERIFY (→ verified-clean GOLD): {res['negative_clean']}{cap_txt}",
                   f"=> đã thêm (incremental) {res['total_selected']} commit vào hàng đợi."]
     else:
         lines += [f"  clean (0 CWE/CVE) -> NEGATIVE (không quét đắt): {res['negative_clean']}",

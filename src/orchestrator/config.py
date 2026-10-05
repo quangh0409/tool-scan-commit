@@ -47,6 +47,7 @@ ENV_KEYS = [
     "ORCH_KAMEI", "ORCH_FIX_KEYWORDS", "ORCH_STORE_FULL_FILE",
     "ORCH_SCAN_WORKERS", "ORCH_SCAN_RESUME", "ORCH_SUBMODULES",
     "ORCH_CHEAP_INTRA_PARALLEL", "ORCH_EXPENSIVE_INTRA_PARALLEL", "ORCH_SUSPECT_REQUIRE_IN_DIFF",
+    "ORCH_CLEAN_PER_BUGGY",
     "ORCH_EXPENSIVE_WORKERS", "ORCH_EXPENSIVE_TOOLS", "ORCH_CHEAP_TOOLS", "ORCH_USE_CODEQL",
     "ORCH_MAVEN_IMAGE", "ORCH_JDK_AUTODETECT", "ORCH_JDK_IMAGE_TEMPLATE", "ORCH_MAVEN_GOALS",
     "ORCH_BUILD_TIMEOUT", "ORCH_CODEQL_RAM_MB", "ORCH_CODEQL_THREADS", "ORCH_CODEQL_SUITE",
@@ -79,7 +80,7 @@ def _csv(name: str, default: str) -> list[str]:
 
 def reload() -> None:
     """Đọc LẠI mọi biến từ os.environ và gán vào module (gọi sau khi áp profile.to_env())."""
-    global INFRA_STOP_AFTER, DOCKER_BIN
+    global INFRA_STOP_AFTER, DOCKER_BIN, CLEAN_PER_BUGGY
     global APP_VERSION, BUILD_TIMEOUT, CHEAP_INTRA_PARALLEL, CHEAP_TOOLS, CODEQL_RAM_MB, CODEQL_SUITE, CODEQL_THREADS, DATA_DIR
     global EXCLUDE_PATH_PATTERNS, EXPENSIVE_INTRA_PARALLEL, EXPENSIVE_TOOLS, EXPENSIVE_WORKERS, EXPERIMENT, EXPERIMENT_REASON, EXPORT_DIR, FIX_KEYWORDS
     global FLAG_LIMIT, GOLD_ALLOW_1EXP_1CHEAP, GOLD_MIN_EXPENSIVE, JDK_AUTODETECT, JDK_IMAGE_TEMPLATE, KAMEI_ENABLED, LINE_WINDOW, M2_VOLUME
@@ -157,6 +158,16 @@ def reload() -> None:
 
     # --- Chọn commit lên TẦNG ĐẮT ---
     SUSPECT_REQUIRE_IN_DIFF = os.environ.get("ORCH_SUSPECT_REQUIRE_IN_DIFF") == "1"
+    # Số commit CLEAN tối đa đưa lên tầng đắt cho MỖI commit buggy (`select --include-clean`): rỗng/None = lấy hết;
+    # N>=0 -> cap = N × max(1, #buggy), chọn xác định theo commit_id (profile.filters.clean_per_buggy, Wizard 2).
+    raw_cpb = (os.environ.get("ORCH_CLEAN_PER_BUGGY") or "").strip()
+    try:
+        CLEAN_PER_BUGGY = int(raw_cpb) if raw_cpb else None
+        if CLEAN_PER_BUGGY is not None and CLEAN_PER_BUGGY < 0:
+            raise ValueError
+    except ValueError:
+        _warn("cpb_bad", f"ORCH_CLEAN_PER_BUGGY={raw_cpb!r} không hợp lệ (cần số nguyên >= 0) -> lấy hết clean")
+        CLEAN_PER_BUGGY = None
 
     # --- TẦNG ĐẮT ---
     EXPENSIVE_WORKERS = _int("ORCH_EXPENSIVE_WORKERS", "2")
@@ -268,5 +279,6 @@ VOTE_THRESHOLD = None
 WORK_DIR = None
 INFRA_STOP_AFTER = None
 DOCKER_BIN = None
+CLEAN_PER_BUGGY = None
 
 reload()
