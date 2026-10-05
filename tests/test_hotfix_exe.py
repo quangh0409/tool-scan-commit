@@ -12,7 +12,7 @@ def test_sonar_names_are_valid_hostnames(orch_env):
     assert s == "orch-sonar-r-20261005-120433-fudanselab-train-ticket"
     assert n.startswith("orch-sonar-net-") and "__" not in n and n == n.lower()
     assert sonar.server_name("runA2-20261005") == "orch-sonar-runa2-20261005"
-    assert sonar.server_name("") == "orch-sonar-local"
+    assert sonar._host_slug("") == "local" and sonar._host_slug("___") == "local"
     assert len(sonar.server_name("x" * 200)) <= len("orch-sonar-") + 48
 
 
@@ -26,7 +26,7 @@ def test_horusec_report_read_utf8(orch_env, fake_docker, tmp_path, monkeypatch):
 
     def run(cmd, *a, **kw):
         if "horusec" in " ".join(cmd):
-            out_dir = next(c.split(":")[0] for c in cmd if c.endswith(":/out"))
+            out_dir = next(c.rsplit(":", 1)[0] for c in cmd if c.endswith(":/out"))  # rsplit: "C:\\x:/out"
             (tmp_path / "dummy").mkdir(exist_ok=True)
             import pathlib
             pathlib.Path(out_dir, "h.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

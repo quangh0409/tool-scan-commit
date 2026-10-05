@@ -134,7 +134,7 @@ def orchestrator_git_sha() -> str | None:
         proc = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                               capture_output=True, text=True, errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return None
+        return _sha_from_app_version()
     out = (proc.stdout or "").strip()
     if proc.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", out):
         return out
