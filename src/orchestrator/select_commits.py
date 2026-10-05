@@ -75,13 +75,22 @@ def select(store: SQLiteStore, include_clean: bool = False) -> dict:
             "created_at": now,
         })
 
+    existing = {r[0]: r[1] for r in store.conn.execute("SELECT commit_id, role FROM selected_commits")}
+
+    # CLEAN_PER_BUGGY (ORCH_CLEAN_PER_BUGGY / profile.filters.clean_per_buggy): cap số clean lên tầng đắt.
+    # Xác định & idempotent: ưu tiên clean ĐÃ có trong hàng đợi, rồi bổ sung theo thứ tự commit_id tới cap.
+    cap = None
+    chosen_clean = sorted(clean)
+    if include_clean and config.CLEAN_PER_BUGGY is not None:
+        cap = config.CLEAN_PER_BUGGY * max(1, len(buggy))
+        kept_clean = sorted(cid for cid, role in existing.items() if role == "clean" and cid in clean)
+        extra = [cid for cid in sorted(clean) if cid not in set(kept_clean)]
+        chosen_clean = (kept_clean + extra)[:max(cap, len(kept_clean))]
     clean_rows = [{"commit_id": cid, "role": "clean",
                    "selection_reason": "negative-verify (FindSecBugs+Sonar)",
                    "suspect_categories": [], "n_suspect_findings": 0,
-                   "created_at": now} for cid in sorted(clean)] if include_clean else []
+                   "created_at": now} for cid in chosen_clean] if include_clean else []
     rows = buggy_rows + clean_rows
-
-    existing = {r[0]: r[1] for r in store.conn.execute("SELECT commit_id, role FROM selected_commits")}
     # 1) bỏ hàng không còn trong universe (không còn là commit đã quét rẻ)
     stale = [cid for cid in existing if cid not in universe]
     with store._lock:
@@ -106,4 +115,5 @@ def select(store: SQLiteStore, include_clean: bool = False) -> dict:
         "negative_clean": len(clean), "gray_excluded": len(gray),
         "include_clean": include_clean, "total_selected": n_total,
         "added": len(new_rows), "kept": len(existing) - len(stale), "removed_stale": len(stale),
+        "clean_per_buggy": config.CLEAN_PER_BUGGY, "clean_cap": cap, "clean_selected": len(clean_rows),
     }

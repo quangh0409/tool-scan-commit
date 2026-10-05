@@ -218,6 +218,13 @@ def build_limits(ov: dict) -> list[str]:
         out.append(f"κ Fleiss tổng {kap['total']:.2f} (âm) — tool phủ miền rời nhau; xem κ theo nhóm/cặp thay vì tổng.")
     if lab["gold"] == 0:
         out.append("Chưa có cụm gold (không cụm nào ≥2 tool đắt / 1 đắt + 1 rẻ đồng thuận).")
+    ct = ov.get("cross_tool") or {}
+    if {"findsecbugs", "sonar"} <= set(ct.get("expensive_tools_seen") or []) and ct.get("fsb_sonar_clusters", 0) == 0:
+        out.append("FindSecBugs và SonarQube cùng chạy nhưng 0 cụm liên-tool: hai tool neo cùng một lỗi vào mức cú pháp "
+                   "khác nhau (FSB tại khai báo method/field, Sonar tại statement; trên smoke train-ticket cặp cùng nhóm CWE "
+                   "gần nhất lệch 18–43 dòng) nên W∈{3,5,7} đều không gộp được — gold trên app Spring bị ước lượng thiếu "
+                   "có hệ thống và κ âm FSB–Sonar phần lớn phản ánh khác điểm neo, không phải bất đồng về lỗi "
+                   "(METHODOLOGY §8).")
     if ov.get("experiment"):
         out.append("Run ở CHẾ ĐỘ THÍ NGHIỆM (params khác v1) — không so trực tiếp với run v1.")
     if sel and f["commits"] and f["after_filter"] < f["commits"]:
@@ -246,6 +253,17 @@ def overview(db: str | Path, run_id: str | None = None) -> dict:
         cov = {"one": 0, "two": 0, "three_plus": 0}
         for n_agree, cnt in conn.execute("SELECT COALESCE(n_tools_agree,1), COUNT(*) FROM findings GROUP BY 1"):
             cov["one" if n_agree <= 1 else "two" if n_agree == 2 else "three_plus"] += cnt
+        # Liên-tool FSB–Sonar (METHODOLOGY §8): tool đắt đã có raw + số cụm có cả findsecbugs lẫn sonar
+        seen = set()
+        if "raw_findings" in tabs:
+            seen |= {r[0] for r in conn.execute("SELECT DISTINCT tool FROM raw_findings WHERE tier='expensive'")}
+        if "raw_output" in tabs:
+            seen |= {r[0] for r in conn.execute(
+                "SELECT DISTINCT tool FROM raw_output WHERE tier='expensive' AND COALESCE(fmt,'')!='error'")}
+        fsb_sonar = _n(conn, "SELECT COUNT(*) FROM findings WHERE COALESCE(n_tools_agree,1) >= 2 "
+                             "AND agreeing_tools LIKE '%findsecbugs%' AND agreeing_tools LIKE '%sonar%'")
+        cross = {"expensive_tools_seen": sorted(seen), "fsb_sonar_clusters": fsb_sonar,
+                 "multi_tool_clusters": _n(conn, "SELECT COUNT(*) FROM findings WHERE COALESCE(n_tools_agree,1) >= 2")}
         exp = None
         params = config.params_v1()
         if "run_meta" in tabs:
@@ -263,7 +281,8 @@ def overview(db: str | Path, run_id: str | None = None) -> dict:
         precision = _precision_from_review(Path(db)) or _precision(conn, tabs)
         ov = {"funnel": _funnel(conn, tabs), "labels": lab, "by_cwe_group": by_cwe,
               "kappa": _kappa(conn, tabs, run_id), "coverage": cov, "precision": precision,
-              "limits": [], "params_v1": params, "experiment": exp, "db": str(db), "run_id": run_id}
+              "limits": [], "params_v1": params, "experiment": exp, "db": str(db), "run_id": run_id,
+              "cross_tool": cross}
         ov["limits"] = build_limits(ov)
         return ov
     finally:

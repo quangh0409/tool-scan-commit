@@ -795,3 +795,59 @@ def test_stop_cleanup_json_is_single_last_stdout_line(orch_env, fake_docker, cap
                      "--work", str(tmp_path / "w"), "--json"]) == 0
     last = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert last["run_id"] == "r1" and "profile.json" in last["files"]
+
+
+# ----------------------------------------------------------------------------- ORCH_CLEAN_PER_BUGGY
+def test_clean_per_buggy_caps_clean_commits(orch_env, scratch_db, monkeypatch, capsys):
+    from orchestrator import config, select_commits
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    monkeypatch.setenv("ORCH_CLEAN_PER_BUGGY", "1")
+    config.reload()
+    assert config.CLEAN_PER_BUGGY == 1
+    store = SQLiteStore(scratch_db)
+    store.insert_scanned_files([{"repo": "r", "commit_id": f"{i:040x}", "parent_commit": None, "author_date": "2024-01-01",
+                                 "file_path": "X.java", "n_tools_ran": 5, "tools": [], "n_findings": 0} for i in (1, 2, 3)])
+    _u, buggy, clean, _g = select_commits.classify(store)
+    assert len(buggy) == 1 and len(clean) == 3
+    r = select_commits.select(store, include_clean=True)
+    assert r["clean_cap"] == 1 and r["clean_selected"] == 1 and r["total_selected"] == 2
+    picked = store.conn.execute("SELECT commit_id FROM selected_commits WHERE role='clean'").fetchall()
+    assert picked == [(sorted(clean)[0],)]                              # xác định: commit_id nhỏ nhất
+    # chạy lại: idempotent, vẫn 1 clean (giữ cái đã có)
+    r2 = select_commits.select(store, include_clean=True)
+    assert r2["clean_selected"] == 1 and r2["added"] == 0 and r2["total_selected"] == 2
+    # nới cap -> thêm clean mới, giữ clean cũ
+    monkeypatch.setenv("ORCH_CLEAN_PER_BUGGY", "2"); config.reload()
+    r3 = select_commits.select(store, include_clean=True)
+    assert r3["clean_cap"] == 2 and r3["clean_selected"] == 2 and r3["added"] == 1
+    # cap 0 -> không thêm clean mới nhưng KHÔNG xoá clean đã có (vẫn trong universe)
+    monkeypatch.setenv("ORCH_CLEAN_PER_BUGGY", "0"); config.reload()
+    r4 = select_commits.select(store, include_clean=True)
+    assert r4["clean_cap"] == 0 and r4["clean_selected"] == 2 and r4["removed_stale"] == 0
+    # không include_clean -> cap không áp
+    assert select_commits.select(store, include_clean=False)["clean_cap"] is None
+    store.close()
+    # rỗng -> None (lấy hết); sai -> cảnh báo + None
+    monkeypatch.setenv("ORCH_CLEAN_PER_BUGGY", ""); config.reload(); assert config.CLEAN_PER_BUGGY is None
+    monkeypatch.setenv("ORCH_CLEAN_PER_BUGGY", "x"); config._WARNED.clear(); config.reload()
+    assert config.CLEAN_PER_BUGGY is None and "ORCH_CLEAN_PER_BUGGY" in capsys.readouterr().err
+    # profile.filters -> env
+    from orchestrator import profile as prof
+    p = prof.default_profile("https://github.com/o/r", "m"); p["paths"]["db"] = "x"; p["filters"] = {"clean_per_buggy": 3}
+    assert prof.to_env(p)["ORCH_CLEAN_PER_BUGGY"] == "3" and "ORCH_CLEAN_PER_BUGGY" in config.ENV_KEYS
+
+
+# ----------------------------------------------------------------------------- stats: giới hạn gộp cụm FSB–Sonar
+def test_stats_limits_cross_tool_sentence_on_smoke(orch_env, tmp_path):
+    import shutil
+    from orchestrator import stats
+    smoke = ROOT / "tests" / "fixtures" / "smoke_v2.db"
+    db = tmp_path / "smoke.sqlite"
+    shutil.copy(smoke, db)
+    ov = stats.overview(db)
+    ct = ov["cross_tool"]
+    assert {"findsecbugs", "sonar"} <= set(ct["expensive_tools_seen"]) and ct["fsb_sonar_clusters"] == 0
+    assert any("neo cùng một lỗi" in s and "18–43 dòng" in s and "METHODOLOGY §8" in s for s in ov["limits"])
+    # DB scratch (chỉ tool rẻ) -> không có câu đó
+    ov2 = stats.overview(ROOT / "tests" / "fixtures" / "scratch.db")
+    assert ov2["cross_tool"]["expensive_tools_seen"] == [] and not any("neo cùng một lỗi" in s for s in ov2["limits"])
