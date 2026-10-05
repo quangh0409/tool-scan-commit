@@ -213,7 +213,12 @@ def main(argv=None) -> int:
                     rc = 0 if all(ok for _, ok, _ in checks) else 1
             browser.close()
     finally:
-        kill_tree(proc)
+        if a.go and rc == 0:
+            # --go: pipeline là tiến trình con (detached) của server exe; taskkill /T sẽ giết cả nó.
+            # Giữ server sống (GUI tiếp tục attach/SSE); dọn sau bằng taskkill /PID <pid server> (không /T).
+            print(f"GIỮ SERVER EXE SỐNG: pid={proc.pid} (không kill_tree để không giết pipeline Run B)")
+        else:
+            kill_tree(proc)
     if cons:
         print("CONSOLE ERRORS:", cons)
     print("TÓM TẮT:", sum(1 for _, ok, _ in checks if ok), "ok /", sum(1 for _, ok, _ in checks if not ok), "fail", "→ exit", rc)
