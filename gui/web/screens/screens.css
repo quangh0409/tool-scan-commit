@@ -106,6 +106,12 @@
 .s-check input { width: 20px; height: 20px; }
 .s-radio-group { display: flex; gap: 16px; flex-wrap: wrap; }
 
+/* dòng bấm được khi dùng table của app.js (adapter) */
+tr.s-row-click { cursor: pointer; }
+tr.s-row-click:hover td { background: #F7F9FB; }
+tr.s-row-sel td { background: #E8F1F8; }
+tr.s-row-click:focus-visible { outline: 3px solid var(--s-accent); outline-offset: -3px; }
+
 /* findings + panel */
 .s-split { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
 .s-split > .main { flex: 4 1 600px; min-width: 0; }

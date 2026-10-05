@@ -1,7 +1,7 @@
 // dashboard.js — màn #/run/:id (A5). export render(root, ctx), destroy().
 // Dữ liệu: GET /api/runs (tìm run) + SSE GET /api/run/:id/progress (ctx.sse nếu A4 cung cấp; không có -> poll ctx.api 2 s).
 // Quy tắc: KHÔNG hiện nhãn gold/silver khi status=running; chỉ đếm raw.
-import { h, clear, makeT, fmt, repoName, statusTag, partialNote, banner, kv, segBar, tryApi, errStatus, errText } from './_util.js';
+import { h, clear, makeT, fmt, repoName, statusTag, partialNote, banner, kv, segBar, tryApi, errStatus, errText, getComponents, openSse } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -10,7 +10,7 @@ let S = null; // state của màn hiện tại
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components;
+  const C = getComponents(ctx);
   const t = makeT(ctx);
   S = { root, ctx, C, t, id: ctx.params.id, run: null, lines: [], overview: null, logFilter: 'all', stopping: false, cleaned: null, timer: null, closer: null, dead: false, partialFields: new Set(), onHash: null, onUnload: null };
   clear(root);
@@ -50,12 +50,12 @@ export function destroy() {
 function startStream() {
   const { ctx, id } = S;
   const path = `/api/run/${encodeURIComponent(id)}/progress`;
-  if (typeof ctx.sse === 'function') {
-    try {
-      S.closer = ctx.sse(path, (line) => { if (S && !S.dead) { ingest([typeof line === 'string' ? JSON.parse(line) : line], true); draw(); } });
-      return;
-    } catch (_) { /* rơi về poll */ }
-  }
+  try {
+    const closer = openSse(ctx, path,
+      (line) => { if (S && !S.dead && line && !line.raw) { ingest([typeof line === 'string' ? JSON.parse(line) : line], true); draw(); } },
+      () => { if (S && !S.dead) { S.closer = null; } });
+    if (closer) { S.closer = closer; return; }
+  } catch (_) { /* rơi về poll */ }
   S.timer = setInterval(async () => {
     if (!S || S.dead) return;
     if (status() !== 'running' && !S.stopping) return; // không poll khi run đã kết thúc
@@ -122,7 +122,10 @@ function status() {
   return S.run.status || 'unknown';
 }
 
-function isScratch() { const r = S.run; return /scratch/i.test(r.run_id || '') || /scratch/i.test(r.db || ''); }
+function isScratch() {
+  const r = S.run; const q = (S.ctx && S.ctx.query) || {};
+  return !!(r.smoke || (r.summary && r.summary.smoke) || q.smoke === '1' || /scratch|smoke/i.test(r.run_id || '') || /scratch/i.test(r.db || ''));
+}
 
 // ---------- vẽ ----------
 function draw() {
@@ -285,9 +288,18 @@ async function diagnostics() {
   const r = await tryApi(ctx, '/api/diagnostics');
   if (!S || S.dead) return;
   if (!r.ok) { C.toast(errStatus(r.err) === 501 || errStatus(r.err) === 404 ? 'Gói chẩn đoán chưa được backend hỗ trợ' : errText(r.err), 'warn'); return; }
-  const url = typeof ctx.url === 'function' ? ctx.url('/api/diagnostics') : '/api/diagnostics';
-  C.toast(`Đang tải gói chẩn đoán: ${url}`, 'ok');
-  if (!String(url).startsWith('harness-')) window.open(url, '_blank');
+  // app.js api() trả Response khi content-type không phải JSON (zip) -> tải xuống qua blob, không cần token trên URL
+  if (typeof Response !== 'undefined' && r.data instanceof Response) {
+    try {
+      const blob = await r.data.blob();
+      const a = h('a', { href: URL.createObjectURL(blob), download: `secjit-diagnostics-${S.id}.zip` });
+      document.body.append(a); a.click(); a.remove();
+      C.toast('Đã tải gói chẩn đoán (zip).', 'ok');
+    } catch (e) { C.toast(`Không tải được gói chẩn đoán: ${errText(e)}`, 'error'); }
+    return;
+  }
+  const url = typeof ctx.url === 'function' ? ctx.url('/api/diagnostics') : (r.data && r.data.path) || '/api/diagnostics';
+  C.toast(`Gói chẩn đoán: ${url}`, 'ok');
 }
 
 // Rời màn khi run đang chạy: chỉ cảnh báo (không chặn) — Chạy nền / Dừng / Huỷ (quay lại)

@@ -1,6 +1,6 @@
 // results_commits.js — #/results/:id/commits (A5). GET /api/results/:id/commits?page=&size=
 // Nút "Tính lại Kamei" -> POST /api/results/:id/features (501 -> toast); "Gán nhãn lại" chỉ khi experiment.
-import { h, clear, makeT, fmt, statusTag, partialNote, banner, tryApi, errStatus, errText, qs, resultsHeader, findRun } from './_util.js';
+import { h, clear, makeT, fmt, statusTag, partialNote, banner, tryApi, errStatus, errText, qs, resultsHeader, findRun, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -9,7 +9,7 @@ let S = null;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
+  const C = getComponents(ctx); const t = makeT(ctx);
   const id = ctx.params.id;
   S = { dead: false, ctx, C, t, id, root, page: 1, data: null, run: null, experiment: null, loading: true, err: null, missing: new Set() };
   clear(root);
