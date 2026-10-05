@@ -75,8 +75,18 @@ def cheap_tool_classes() -> dict:
             "bearer": BearerWrapper, "horusec": HorusecWrapper}
 
 
-def parse_tools(spec, allowed: list[str], label: str) -> list[str] | None:
-    """'a,b' -> [a,b] đã validate (giữ thứ tự, bỏ trùng). None -> None. Bỏ tool -> cảnh báo mẫu số."""
+# Tool đắt chạy MẶC ĐỊNH ở mọi run thật (CodeQL tắt qua --codeql 0 là chuẩn, không phải "bỏ tool").
+EXPENSIVE_BASELINE = ["findsecbugs", "sonar"]
+
+
+def expensive_baseline(codeql) -> list[str]:
+    """Tập tool đắt hiệu lực để so cảnh báo: findsecbugs+sonar, thêm codeql CHỈ khi --codeql 1."""
+    return EXPENSIVE_BASELINE + (["codeql"] if codeql == 1 else [])
+
+
+def parse_tools(spec, allowed: list[str], label: str, baseline: list[str] | None = None) -> list[str] | None:
+    """'a,b' -> [a,b] đã validate (giữ thứ tự, bỏ trùng). None -> None.
+    Cảnh báo "đổi mẫu số" CHỈ khi thiếu tool thuộc `baseline` (mặc định = allowed) — tool lẽ ra sẽ chạy."""
     if spec is None:
         return None
     names = spec if isinstance(spec, list) else [t.strip() for t in str(spec).split(",") if t.strip()]
@@ -89,7 +99,7 @@ def parse_tools(spec, allowed: list[str], label: str) -> list[str] | None:
     for n in names:
         if n not in seen:
             seen.append(n)
-    dropped = [t for t in allowed if t not in seen]
+    dropped = [t for t in (baseline if baseline is not None else allowed) if t not in seen]
     if dropped:
         _warn(f"{label}: bỏ tool {dropped} -> đổi MẪU SỐ eligible/κ (RULE_GAN_NHAN §3); "
               "kết quả không so trực tiếp với run đủ tool.")
@@ -396,7 +406,8 @@ def _expensive_tool_names(args) -> list[str] | None:
     if spec is None and legacy is not None:
         _warn("analyze --tools là alias cũ của --expensive-tools (tầng đắt); hãy dùng --expensive-tools")
         spec = legacy
-    return parse_tools(spec, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools")
+    return parse_tools(spec, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools",
+                       baseline=expensive_baseline(getattr(args, "codeql", None)))
 
 
 def cmd_analyze(args):
@@ -517,7 +528,8 @@ def cmd_pipeline(args):
     """Chạy TRỌN pipeline: scan -> select -> analyze -> relabel -> kappa -> export. Dừng khi 1 bước != 0."""
     scope = resolve_scope(args)
     cheap = parse_tools(args.tools, config.CHEAP_TOOLS_ALL, "--tools")
-    expensive = parse_tools(args.expensive_tools, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools")
+    expensive = parse_tools(args.expensive_tools, config.EXPENSIVE_TOOLS_ALL, "--expensive-tools",
+                            baseline=expensive_baseline(args.codeql))
     ns = argparse.Namespace(
         repo=args.repo, max=args.max, branch=args.branch, since=args.since, until=args.until,
         from_sha=args.from_sha, to_sha=args.to_sha, flag_limit=args.flag_limit, no_meta=args.no_meta,
