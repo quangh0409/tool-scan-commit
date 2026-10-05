@@ -73,17 +73,25 @@ def stop_cleanup(run_id: str, rdir: Path, python_exe: str | None = None, timeout
         env["PYTHONPATH"] = src + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         env.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "ORCH_RUN_ID": str(run_id)})
 
-    argv = [python_exe or sys.executable, "-m", "orchestrator.cli", "stop-cleanup", "--run", str(run_id)]
+    argv = [python_exe or sys.executable, "-m", "orchestrator.cli", "stop-cleanup", "--run", str(run_id), "--json"]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, errors="replace",
                            timeout=timeout_s, env=env, cwd=str(_p.REPO_ROOT))
         out = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
         available = not (r.returncode != 0 and ("invalid choice" in out or "unrecognized arguments" in out))
+        result: dict | None = None
         if not available:
             _log(rdir, "stop-cleanup chưa có trong orchestrator.cli (A2) — bỏ qua dọn container")
         else:
             _log(rdir, f"stop-cleanup rc={r.returncode}: {out[-800:]}")
-        return {"rc": r.returncode, "available": available, "out": out[-2000:], "argv": argv}
+            for line in (r.stdout or "").splitlines():       # dòng JSON của --json
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        result = json.loads(line)
+                    except ValueError:
+                        pass
+        return {"rc": r.returncode, "available": available, "out": out[-2000:], "argv": argv, "result": result}
     except subprocess.TimeoutExpired:
         _log(rdir, f"stop-cleanup quá {timeout_s}s")
         return {"rc": 124, "available": True, "out": "timeout", "argv": argv}

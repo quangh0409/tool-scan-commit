@@ -172,7 +172,7 @@ def test_stop_force_kills_and_calls_cleanup(tmp_path, monkeypatch, fake_docker, 
         assert ["taskkill", "/T", "/F", "/PID", "4242"] in fake_docker.calls
         assert res["killed"]["method"] == "taskkill"
     cleanup = res["cleanup"]
-    assert cleanup["argv"] == ["py.exe", "-m", "orchestrator.cli", "stop-cleanup", "--run", "r1"]
+    assert cleanup["argv"] == ["py.exe", "-m", "orchestrator.cli", "stop-cleanup", "--run", "r1", "--json"]
     assert cleanup["available"] is False          # lệnh A2 chưa có → ghi log, không crash
     log = (rdir / "run.log").read_text(encoding="utf-8")
     assert "stop-cleanup chưa có" in log and "stop requested force=True" in log
