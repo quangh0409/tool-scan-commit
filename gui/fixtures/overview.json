@@ -114,5 +114,13 @@
       "CWE-117"
     ]
   },
-  "experiment": null
+  "experiment": null,
+  "cross_tool": {
+    "expensive_tools_seen": [
+      "findsecbugs",
+      "sonar"
+    ],
+    "fsb_sonar_clusters": 2,
+    "multi_tool_clusters": 32
+  }
 }

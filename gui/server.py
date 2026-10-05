@@ -84,6 +84,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"/api/results/(?P<id>[^/]+)/finding/(?P<key>[^/]+)", "results_finding"),
     ("GET", r"/api/results/(?P<id>[^/]+)/commits", "results_commits"),
     ("POST", r"/api/results/(?P<id>[^/]+)/export", "results_export"),
+    ("POST", r"/api/results/(?P<id>[^/]+)/rescan", "results_rescan"),
     ("GET", r"/api/results/(?P<id>[^/]+)/raw", "results_raw"),           # §12 A5: ?path= -> text thô
     ("POST", r"/api/results/(?P<id>[^/]+)/features", "results_features"),
     ("POST", r"/api/results/(?P<id>[^/]+)/relabel", "results_relabel"),

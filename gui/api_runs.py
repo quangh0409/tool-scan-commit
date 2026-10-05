@@ -263,7 +263,7 @@ def run_start(params: dict, body: dict | None = None) -> dict:
     db.parent.mkdir(parents=True, exist_ok=True)
     registry.upsert({"run_id": rid, "repo": prof.get("repo"), "branch": prof.get("branch"), "db": str(db),
                      "export": prof["paths"].get("export") or "", "work": str(work), "profile": str(prof_path),
-                     "started": C.now_iso(), "finished": None, "status": "running", "pid": None,
+                     "started": C.now_iso(), "finished": None, "status": "running", "pid": None, "smoke": smoke,
                      "summary": {"smoke": smoke, "scope": prof.get("scope")}})
     try:
         st = runner.start(prof_path, rid, work)

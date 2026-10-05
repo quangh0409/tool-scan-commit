@@ -259,6 +259,15 @@ class MockApi:
             d["total"] = 0
         return d
 
+    def results_rescan(self, req: Request):
+        self._gate(req)
+        shas = (req.body or {}).get("commits") or []
+        if len(shas) > 1:
+            return (202, {"ok": True, "mode": "background", "pid": 4545, "log": "D:\\secjit\\work\\r\\rescan.log", "commits": shas})
+        return {"ok": True, "mode": "sync", "commits": shas, "infra": False, "rc": 0,
+                "results": [{"commit": s, "tools": ["semgrep"], "findings": 3, "clusters": 2, "errors_cleared": 1,
+                             "infra": None, "reason": "tool_errors"} for s in shas]}
+
     def results_export(self, req: Request):
         self._gate(req)
         fmts = (req.body or {}).get("formats") or ["jsonl"]

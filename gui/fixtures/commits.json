@@ -16,7 +16,8 @@
         "ld": 41,
         "exp": 12
       },
-      "build_error": null
+      "build_error": null,
+      "scan_tool_errors": []
     },
     {
       "commit": "7c1d02aa",
@@ -33,7 +34,16 @@
         "ld": 5,
         "exp": 13
       },
-      "build_error": "Could not resolve ...-SNAPSHOT"
+      "build_error": "Could not resolve ...-SNAPSHOT",
+      "scan_tool_errors": [
+        {
+          "tool": "semgrep",
+          "tier": "cheap",
+          "kind": "tool_error",
+          "msg": "WinError 206: The filename or extension is too long (argv 504 file)",
+          "at": "2026-10-05T11:03:10"
+        }
+      ]
     },
     {
       "commit": "9bdd9a28",
@@ -50,7 +60,8 @@
         "ld": 1,
         "exp": 14
       },
-      "build_error": null
+      "build_error": null,
+      "scan_tool_errors": []
     },
     {
       "commit": "4a9599f4",
@@ -67,7 +78,8 @@
         "ld": 0,
         "exp": 15
       },
-      "build_error": null
+      "build_error": null,
+      "scan_tool_errors": []
     },
     {
       "commit": "0e8a77c1",
@@ -84,7 +96,23 @@
         "ld": 12,
         "exp": 16
       },
-      "build_error": "infra_error: rc 125 Cannot connect to the Docker daemon (về pending, không tính dữ liệu)"
+      "build_error": "infra_error: rc 125 Cannot connect to the Docker daemon (về pending, không tính dữ liệu)",
+      "scan_tool_errors": [
+        {
+          "tool": "horusec",
+          "tier": "cheap",
+          "kind": "tool_timeout",
+          "msg": "quá 600 s",
+          "at": "2026-10-05T11:05:00"
+        },
+        {
+          "tool": "bearer",
+          "tier": "cheap",
+          "kind": "infra_error",
+          "msg": "rc 125 Cannot connect to the Docker daemon",
+          "at": "2026-10-05T11:05:30"
+        }
+      ]
     },
     {
       "commit": "350f6200",
@@ -101,7 +129,8 @@
         "ld": 4,
         "exp": 17
       },
-      "build_error": "tool_timeout: maven quá 1800s (build_status=timeout)"
+      "build_error": "tool_timeout: maven quá 1800s (build_status=timeout)",
+      "scan_tool_errors": []
     }
   ]
 }

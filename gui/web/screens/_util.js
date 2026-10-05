@@ -238,6 +238,34 @@ export function errText(err) {
   return [e.code, e.message || err.message].filter(Boolean).join(' · ') || String(err);
 }
 
+/** TC-15: POST /api/results/:id/rescan {commits[]} — 1 commit đồng bộ, nhiều → nền (202). Trả true nếu đã gửi. */
+export async function rescanCommits(ctx, C, id, shas, { tools, onDone } = {}) {
+  const list = [].concat(shas).filter(Boolean);
+  if (!list.length) return false;
+  C.toast(`Đang quét lại ${list.length} commit (tầng rẻ)…`, 'info');
+  const r = await tryApi(ctx, `/api/results/${encodeURIComponent(id)}/rescan`, { method: 'POST', body: tools ? { commits: list, tools } : { commits: list } });
+  if (!r.ok) {
+    const st = errStatus(r.err);
+    C.toast(st === 501 || st === 404 ? 'Backend chưa hỗ trợ quét lại (cần CLI `rescan` của A2)' : st === 409 ? `Không quét lại được: ${errText(r.err)}` : errText(r.err), st === 409 ? 'error' : 'warn');
+    return false;
+  }
+  const d = r.data || {};
+  if (d.mode === 'background') C.toast(`Quét lại ${list.length} commit chạy nền (pid ${d.pid || '?'}) — xem ${d.log || 'log'}`, 'ok');
+  else if (d.infra) C.toast(`Quét lại gặp infra_error (Docker/đĩa) — ${d.note || ''}`, 'error');
+  else {
+    const res = (d.results || [])[0] || {};
+    C.toast(`Đã quét lại ${fmt.sha(list[0])}: ${fmt.int(res.findings)} finding → ${fmt.int(res.clusters)} cụm · xoá ${fmt.int(res.errors_cleared)} lỗi tool`, 'ok');
+  }
+  if (onDone) onDone(d);
+  return true;
+}
+
+export function toolErrorsTag(errs) {
+  if (!errs || !errs.length) return null;
+  const txt = errs.map((e) => `${e.tool}: ${e.kind}${e.msg ? ' — ' + String(e.msg).slice(0, 120) : ''}`).join('\n');
+  return h('span', { class: 's-tag st-warn', style: { whiteSpace: 'normal' }, title: txt, text: [...new Set(errs.map((e) => e.tool))].join(', ') });
+}
+
 export function qs(obj) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(obj)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v));

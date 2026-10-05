@@ -546,6 +546,10 @@ class RealApi:
     def results_features(self, req: Request):
         return self._delegate(A5_RESULTS, "features", req)
 
+    def results_rescan(self, req: Request):
+        r = self._delegate(A5_RESULTS, "rescan", req)
+        return (202, r) if isinstance(r, dict) and r.get("mode") == "background" else r
+
     def results_relabel(self, req: Request):
         return self._delegate(A5_RESULTS, "relabel", req)
 
