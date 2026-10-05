@@ -22,7 +22,8 @@ async function load(page, ctx) {
     if (dl === 'bad' || dl === 'fix') bannerSlot.append(notice(dl === 'bad' ? 'bad' : 'fix', h('div', {}, h('strong', {}, t('home.docker_down')), ' ', t('home.docker_down_hint')), { action: btn(t('home.open_preflight'), { small: true, href: '#/preflight' }) }));
   };
   drawBanner();
-  refreshPreflight().then(() => { if (alive) drawBanner(); }).catch(() => {});
+  // HM-2: kiểm nhanh docker_daemon mỗi lần mở Home (không chờ preflight đầy đủ 60 s cache)
+  refreshPreflight({ light: true }).then(() => { if (alive) drawBanner(); }).catch(() => {});
 
   const grid = h('div', { class: 'grid-2' });
   const left = h('div', { class: 'stack' });
@@ -94,7 +95,9 @@ function runRow(r, cardEl, ctx) {
   const s = r.summary || {};
   const st = (r.status || 'unknown').toLowerCase();
   const row = h('div', { class: 'run-card', 'data-run': r.run_id });
-  const title = h('div', { class: 'title' }, h('span', {}, fmt.repoShort(r.repo)), h('span', { class: 'tag mono' }, r.branch || 'HEAD'), badgeStatus(st), r.smoke ? h('span', { class: 'badge warn' }, t('home.smoke')) : null);
+  // HM-1: cờ smoke ở CẢ cấp bản ghi (A4 ghi) lẫn summary.smoke (A5 ghi) — đọc cả hai
+  const isSmoke = r.smoke !== undefined && r.smoke !== null ? !!r.smoke : !!(r.summary && r.summary.smoke);
+  const title = h('div', { class: 'title' }, h('span', {}, fmt.repoShort(r.repo)), h('span', { class: 'tag mono' }, r.branch || 'HEAD'), badgeStatus(st), isSmoke ? h('span', { class: 'badge warn' }, t('home.smoke')) : null);
   const metaBits = [];
   if (s.commits !== undefined && s.commits !== null) metaBits.push(t('home.n_commits', { n: fmt.num(s.commits) }));
   metaBits.push(st === 'running' ? t('home.started_at', { d: fmt.date(r.started) }) : t('home.finished_at', { d: fmt.date(r.finished || r.started) }));

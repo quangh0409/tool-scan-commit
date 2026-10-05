@@ -9,6 +9,8 @@ export async function render(root, ctx) {
   const p = wiz.ensure();
   const meta = wiz.meta();
   frame = wiz.frame(root, { step: 5, title: t('w5.title'), lead: t('w5.lead'), backHref: '#/wizard/4', nextLabel: '▶ ' + t('w5.run'), onNext: () => start(false) });
+  frame.next.dataset.test = 'run';   // W5-1
+  if (meta.preflight_skipped) frame.body.append(notice('warn', t('w5.preflight_skipped')));
   const errs = wiz.validate(p);
   if (meta.prefilled_from) frame.body.append(notice('info', t('w5.prefilled', { id: meta.prefilled_from })));
   if (errs.length) frame.body.append(notice('bad', h('div', {}, h('strong', {}, t('w5.invalid')), h('ul', { class: 'dot-list' }, errs.map(e => h('li', {}, e))))));
@@ -42,8 +44,8 @@ export async function render(root, ctx) {
   loadShell(cliBody, p, 'powershell');
 
   // ---- footer phụ ----
-  const saveBtn = btn(t('w5.save_profile') + '…', { onClick: () => saveProfile(p) });
-  const smokeBtn = btn(t('w5.smoke'), { onClick: () => start(true), disabled: errs.length > 0 });
+  const saveBtn = btn(t('w5.save_profile') + '…', { onClick: () => saveProfile(p), test: 'save' });
+  const smokeBtn = btn(t('w5.smoke'), { onClick: () => start(true), disabled: errs.length > 0, test: 'smoke' });
   frame.page.querySelector('.wiz-foot .row').append(saveBtn, smokeBtn);
   frame.next.disabled = errs.length > 0;
 }
@@ -118,7 +120,8 @@ async function start(smoke) {
   const b = frame.next;
   busy(b, true);
   try {
-    const body = { profile: p, smoke: !!smoke, formats: meta.formats || ['jsonl'], notify: meta.notify !== false, resume: !!meta.resume && !smoke, overwrite: !!meta.overwrite && !smoke };
+    if (meta.preflight_skipped) p.preflight_skipped = true;   // PF-2: ghi vào profile -> run_meta.config_snapshot
+    const body = { profile: p, smoke: !!smoke, formats: meta.formats || ['jsonl'], notify: meta.notify !== false, resume: !!meta.resume && !smoke, overwrite: !!meta.overwrite && !smoke, preflight_skipped: !!meta.preflight_skipped };
     const d = await api('/api/run/start', { method: 'POST', body, timeout: 120000 });
     if (!alive) return;
     toast(smoke ? t('w5.smoke_started', { id: d.run_id }) : t('w5.started', { id: d.run_id }), 'ok');

@@ -81,7 +81,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"/api/runs", "runs"),
     ("GET", r"/api/results/(?P<id>[^/]+)/overview", "results_overview"),
     ("GET", r"/api/results/(?P<id>[^/]+)/findings", "results_findings"),
-    ("GET", r"/api/results/(?P<id>[^/]+)/finding/(?P<key>[^/]+)", "results_finding"),
+    ("GET", r"/api/results/(?P<id>[^/]+)/finding/(?P<cluster_key>[^/]+)", "results_finding"),
     ("GET", r"/api/results/(?P<id>[^/]+)/commits", "results_commits"),
     ("POST", r"/api/results/(?P<id>[^/]+)/export", "results_export"),
     ("POST", r"/api/results/(?P<id>[^/]+)/rescan", "results_rescan"),

@@ -14,7 +14,8 @@ from pathlib import Path
 from . import keys
 
 EXPLAIN_KEYS = ("tool_timeout", "infra_error", "skipped")
-_ALL_EXPLAIN = EXPLAIN_KEYS + ("build_failed",)
+# manifest A1 có thêm tool_error[] và cheap_infra_error[] ({commit, tool, tier}); build_failed[] từ selected_commits
+_ALL_EXPLAIN = EXPLAIN_KEYS + ("build_failed", "tool_error", "cheap_infra_error")
 
 
 def _row_key(row: dict, line_window: int | None = None) -> str:
@@ -88,8 +89,19 @@ def _load_db(db: Path) -> dict:
         tabs = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         lw = None
         if "run_meta" in tabs:
-            r = conn.execute("SELECT line_window FROM run_meta ORDER BY id DESC LIMIT 1").fetchone()
-            lw = int(r[0]) if r and r[0] else None
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(run_meta)")}
+            if "line_window" in cols:                                   # schema v1
+                r = conn.execute("SELECT line_window FROM run_meta ORDER BY id DESC LIMIT 1").fetchone()
+                lw = int(r[0]) if r and r[0] else None
+            elif "config_snapshot_json" in cols:                        # schema v2: params_v1 trong snapshot
+                for (snap,) in conn.execute("SELECT config_snapshot_json FROM run_meta ORDER BY id DESC"):
+                    try:
+                        v = ((json.loads(snap) or {}).get("params_v1") or {}).get("line_window")
+                    except (TypeError, ValueError):
+                        v = None
+                    if v:
+                        lw = int(v)
+                        break
         rows: dict[str, dict] = {}
         for repo, cid, fp, grp, s_line, label in conn.execute(
                 "SELECT repo, commit_id, file_path, cwe_group, s_line, label FROM findings"):
@@ -100,6 +112,11 @@ def _load_db(db: Path) -> dict:
             for cid, st in conn.execute("SELECT DISTINCT commit_id, status FROM expensive_runs"):
                 if st in explain:
                     explain[st].add(cid)
+        if "scan_tool_errors" in tabs:
+            for cid, kind in conn.execute("SELECT DISTINCT commit_id, kind FROM scan_tool_errors"):
+                key = "cheap_infra_error" if kind == "infra_error" else ("tool_error" if kind == "tool_error" else kind)
+                if key in explain:
+                    explain[key].add(cid)
         if "selected_commits" in tabs:
             for (cid,) in conn.execute("SELECT commit_id FROM selected_commits WHERE status='build_failed'"):
                 explain["build_failed"].add(cid)
@@ -149,7 +166,7 @@ def compare(a: str | Path, b: str | Path) -> dict:
         "label_changed": [{"cluster_key": k, "a": A["rows"][k]["label"], "b": B["rows"][k]["label"],
                            "commit": A["rows"][k]["commit"], "file_path": A["rows"][k]["file_path"]}
                           for k in changed],
-        "explained_by": {k: explained[k] for k in EXPLAIN_KEYS} | {"build_failed": explained["build_failed"]},
+        "explained_by": {k: explained[k] for k in _ALL_EXPLAIN},
         "unexplained": unexplained,
         "diffs": diff_rows,
         "ok": not unexplained,

@@ -14,6 +14,7 @@ Orchestrator: input = 1 link GitHub → duyệt từng commit → chạy nhiều
 | Luật gán nhãn gold/silver/candidate | `RULE_GAN_NHAN.md` |
 | Tầng đắt (build, CodeQL, FindSecBugs, Sonar) | `EXPENSIVE_TIER_REPORT.md` |
 | Sơ đồ luồng, outline tool | `EXECUTION_FLOW.md`, `TOOL_OUTLINE.md`, `SCAN_MECHANISM.md` |
+| Bản đồ mã nguồn (file → vai trò/hàm/ai gọi, bảng SQLite, CLI, env, gotcha) | `CODE_MAP.md` |
 
 ## Ngôn ngữ
 - **Trả lời người dùng bằng TIẾNG VIỆT.** Commit message cũng tiếng Việt.
