@@ -27,3 +27,6 @@ venv/
 packaging/_version_build.txt
 *.spec.bak
 /release/
+
+# Worktree của agent
+/.claude/worktrees/
