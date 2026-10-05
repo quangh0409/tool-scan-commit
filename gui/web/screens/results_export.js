@@ -1,6 +1,6 @@
 // results_export.js — #/results/:id/export (A5). POST /api/results/:id/export {formats} -> {export_dir, files[]}
 // "Mở thư mục" -> POST /api/open?path= (501 -> toast). Manifest tóm tắt từ overview (hoặc từ response nếu backend trả `manifest`).
-import { h, clear, makeT, fmt, kv, banner, tryApi, errStatus, errText, resultsHeader, findRun } from './_util.js';
+import { h, clear, makeT, fmt, kv, banner, tryApi, errStatus, errText, resultsHeader, findRun, getComponents } from './_util.js';
 
 let tr = (k, fb) => (fb === undefined ? k : fb);
 
@@ -8,7 +8,7 @@ let S = null;
 
 export async function render(root, ctx) {
   tr = makeT(ctx);
-  const C = ctx.components; const t = makeT(ctx);
+  const C = getComponents(ctx); const t = makeT(ctx);
   const id = ctx.params.id;
   S = { dead: false, ctx, C, t, id, root, run: null, ov: null, formats: { jsonl: true, csv: false }, busy: false, result: null };
   clear(root);
