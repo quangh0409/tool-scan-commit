@@ -174,6 +174,16 @@ CREATE TABLE IF NOT EXISTS expensive_runs (
     run_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_exp_commit ON expensive_runs(commit_id);
+
+-- Lỗi tool TẦNG RẺ (TC-15): 1 dòng / (commit, tool) khi tool crash/timeout/hạ tầng — compare giải thích được.
+-- Ghi tự động khi insert_raw_output(fmt='error') (tools/base._guard_scan chèn hàng này).
+CREATE TABLE IF NOT EXISTS scan_tool_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commit_id TEXT, tool TEXT, tier TEXT,
+    kind TEXT CHECK(kind IN ('tool_error','tool_timeout','infra_error')),
+    msg TEXT, at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ste_commit ON scan_tool_errors(commit_id);
 """
 
 # Cột mới của selected_commits cần ALTER khi DB cũ đã tạo bảng (CREATE IF NOT EXISTS không thêm cột).
@@ -457,7 +467,33 @@ class SQLiteStore:
                 "INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) "
                 "VALUES (?,?,?,?,?,datetime('now'))",
                 [commit_id, tool, tier_of(tool), fmt, content])
+            if fmt == "error":   # tool lỗi (tools/base._guard_scan) -> bảng scan_tool_errors
+                try:
+                    rec = json.loads(content) if content else {}
+                except ValueError:
+                    rec = {}
+                kind = rec.get("kind") if rec.get("kind") in ("tool_error", "tool_timeout", "infra_error") \
+                    else "tool_error"
+                self.conn.execute(
+                    "INSERT INTO scan_tool_errors (commit_id,tool,tier,kind,msg,at) VALUES (?,?,?,?,?,?)",
+                    [commit_id, tool, tier_of(tool), kind, (rec.get("msg") or content or "")[:1000], _now()])
             self.conn.commit()
+
+    def scan_tool_errors_rows(self, commit_id: str | None = None) -> list[dict]:
+        q, args = "SELECT commit_id, tool, tier, kind, msg, at FROM scan_tool_errors", []
+        if commit_id:
+            q += " WHERE commit_id=?"; args = [commit_id]
+        cols = ("commit", "tool", "tier", "kind", "msg", "at")
+        return [dict(zip(cols, r)) for r in self.conn.execute(q + " ORDER BY id", args)]
+
+    def tool_errors_all(self) -> list[dict]:
+        """Mọi lỗi tool cả 2 tầng: [{commit, tool, tier, kind, msg}] — manifest tool_error[]/tool_timeout[]."""
+        out = [{k: r[k] for k in ("commit", "tool", "tier", "kind", "msg")} for r in self.scan_tool_errors_rows()]
+        for cid, tool, st, err in self.conn.execute(
+                "SELECT commit_id, tool, status, error FROM expensive_runs "
+                "WHERE status IN ('tool_error','tool_timeout') ORDER BY id"):
+            out.append({"commit": cid, "tool": tool, "tier": "expensive", "kind": st, "msg": (err or "")[:1000]})
+        return out
 
     def raw_output_for_commit(self, commit_id: str) -> list[tuple]:
         """-> [(tool, fmt, content)] để export."""
