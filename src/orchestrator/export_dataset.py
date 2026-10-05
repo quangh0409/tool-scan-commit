@@ -177,6 +177,10 @@ def write_merged(store: SQLiteStore, out_dir: Path) -> dict:
 def build_manifest(store: SQLiteStore, out_dir: Path, counts: dict, profile: dict | None,
                    started: str | None, run_id: str | None = None) -> dict:
     by_status = store.commits_by_expensive_status()
+    errs = store.tool_errors_all()          # cả tầng rẻ (scan_tool_errors) + đắt (expensive_runs)
+
+    def _errs(kind):
+        return [{"commit": e["commit"], "tool": e["tool"], "tier": e["tier"]} for e in errs if e["kind"] == kind]
     return {
         "schema": 1,
         "run_id": run_id or progress.run_id(),
@@ -188,8 +192,10 @@ def build_manifest(store: SQLiteStore, out_dir: Path, counts: dict, profile: dic
         "counts": counts,
         "build_failed": by_status.get("build_failed", []),
         "infra_error": by_status.get("infra_error", []),
-        "tool_timeout": by_status.get("tool_timeout", []),
-        "tool_error": by_status.get("tool_error", []),
+        # {commit, tool, tier} — gồm cả tầng rẻ; compare._shas đọc được cả dạng này
+        "tool_timeout": _errs("tool_timeout"),
+        "tool_error": _errs("tool_error"),
+        "cheap_infra_error": _errs("infra_error"),
         "skipped": by_status.get("skipped", []),
         "orchestrator_git_sha": orchestrator_git_sha(),
         "app_version": app_version(),
