@@ -188,8 +188,8 @@ def parse_items(spec: str | None) -> list[tuple[str, str | None]]:
         kind, _, arg = raw.partition(":")
         # Windows: 'db:D:\x.sqlite' -> partition tại ':' đầu -> kind='db', arg='D:\x.sqlite' (đúng)
         kind = kind.strip().lower()
-        if kind not in ("clone", "pool", "m2", "export", "db"):
-            raise ValueError(f"clean: mục lạ {kind!r}; hợp lệ clone,pool,m2,export:<dir>,db:<path>")
+        if kind not in ("clone", "pool", "m2", "m2volume", "export", "db"):
+            raise ValueError(f"clean: mục lạ {kind!r}; hợp lệ clone,pool,m2,m2volume,export:<dir>,db:<path>")
         if kind in ("export", "db"):
             if not arg.strip():
                 raise ValueError(f"clean: {kind} bắt buộc chỉ rõ đường dẫn ({kind}:<path>) — không xoá theo env mặc định")
@@ -217,6 +217,42 @@ def dir_size(p: Path) -> int:
     except OSError:
         pass
     return total
+
+
+def m2_volume_name() -> str:
+    """Tên named volume cache Maven (khớp tools_expensive/build._m2_cache)."""
+    v = (config.M2_VOLUME or "").strip()
+    return "secjit-m2" if v in ("", "0", "1") else v
+
+
+_SIZE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*([KMGT]?i?B)$", re.IGNORECASE)
+_UNIT = {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "KIB": 2**10, "MIB": 2**20, "GIB": 2**30, "TIB": 2**40}
+
+
+def parse_docker_size(s: str) -> int | None:
+    m = _SIZE_RE.match((s or "").strip())
+    if not m:
+        return None
+    return int(float(m.group(1)) * _UNIT.get(m.group(2).upper(), 1))
+
+
+def docker_volume_info(name: str) -> dict:
+    """{exists, bytes|None} từ `docker volume inspect` + `docker system df -v` (cột SIZE của dòng volume)."""
+    info = {"exists": False, "bytes": None}
+    try:
+        ins = _docker(["volume", "inspect", name], timeout=30)
+        if ins.returncode != 0:
+            return info
+        info["exists"] = True
+        df = _docker(["system", "df", "-v"], timeout=60)
+        for line in (df.stdout or "").splitlines():
+            parts = line.split()
+            if parts and parts[0] == name and len(parts) >= 3:
+                info["bytes"] = parse_docker_size(parts[-1])
+                break
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return info
 
 
 def _lock_alive(db: Path) -> int | None:
@@ -253,6 +289,12 @@ def clean_plan(repo: str, items: list[tuple[str, str | None]], work: Path | None
                 _add(pd, "pool")
         elif kind == "m2":
             _add(work / ".m2cache", "m2")
+        elif kind == "m2volume":
+            name = m2_volume_name()
+            vi = docker_volume_info(name)
+            if vi["exists"]:
+                plan["would_delete"].append({"path": f"docker volume {name}", "bytes": vi["bytes"] or 0,
+                                             "item": "m2volume", "volume": name})
         elif kind == "export":
             _add(Path(arg), "export")
         elif kind == "db":
@@ -279,6 +321,17 @@ def clean_apply(plan: dict) -> dict:
     """Xoá theo plan (bỏ qua nếu plan có errors từ-chối cho mục đó — các mục khác vẫn xoá)."""
     res = {"would_delete": plan["would_delete"], "deleted": [], "errors": list(plan["errors"])}
     for d in plan["would_delete"]:
+        if d.get("volume"):
+            try:
+                rm = _docker(["volume", "rm", d["volume"]], timeout=120)
+                if rm.returncode == 0:
+                    res["deleted"].append(d)
+                else:
+                    res["errors"].append(f"docker volume rm {d['volume']} rc={rm.returncode}: "
+                                         f"{(rm.stderr or '').strip()[:200]} (volume đang được container dùng?)")
+            except (OSError, subprocess.SubprocessError) as e:
+                res["errors"].append(f"docker volume rm {d['volume']}: {e}")
+            continue
         p = Path(d["path"])
         try:
             if p.is_dir():

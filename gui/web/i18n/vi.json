@@ -155,6 +155,7 @@
   "home.prefilled": "Đã nạp profile của run {id}. DB/export được đặt tên theo hôm nay để không ghi đè.",
   "home.no_profile_fallback": "Run này không lưu profile.json — chỉ nạp được repo/nhánh, hãy đi lại các bước.",
 
+  "w1.profile_loaded": "Đã nạp profile “{name}”",
   "w1.title": "Repo nào cần quét?",
   "w1.lead": "Dán link GitHub. Tool đọc danh sách nhánh và pom.xml mà không cần clone.",
   "w1.url": "Link GitHub",
@@ -176,6 +177,7 @@
   "w1.public": "Public",
   "w1.private_repo": "Private",
   "w1.not_java": "Không phải Java/Maven",
+  "w1.java_unknown": "chưa biết Java/Maven (biết sau khi clone nền)",
   "w1.n_commits": "{n} commit",
   "w1.commits_unknown": "số commit biết sau khi clone",
   "w1.default_branch": "mặc định: {b}",

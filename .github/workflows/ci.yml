@@ -20,8 +20,11 @@ jobs:
         with: { python-version: "3.12" }
       - run: python -m pip install ruff pytest
       - run: python -m ruff check src scripts gui runner registry preflight packaging tests
-      - run: python -m pytest -q
+      - run: python -m pytest -q tests -p no:cacheprovider
         # Không chạy Docker trong CI: mọi test dùng mock; test cần docker thật tự skip.
+      - name: verify_run trên fixture (fixture cũ FAIL hợp lý — chỉ để thấy báo cáo)
+        run: PYTHONPATH=src python scripts/verify_run.py --db tests/fixtures/scratch.db
+        continue-on-error: true
 
   build-windows:
     runs-on: windows-latest
@@ -32,7 +35,11 @@ jobs:
         with: { python-version: "3.12" }
       - run: python -m pip install ruff pytest pyinstaller pywebview pythonnet
       - run: python -m ruff check src scripts gui runner registry preflight packaging tests
-      - run: python -m pytest -q
+      - run: python -m pytest -q tests -p no:cacheprovider
+      - name: verify_run trên fixture (fixture cũ FAIL hợp lý)
+        shell: pwsh
+        run: $env:PYTHONPATH="src"; python scripts/verify_run.py --db tests/fixtures/scratch.db
+        continue-on-error: true
       - name: preflight (chỉ đọc, không chặn — runner CI không có Docker)
         run: python -m preflight --json
         continue-on-error: true

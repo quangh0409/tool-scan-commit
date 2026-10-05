@@ -6,6 +6,21 @@ let els = {};
 
 export async function render(root, ctx) {
   alive = true;
+  // §12: #/wizard/1?profile=<name> -> nạp profile đã lưu vào wizard (một lần)
+  if (ctx.query.profile && wiz.meta().loaded_profile !== ctx.query.profile) {
+    try {
+      const d = await api(`/api/profiles/${encodeURIComponent(ctx.query.profile)}`);
+      if (!alive) return;
+      wiz.reset();
+      wiz.set(d.profile);
+      wiz.setMeta({ loaded_profile: ctx.query.profile, prefilled_from: `profile:${ctx.query.profile}`, names_edited: true,
+        out_dir: dirOf((d.profile.paths || {}).db), work_dir: (d.profile.paths || {}).work });
+      toast(t('w1.profile_loaded', { name: ctx.query.profile }), 'ok');
+    } catch (e) {
+      if (!alive) return;
+      toast(`${e.message}${e.hint ? ' — ' + e.hint : ''}`, 'bad', 8000);
+    }
+  }
   const p = wiz.ensure();
   const meta = wiz.meta();
   const frame = wiz.frame(root, { step: 1, title: t('w1.title'), lead: t('w1.lead'), nextHref: '#/wizard/2', nextDisabled: true });
@@ -99,10 +114,11 @@ function drawResult(d, ctx) {
     return;
   }
   // tóm tắt
-  const bits = [d.public === false ? t('w1.private_repo') : t('w1.public'), d.java_maven ? 'Java / Maven' : t('w1.not_java'),
+  const unknownJava = d.java_maven === null || d.java_maven === undefined;   // chưa có clone -> chưa biết
+  const bits = [d.public === false ? t('w1.private_repo') : t('w1.public'), d.java_maven ? 'Java / Maven' : unknownJava ? t('w1.java_unknown') : t('w1.not_java'),
     d.commit_count !== null && d.commit_count !== undefined ? t('w1.n_commits', { n: fmt.num(d.commit_count) }) : t('w1.commits_unknown'),
     d.default_branch ? t('w1.default_branch', { b: d.default_branch }) : null].filter(Boolean);
-  const okLine = notice(d.java_maven ? 'ok' : 'warn', h('div', {}, h('div', {}, h('strong', {}, d.canon || p.repo)), h('div', { class: 'small' }, bits.join(' · '))));
+  const okLine = notice(d.java_maven ? 'ok' : unknownJava ? 'info' : 'warn', h('div', {}, h('div', {}, h('strong', {}, d.canon || p.repo)), h('div', { class: 'small' }, bits.join(' · '))));
 
   // nhánh
   const sel = h('select', { class: 'input', id: 'w1-branch', 'aria-describedby': 'w1-branch-help' });
@@ -120,7 +136,7 @@ function drawResult(d, ctx) {
   // phát hiện
   const det = h('dl', { class: 'kv' });
   const kv = (k, v) => det.append(h('dt', {}, k), h('dd', {}, v));
-  kv('pom.xml', d.java_maven ? '✓ ' + t('w1.found') : '✗ ' + t('w1.not_found'));
+  kv('pom.xml', d.java_maven ? '✓ ' + t('w1.found') : unknownJava ? '? ' + t('w1.java_unknown') : '✗ ' + t('w1.not_found'));
   kv('JDK', d.jdk ? `${d.jdk} · ${t('w1.jdk_auto')}` : '—');
   kv(t('w1.modules'), d.modules !== undefined && d.modules !== null ? fmt.num(d.modules) : '—');
   kv('SecurityConfig', d.security_config_count !== undefined && d.security_config_count !== null ? fmt.num(d.security_config_count) : '—');
@@ -130,12 +146,14 @@ function drawResult(d, ctx) {
   const warns = (d.warnings || []).map(w => notice('warn', w));
   els.result.append(okLine, branchCard, detCard, ...warns);
 
-  if (!d.java_maven) {
+  if (!d.java_maven && !unknownJava) {
     const off = btn(t('w1.disable_expensive'), { small: true, onClick: () => { wiz.patch(x => { x.expensive_tools = []; x.codeql = false; x.include_clean = false; }); toast(t('w1.disabled_expensive'), 'ok'); off.disabled = true; } });
     els.result.append(notice('warn', h('div', {}, h('strong', {}, t('w1.not_java_title')), h('div', { class: 'small' }, t('w1.not_java_body'))), { action: off }));
   }
   updateNext(d);
 }
+
+function dirOf(p) { if (!p) return ''; const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')); return i > 0 ? p.slice(0, i) : ''; }
 
 function updateNext(d) {
   const p = wiz.ensure();

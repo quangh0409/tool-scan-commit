@@ -25,23 +25,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from . import WEB_DIR
+from .errors import ApiError  # noqa: F401 — re-export: `from gui.server import ApiError` vẫn dùng được
 
 SSE_REPLAY_LINES = 200
 SSE_POLL_SEC = 0.5
-
-
-class ApiError(Exception):
-    """Lỗi trả về client dạng JSON. status = mã HTTP."""
-
-    def __init__(self, status: int, code: str, message: str, hint: str = ""):
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.message = message
-        self.hint = hint
-
-    def to_json(self) -> dict:
-        return {"error": {"code": self.code, "message": self.message, "hint": self.hint}}
 
 
 @dataclass
@@ -72,6 +59,13 @@ class Binary:
     filename: str = "download.bin"
 
 
+@dataclass
+class Text:
+    """Trả văn bản thô (vd raw SARIF/XML) — client gọi api(path, {raw:true})."""
+    text: str
+    content_type: str = "text/plain; charset=utf-8"
+
+
 # Mỗi route một dòng: (method, regex, tên phương thức trên api). Nhóm có tên -> Request.params.
 ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"/api/preflight", "preflight"),
@@ -90,6 +84,10 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"/api/results/(?P<id>[^/]+)/finding/(?P<key>[^/]+)", "results_finding"),
     ("GET", r"/api/results/(?P<id>[^/]+)/commits", "results_commits"),
     ("POST", r"/api/results/(?P<id>[^/]+)/export", "results_export"),
+    ("GET", r"/api/results/(?P<id>[^/]+)/raw", "results_raw"),           # §12 A5: ?path= -> text thô
+    ("POST", r"/api/results/(?P<id>[^/]+)/features", "results_features"),
+    ("POST", r"/api/results/(?P<id>[^/]+)/relabel", "results_relabel"),
+    ("POST", r"/api/open", "open_path"),                                   # §12 A5: mở thư mục
     ("POST", r"/api/review/(?P<id>[^/]+)/sample", "review_sample"),
     ("GET", r"/api/review/(?P<id>[^/]+)/next", "review_next"),
     ("POST", r"/api/review/(?P<id>[^/]+)/verdict", "review_verdict"),
@@ -229,6 +227,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                 raise ApiError(501, "not_implemented", f"Backend chưa có {name}()", "Chờ A3/A5 nối")
             body = self._read_body() if want in ("POST", "DELETE") else None
             req = Request(method=want, path=path, params=mo.groupdict(), query=query, body=body)
+            self._last_req = req
             result = fn(req)
             self._send_result(result)
             return
@@ -238,7 +237,30 @@ class GuiHandler(BaseHTTPRequestHandler):
 
     def _send_result(self, result) -> None:
         if isinstance(result, SseFile):
-            self._send_sse(result)
+            accept = self.headers.get("Accept") or ""
+            if "text/event-stream" in accept:
+                self._send_sse(result)
+            elif getattr(self.server.api, "run_progress_json", None) is not None and hasattr(self, "_last_req"):
+                # poll ?since=N -> {lines, next} (A5 api_runs.get_progress_lines)
+                self._send_json(200, self.server.api.run_progress_json(self._last_req))
+            else:
+                # fetch() thường (mock) -> JSON {lines:[...]} 200 dòng cuối
+                lines, _ = _tail_lines(Path(result.path), SSE_REPLAY_LINES)
+                parsed = []
+                for ln in lines:
+                    try:
+                        parsed.append(json.loads(ln))
+                    except json.JSONDecodeError:
+                        continue
+                self._send_json(200, {"lines": parsed, "follow": bool(result.follow)})
+        elif isinstance(result, Text):
+            data = result.text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", result.content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
         elif isinstance(result, Binary):
             self.send_response(200)
             self.send_header("Content-Type", result.content_type)

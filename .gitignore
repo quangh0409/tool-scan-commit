@@ -3,6 +3,13 @@
 /work/
 *.sqlite
 *.parquet
+# SQLite WAL/lock sinh khi mở DB (kể cả fixture tests/fixtures/*.db ở chế độ đọc)
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+*.sqlite.lock
+*.db.lock
 
 # Python
 __pycache__/
@@ -19,3 +26,7 @@ venv/
 /dist/
 packaging/_version_build.txt
 *.spec.bak
+/release/
+
+# Worktree của agent
+/.claude/worktrees/

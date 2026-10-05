@@ -1,4 +1,4 @@
-# Build 2 exe onefile bằng PyInstaller (secjit.spec) và in kích thước + SHA256.
+﻿# Build 2 exe onefile bằng PyInstaller (secjit.spec) và in kích thước + SHA256.
 # Dùng: ./build_exe.ps1 [-Clean] [-Python python]
 # Yêu cầu: pip install pyinstaller pywebview pythonnet (pywebview/pythonnet tuỳ chọn — GUI fallback trình duyệt).
 param(

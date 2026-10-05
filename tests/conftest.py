@@ -25,6 +25,19 @@ def scratch_db(tmp_path):
 
 
 @pytest.fixture
+def smoke_db(tmp_path):
+    """Bản sao DB v2 THẬT (train-ticket 3 commit, đã analyze FSB+Sonar, run_meta 2 tier, kappa,
+    114 findings: silver 97 / candidate 17, 1 commit n_expensive_ok=2) — mỗi test một bản.
+    Export tương ứng (manifest/dataset/commits/SHA256SUMS, không có raw per-commit): tests/fixtures/export_smoke/."""
+    dst = tmp_path / "smoke_v2.sqlite"
+    shutil.copy(FIXTURES / "smoke_v2.db", dst)
+    return dst
+
+
+SMOKE_EXPORT = FIXTURES / "export_smoke"
+
+
+@pytest.fixture
 def orch_env(monkeypatch, tmp_path, scratch_db):
     """Env ORCH_* trỏ vào tmp để import orchestrator.config sạch."""
     monkeypatch.setenv("ORCH_SQLITE", str(scratch_db))

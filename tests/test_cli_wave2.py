@@ -245,3 +245,72 @@ def test_m2_cache_named_volume(orch_env, fake_docker, monkeypatch):
     monkeypatch.setenv("ORCH_M2_VOLUME", "1")
     config.reload()
     assert build._m2_cache() == config.WORK_DIR / ".m2cache"
+
+
+# ----------------------------------------------------------------------------- ORCH_DOCKER_BIN
+def test_docker_run_uses_orch_docker_bin(orch_env, fake_docker, monkeypatch):
+    from orchestrator.tools import base
+    monkeypatch.delenv("ORCH_DOCKER_BIN", raising=False)
+    base.docker_run(["version"])
+    assert fake_docker.calls[-1][0] == "docker"
+    monkeypatch.setenv("ORCH_DOCKER_BIN", "C:/Tools/podman.exe")
+    base.docker_run(["run", "--rm", "alpine", "true"])
+    assert fake_docker.calls[-1][0] == "C:/Tools/podman.exe" and "orch.run=test-run" in " ".join(fake_docker.calls[-1])
+    from orchestrator import config
+    config.reload()
+    assert config.DOCKER_BIN == "C:/Tools/podman.exe" and "ORCH_DOCKER_BIN" in config.effective_env()
+
+
+# ----------------------------------------------------------------------------- clean --items m2volume
+def test_clean_m2volume_dry_run_and_rm(orch_env, fake_docker, tmp_path):
+    from orchestrator import cli, control
+    fake_docker.responses.append((lambda c: c[1:3] == ["volume", "inspect"], (0, "[{}]", "")))
+    fake_docker.responses.append((lambda c: c[1:3] == ["system", "df"],
+                                  (0, "VOLUME NAME   LINKS   SIZE\nother-vol     1       10MB\nsecjit-m2     0       1.5GB\n", "")))
+    assert control.parse_docker_size("1.5GB") == 1_500_000_000 and control.parse_docker_size("2MiB") == 2 * 2**20
+    assert control.parse_docker_size("n/a") is None
+    items = control.parse_items("m2volume")
+    plan = control.clean_plan("https://github.com/o/r", items, work=tmp_path)
+    assert plan["would_delete"] == [{"path": "docker volume secjit-m2", "bytes": 1_500_000_000,
+                                     "item": "m2volume", "volume": "secjit-m2"}]
+    n = len(fake_docker.calls)
+    res = control.clean_apply(plan)
+    assert res["deleted"] == plan["would_delete"] and not res["errors"]
+    assert fake_docker.calls[n] == ["docker", "volume", "rm", "secjit-m2"]
+    # volume không tồn tại -> không có gì để xoá, không lỗi
+    fake_docker.responses.insert(0, (lambda c: c[1:3] == ["volume", "inspect"], (1, "", "no such volume")))
+    assert control.clean_plan("https://github.com/o/r", items, work=tmp_path)["would_delete"] == []
+    # rm thất bại (đang được dùng) -> errors, exit 2
+    fake_docker.responses.pop(0)
+    fake_docker.responses.insert(0, (lambda c: c[1:3] == ["volume", "rm"], (1, "", "volume is in use")))
+    assert cli.main(["clean", "https://github.com/o/r", "--items", "m2volume", "--json"]) == 2
+    assert cli.main(["clean", "https://github.com/o/r", "--items", "m2volume", "--dry-run", "--json"]) == 0
+    with pytest.raises(ValueError):
+        control.parse_items("m2volume:x")
+
+
+# ----------------------------------------------------------------------------- verify subcommand
+def test_verify_subcommand_runs_verify_run(orch_env, scratch_db, tmp_path, capsys):
+    from orchestrator import cli
+    rc = cli.main(["verify", "--db", str(scratch_db), "--json"])
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert {"db", "checks", "n_fail", "pass"} <= set(out) and out["checks"]
+    assert rc == (0 if out["pass"] else 1)
+    assert cli.main(["verify", "--db", str(tmp_path / "nope.sqlite")]) == 1
+    assert cli.main(["verify", "--db", str(scratch_db), "--export", str(tmp_path / "no_export")]) == 1
+
+
+# ----------------------------------------------------------------------------- stats precision từ review.summary
+def test_stats_precision_prefers_review_summary(orch_env, scratch_db, monkeypatch):
+    from orchestrator import review, stats
+    monkeypatch.setattr(review, "summary", lambda store: [
+        {"sample_id": "s1", "precision": {"tp": 5, "fp": 5, "unclear": 0, "n": 10, "point": 0.5, "ci_low": 0.2, "ci_high": 0.8},
+         "neg_precision": None, "kappa_raters": 0.4},
+        {"sample_id": "s2", "precision": {"tp": 9, "fp": 1, "unclear": 1, "point": 0.9, "ci_low": 0.6, "ci_high": 0.98},
+         "neg_precision": {"point": 1.0}, "kappa_raters": 0.7}])
+    ov = stats.overview(scratch_db)
+    p = ov["precision"]
+    assert p["sample_id"] == "s2" and p["n"] == 10 and p["tp"] == 9 and p["kappa_raters"] == 0.7
+    assert p["source"] == "review.summary" and any("kiểm tay" in s for s in ov["limits"])
+    monkeypatch.setattr(review, "summary", lambda store: [])
+    assert stats.overview(scratch_db)["precision"] is None          # không mẫu -> fallback gold_review (không có) -> None

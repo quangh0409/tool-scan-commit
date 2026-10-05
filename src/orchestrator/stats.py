@@ -127,6 +127,39 @@ def _kappa(conn, tabs: set[str], run_id: str | None) -> dict:
     return res
 
 
+def _precision_from_review(db_path: Path) -> dict | None:
+    """Ưu tiên review.summary(store)[-1] (A1): precision theo rater adjudicated, Wilson, kappa rater."""
+    try:
+        from . import review
+    except ImportError:
+        return None
+    summary = getattr(review, "summary", None)
+    if summary is None:
+        return None
+    try:
+        store = SQLiteStore(db_path, readonly=True)
+    except (TypeError, Exception):  # noqa: BLE001 — store cũ / DB khoá -> fallback gold_review thô
+        return None
+    try:
+        rows = summary(store)
+    except Exception:  # noqa: BLE001
+        rows = []
+    finally:
+        store.close()
+    if not rows:
+        return None
+    last = rows[-1]
+    pr = dict(last.get("precision") or {})
+    if not pr:
+        return None
+    pr.setdefault("n", (pr.get("tp") or 0) + (pr.get("fp") or 0))
+    pr["sample_id"] = last.get("sample_id")
+    pr["kappa_raters"] = last.get("kappa_raters")
+    pr["neg_precision"] = last.get("neg_precision")
+    pr["source"] = "review.summary"
+    return pr
+
+
 def _precision(conn, tabs: set[str]) -> dict | None:
     if "gold_review" not in tabs:
         return None
@@ -213,8 +246,9 @@ def overview(db: str | Path, run_id: str | None = None) -> dict:
                     params["line_window"] = int(r[0])
         if exp is None and config.EXPERIMENT:
             exp = config.experiment_info()
+        precision = _precision_from_review(Path(db)) or _precision(conn, tabs)
         ov = {"funnel": _funnel(conn, tabs), "labels": lab, "by_cwe_group": by_cwe,
-              "kappa": _kappa(conn, tabs, run_id), "coverage": cov, "precision": _precision(conn, tabs),
+              "kappa": _kappa(conn, tabs, run_id), "coverage": cov, "precision": precision,
               "limits": [], "params_v1": params, "experiment": exp, "db": str(db), "run_id": run_id}
         ov["limits"] = build_limits(ov)
         return ov

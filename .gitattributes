@@ -1,0 +1,5 @@
+# Fixture test phải giữ NGUYÊN byte: SHA256SUMS trong tests/fixtures/export_smoke/ băm dataset.jsonl/commits.jsonl
+# LF; core.autocrlf=true trên Windows sẽ đổi LF->CRLF lúc checkout và làm verify_run FAIL sai.
+tests/fixtures/** -text
+*.db binary
+*.sqlite binary

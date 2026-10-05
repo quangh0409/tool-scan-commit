@@ -86,12 +86,13 @@ def run_label_args() -> list[str]:
 
 
 def docker_run(args: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
-    """Chạy `docker <args>`, tự bọc `sg docker -c` nếu ORCH_DOCKER_SG=1.
+    """Chạy `docker <args>` (binary từ env ORCH_DOCKER_BIN, mặc định `docker`; vd podman / đường dẫn đầy đủ),
+    tự bọc `sg docker -c` nếu ORCH_DOCKER_SG=1.
     args bắt đầu bằng "run" -> tự chèn `--label orch.run=<run_id>` ngay sau "run"."""
     args = list(args)
     if args and args[0] == "run" and "orch.run=" not in " ".join(args):
         args = [args[0], *run_label_args(), *args[1:]]
-    cmd = ["docker", *args]
+    cmd = [os.environ.get("ORCH_DOCKER_BIN") or "docker", *args]
     if os.environ.get("ORCH_DOCKER_SG") == "1":
         cmd = ["sg", "docker", "-c", " ".join(shlex.quote(c) for c in cmd)]
     return subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)

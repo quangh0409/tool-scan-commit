@@ -13,11 +13,16 @@ export function destroy() { alive = false; }
 
 async function load(page, ctx) {
   clear(page);
-  // Banner Docker tắt
-  const pf = await refreshPreflight();
-  if (!alive) return;
-  const dl = (pf && preflightCache.dockerLevel()) || null;
-  if (dl === 'bad' || dl === 'fix') page.append(notice(dl === 'bad' ? 'bad' : 'fix', h('div', {}, h('strong', {}, t('home.docker_down')), ' ', t('home.docker_down_hint')), { action: btn(t('home.open_preflight'), { small: true, href: '#/preflight' }) }));
+  // Banner Docker tắt — KHÔNG chặn Home chờ preflight thật (docker/network ~1 phút): dùng cache, làm mới nền
+  const bannerSlot = h('div');
+  page.append(bannerSlot);
+  const drawBanner = () => {
+    clear(bannerSlot);
+    const dl = preflightCache.dockerLevel();
+    if (dl === 'bad' || dl === 'fix') bannerSlot.append(notice(dl === 'bad' ? 'bad' : 'fix', h('div', {}, h('strong', {}, t('home.docker_down')), ' ', t('home.docker_down_hint')), { action: btn(t('home.open_preflight'), { small: true, href: '#/preflight' }) }));
+  };
+  drawBanner();
+  refreshPreflight().then(() => { if (alive) drawBanner(); }).catch(() => {});
 
   const grid = h('div', { class: 'grid-2' });
   const left = h('div', { class: 'stack' });
@@ -28,7 +33,7 @@ async function load(page, ctx) {
   left.append(card({ body: h('div', { class: 'stack' },
     btn('＋ ' + t('home.new_scan'), { kind: 'primary', href: '#/wizard/1', onClick: () => { wiz.reset(); } }),
     h('p', { class: 'muted small', style: { margin: 0 } }, t('home.new_scan_hint')),
-    btn('⚙ ' + t('nav.settings'), { href: '#/settings/general' })) }));
+    btn('⚙ ' + t('nav.settings'), { href: '#/settings/docker' })) }));
   const storageCard = card({ title: t('home.storage'), body: skeleton(3, { lines: true }) });
   left.append(storageCard);
 

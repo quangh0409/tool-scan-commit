@@ -53,7 +53,7 @@ ENV_KEYS = [
     "ORCH_SONAR_PORT", "ORCH_STALE_CLAIM_SEC", "ORCH_M2_VOLUME", "ORCH_INFRA_STOP_AFTER",
     "ORCH_RUN_ID", "ORCH_PROGRESS_FILE", "ORCH_STOP_FILE",
     "ORCH_EXPERIMENT", "ORCH_EXPERIMENT_REASON", "ORCH_LINE_WINDOW",
-    "SECJIT_APP_VERSION", "ORCH_DOCKER_SG",
+    "SECJIT_APP_VERSION", "ORCH_DOCKER_SG", "ORCH_DOCKER_BIN",
 ]
 # KHÔNG đưa vào snapshot (bí mật).
 SECRET_ENV_KEYS = {"ORCH_SONAR_ADMIN_PW"}
@@ -79,7 +79,7 @@ def _csv(name: str, default: str) -> list[str]:
 
 def reload() -> None:
     """Đọc LẠI mọi biến từ os.environ và gán vào module (gọi sau khi áp profile.to_env())."""
-    global INFRA_STOP_AFTER
+    global INFRA_STOP_AFTER, DOCKER_BIN
     global APP_VERSION, BUILD_TIMEOUT, CHEAP_INTRA_PARALLEL, CHEAP_TOOLS, CODEQL_RAM_MB, CODEQL_SUITE, CODEQL_THREADS, DATA_DIR
     global EXCLUDE_PATH_PATTERNS, EXPENSIVE_INTRA_PARALLEL, EXPENSIVE_TOOLS, EXPENSIVE_WORKERS, EXPERIMENT, EXPERIMENT_REASON, EXPORT_DIR, FIX_KEYWORDS
     global FLAG_LIMIT, GOLD_ALLOW_1EXP_1CHEAP, GOLD_MIN_EXPENSIVE, JDK_AUTODETECT, JDK_IMAGE_TEMPLATE, KAMEI_ENABLED, LINE_WINDOW, M2_VOLUME
@@ -179,6 +179,8 @@ def reload() -> None:
     # Cache Maven /m2: ''/'0' = bind mount WORK_DIR/.m2cache; '1' = Docker named volume `secjit-m2`
     # (tools_expensive/build._m2_cache tạo nếu chưa có); tên khác = volume tên đó.
     M2_VOLUME = os.environ.get("ORCH_M2_VOLUME", "")
+    # Binary Docker (tools/base.docker_run đọc env trực tiếp): `docker` | `podman` | đường dẫn đầy đủ.
+    DOCKER_BIN = os.environ.get("ORCH_DOCKER_BIN") or "docker"
 
     # --- Run / tiến độ (CONTRACTS §3) ---
     RUN_ID = os.environ.get("ORCH_RUN_ID", "local")
@@ -265,5 +267,6 @@ USE_CODEQL = None
 VOTE_THRESHOLD = None
 WORK_DIR = None
 INFRA_STOP_AFTER = None
+DOCKER_BIN = None
 
 reload()

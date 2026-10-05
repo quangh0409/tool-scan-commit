@@ -157,10 +157,16 @@ def sample(store, seed: int, n_pos: int = 200, n_neg: int = 100, sample_id: str 
     strata.append({"stratum": "verified-clean", "kind": "neg", "n": len(picked_neg), "total": len(negs)})
 
     store.replace_gold_sample(sample_id, rows)
+    n_pos_out = sum(1 for r in rows if r["kind"] == "pos")
+    empty = n_pos_out == 0 and len(picked_neg) == 0
     return {"sample_id": sample_id, "seed": seed,
-            "n_pos": sum(1 for r in rows if r["kind"] == "pos"),
-            "n_neg": len(picked_neg), "strata": strata,
-            "available": {"gold_clusters": len(gold), "verified_clean": len(negs)}}
+            "n_pos": n_pos_out, "n_neg": len(picked_neg), "strata": strata,
+            "available": {"gold_clusters": len(gold), "verified_clean": len(negs)},
+            # GUI hiện empty state thay vì màn chấm trống (DB chưa có gold / verified-clean)
+            "empty": empty,
+            "message": ("Chưa có cụm gold hay commit verified-clean để kiểm tay: cần chạy tầng đắt "
+                        "(≥2 tool đắt đồng thuận → gold; ≥2 tool đắt ok trên commit sạch → verified-clean)."
+                        if empty else None)}
 
 
 # ---------------------------------------------------------------- 2. next_item (MÙ)
