@@ -230,7 +230,13 @@ def test_run_start_smoke_uses_scratch_db(run_a, monkeypatch, secjit_home):
     assert e.value.status == 400
 
 
-def test_diagnostics_zip_fallback(run_a):
+def test_diagnostics_zip_fallback(run_a, monkeypatch):
+    # Ép đường fallback (tự gói zip) dù CLI `diagnostics` của A2 đã tồn tại trên dev
+    from gui import api_common as C
+
+    def _no_cli(*a, **k):
+        raise ApiError(501, "not_supported", "cli diagnostics giả lập vắng mặt", "")
+    monkeypatch.setattr(C, "run_cli", _no_cli)
     res = api_runs.diagnostics({"id": RUN}, None)
     z = zipfile.ZipFile(res["path"])
     names = set(z.namelist())
@@ -283,7 +289,12 @@ def test_review_flow_blind_and_501_when_missing(run_a, fake_review):
 
 
 def test_review_501_without_backend(run_a, monkeypatch):
-    monkeypatch.delitem(sys.modules, "orchestrator.review", raising=False)
+    # Giả lập module vắng mặt dù `orchestrator.review` (A1) đã có trên dev:
+    # sys.modules[...] = None làm `from orchestrator import review` raise ImportError,
+    # và bỏ thuộc tính đã bind trên package để import không lấy từ namespace cũ.
+    import orchestrator
+    monkeypatch.setitem(sys.modules, "orchestrator.review", None)
+    monkeypatch.delattr(orchestrator, "review", raising=False)
     with pytest.raises(ApiError) as e:
         api_review.sample({"id": RUN}, {"seed": 1})
     assert e.value.status == 501
