@@ -120,7 +120,7 @@ async function runEstimate() {
   const p = wiz.ensure();
   drawEstimate(lastEstimate, null, true);
   try {
-    const d = await api('/api/estimate', { method: 'POST', body: { profile: p } });
+    const d = await api('/api/estimate', { method: 'POST', body: { profile: p }, timeout: 180000 });  // repo lớn: đếm có thể > 60 s
     if (!alive || seq !== estSeq) return;
     lastEstimate = d;
     wiz.setMeta({ estimate: d });

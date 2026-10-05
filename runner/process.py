@@ -1,6 +1,6 @@
 """Khởi chạy tiến trình orchestrator tách rời + kiểm pid + attach lại run cũ.
 
-Windows: CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS (đóng GUI không giết run).
+Windows: CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW (đóng GUI không giết run; lệnh con không bật cửa sổ cmd).
 Linux  : start_new_session=True (nhóm tiến trình riêng để killpg).
 Mọi file ghi utf-8. Không raise ra ngoài trừ lỗi profile / không tạo được tiến trình.
 """
@@ -113,8 +113,11 @@ def start(profile_path: str | Path, run_id: str, work_dir: str | Path,
         "env": env,
     }
     if IS_WIN:
+        # CREATE_NO_WINDOW thay DETACHED_PROCESS (lỗi thật 2026-10-05): tiến trình DETACHED không có console
+        # -> MỌI lệnh console con (docker, git, mvn…) tự bật 1 cửa sổ cmd. NO_WINDOW = console ẩn riêng,
+        # con thừa hưởng console ẩn đó -> không bật cửa sổ; vẫn sống độc lập khi đóng GUI.
         popen_kw["creationflags"] = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
-                                     | getattr(subprocess, "DETACHED_PROCESS", 0x8))
+                                     | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
     else:
         popen_kw["start_new_session"] = True
 

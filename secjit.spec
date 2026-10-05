@@ -2,7 +2,6 @@
 """PyInstaller spec: 2 exe onefile dùng chung 1 Analysis.
 
   dist/secjit-scan.exe      console=True  — CLI: --version, --preflight --json, --profile F (headless), -m orchestrator.cli
-  dist/secjit-scan-gui.exe  console=False — mở GUI (pywebview; fallback trình duyệt), không cửa sổ đen
 
 Build: ./build_exe.ps1  (hoặc: python -m PyInstaller --noconfirm --clean secjit.spec)
 """
@@ -80,7 +79,5 @@ exe_cli = EXE(  # noqa: F821
     pyz, a.scripts, a.binaries, a.datas, [],
     name="secjit-scan", console=True, **common,
 )
-exe_gui = EXE(  # noqa: F821
-    pyz, a.scripts, a.binaries, a.datas, [],
-    name="secjit-scan-gui", console=False, **common,
-)
+# 2026-10-05: BỎ secjit-scan-gui.exe (console=False). User chỉ giữ secjit-scan.exe: nhấp đúp mở cửa sổ app
+# + cửa sổ console = log server backend. Bản noconsole còn làm mỗi lệnh docker/git bật 1 cửa sổ cmd.

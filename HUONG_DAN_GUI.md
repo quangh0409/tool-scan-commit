@@ -1,7 +1,7 @@
 # Hướng dẫn sử dụng SecJIT Scan (GUI) — cho người dùng cuối
 
 > Tài liệu này dành cho người **không cần biết Python**. Bạn chỉ cần Windows 10/11, Docker Desktop và file
-> `secjit-scan-gui.exe`. Mọi thao tác trên giao diện đều tương đương **một lệnh dòng lệnh** (mục 10) nên kết quả
+> `secjit-scan.exe`. Mọi thao tác trên giao diện đều tương đương **một lệnh dòng lệnh** (mục 10) nên kết quả
 > có thể chạy lại y hệt trên máy khác. Ảnh minh hoạ trong `docs/img/` chụp từ bản thử nghiệm (một số màn chụp ở chế
 > độ dữ liệu mẫu, con số chỉ để minh hoạ).
 
@@ -58,9 +58,9 @@ Hai "tầng" công cụ:
    rồi chạy `wsl --shutdown` và mở lại Docker Desktop. (Màn Kiểm tra môi trường sẽ đọc đúng số RAM Docker.)
 4. **Cài Git** (https://git-scm.com/download/win) — công cụ dùng Git để đọc lịch sử commit. Nếu quên, màn Kiểm tra
    môi trường sẽ báo *Chặn* kèm lệnh `winget install Git.Git`.
-5. **Tải `secjit-scan-gui.exe`** (và `secjit-scan.exe` bản dòng lệnh, nếu bạn cần tái lập — mục 10) từ trang phát
+5. **Tải `secjit-scan.exe`** (một file duy nhất: vừa là giao diện vừa là dòng lệnh — mục 10) từ trang phát
    hành của dự án, để vào một thư mục ngắn không dấu, ví dụ `D:\secjit\`. Không cần cài Python.
-6. Chạy `secjit-scan-gui.exe`. Lần đầu Windows SmartScreen có thể hỏi — chọn *More info → Run anyway*. Cửa sổ ứng
+6. Nhấp đúp `secjit-scan.exe`. Một cửa sổ console nhỏ hiện cùng cửa sổ app: đó là **server backend**, giữ nguyên, đóng nó là tắt app. Lần đầu Windows SmartScreen có thể hỏi — chọn *More info → Run anyway*. Cửa sổ ứng
    dụng mở ra (nếu máy thiếu WebView2, ứng dụng tự mở trong trình duyệt mặc định).
 
 > Thư mục dữ liệu của ứng dụng (danh sách run, profile, tốc độ đo): `%LOCALAPPDATA%\secjit\`. Kết quả quét để ở

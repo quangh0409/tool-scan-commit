@@ -2,7 +2,7 @@
 # Dùng:  ./scripts/release.ps1 [-Version v0.1.0] [-Force] [-SkipBuild]
 #   -Force     : bỏ kiểm "đang ở dev + working tree sạch"
 #   -SkipBuild : dùng dist/ hiện có (không build lại)
-# Kết quả: release/secjit-scan-<version>/{secjit-scan.exe, secjit-scan-gui.exe, SHA256SUMS.txt, README.md, docs/...}
+# Kết quả: release/secjit-scan-<version>/{secjit-scan.exe, SHA256SUMS.txt, README.md, docs/...}
 param(
     [string]$Version = "",
     [switch]$Force,
@@ -30,7 +30,7 @@ if (-not $SkipBuild) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "build_exe.ps1") -Clean
     if ($LASTEXITCODE -ne 0) { throw "build_exe.ps1 thất bại" }
 }
-foreach ($f in "dist\secjit-scan.exe", "dist\secjit-scan-gui.exe", "dist\SHA256SUMS.txt") {
+foreach ($f in "dist\secjit-scan.exe", "dist\SHA256SUMS.txt") {
     if (-not (Test-Path (Join-Path $Root $f))) { throw "Thiếu $f" }
 }
 
@@ -54,7 +54,7 @@ build: $(Get-Date -Format s)  git: $((git rev-parse HEAD | Out-String).Trim())  
 python: $((python --version | Out-String).Trim())  pyinstaller: $((python -m PyInstaller --version | Out-String).Trim())
 
 Chạy:
-  secjit-scan-gui.exe                 giao diện (WebView2; không có → trình duyệt)
+  secjit-scan.exe                     nhấp đúp: mở giao diện (WebView2; không có → trình duyệt) + cửa sổ console = log server
   secjit-scan.exe --preflight --json  kiểm môi trường (Docker Desktop, image, port, RAM)
   secjit-scan.exe --profile P.json    chạy pipeline headless
   secjit-scan.exe --cli --help        mọi lệnh orchestrator

@@ -355,7 +355,7 @@ def test_estimate_cli_uses_profile(orch_env, tmp_path, monkeypatch, capsys):
     from orchestrator import cli, estimate, profile as prof
     f = tmp_path / "p.json"
     prof.save(_profile(tmp_path), f)
-    monkeypatch.setattr(estimate, "count_commits", lambda p: 27)
+    monkeypatch.setattr(estimate, "count_commits_fast", lambda p: 27)
     monkeypatch.setattr(estimate, "load_speed", lambda path=None: (dict(estimate.DEFAULT_SPEED), "default"))
     assert cli.main(["estimate", "--profile", str(f), "--json"]) == 0
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])

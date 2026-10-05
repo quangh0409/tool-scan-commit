@@ -12,7 +12,7 @@ duyệt từng commit → chạy nhiều tool SAST (Docker) → chuẩn hoá v�
 > - `TOOL_IDEA_CONTEXT.md` — quyết định kiến trúc.
 > - `CODE_MAP.md` — bản đồ mã nguồn: mỗi file 1 dòng (vai trò, hàm public, ai gọi), sơ đồ luồng, bảng SQLite v2, CLI, env, gotcha.
 >
-> **Người dùng cuối (không cần Python):** `HUONG_DAN_GUI.md` — cài Docker/WSL2, chạy `secjit-scan-gui.exe`,
+> **Người dùng cuối (không cần Python):** `HUONG_DAN_GUI.md` — cài Docker/WSL2, chạy `secjit-scan.exe`,
 > Preflight → Wizard 5 bước → Dashboard → Kết quả → Kiểm tay mù → Dọn dẹp, lệnh CLI tương đương, sự cố thường gặp (ảnh ở `docs/img/`).
 
 ---
@@ -40,7 +40,7 @@ duyệt từng commit → chạy nhiều tool SAST (Docker) → chuẩn hoá v�
 - **exe (PyInstaller, build `./build_exe.ps1 -Clean` → `dist/`):**
   - `dist/secjit-scan.exe` (console): `--version` · `--preflight --json` · `--profile F` (chạy pipeline headless)
     · `--cli <subcommand …>` (= `python -m orchestrator.cli …`) · `-m <module> …` (runpy) · `--dev` (GUI cổng cố định).
-  - `dist/secjit-scan-gui.exe` (noconsole, không stdout): `--port N` cố định; fallback mở trình duyệt nếu pywebview lỗi.
+  - Nhấp đúp `dist/secjit-scan.exe` (không tham số): mở cửa sổ app; cửa sổ console đi kèm là log server backend — đóng nó là tắt app. Fallback mở trình duyệt nếu pywebview lỗi.
   Mọi hành động GUI = 1 lệnh CLI `pipeline --profile <profile.json>` chạy nền (`runner.start`), tiến độ qua `progress.jsonl`.
 - **Profile:** `profile.json` (CONTRACTS.md §2) = repo + nhánh + phạm vi + tool + đường dẫn + `params_v1`.
   ```bash

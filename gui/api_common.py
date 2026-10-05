@@ -305,7 +305,8 @@ def spawn_cli(args: list[str], log_path: Path, env: dict | None = None) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     kw: dict = {"stdin": subprocess.DEVNULL, "close_fds": True, "cwd": str(ROOT), "env": env or cli_env()}
     if os.name == "nt":
-        kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+        # CREATE_NO_WINDOW (không DETACHED_PROCESS): tránh mỗi lệnh docker/git con bật 1 cửa sổ cmd
+        kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     else:
         kw["start_new_session"] = True
     with open(log_path, "a", encoding="utf-8") as logf:

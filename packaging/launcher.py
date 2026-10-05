@@ -1,4 +1,4 @@
-"""Entry của exe PyInstaller (secjit-scan.exe console / secjit-scan-gui.exe noconsole).
+"""Entry của exe PyInstaller `secjit-scan.exe` (console). Nhấp đúp = mở GUI + console là log server.
 
 Cách gọi:
   secjit-scan.exe                      -> GUI (gui.__main__: pywebview, fallback trình duyệt); không có gui -> hướng dẫn
@@ -58,6 +58,34 @@ def get_version() -> str:
 APP_VERSION = get_version()
 
 EXIT_OK, EXIT_ARGS, EXIT_RUNTIME, EXIT_STOPPED = 0, 1, 2, 3
+
+
+def _hide_child_consoles() -> None:
+    """Windows: tiến trình KHÔNG có console (exe windowed, hoặc bị khởi động detached) -> mọi lệnh console con
+    (docker, git, mvn) tự bật 1 cửa sổ cmd. Mặc định thêm CREATE_NO_WINDOW cho Popen không tự đặt cờ cửa sổ.
+    Có console (secjit-scan.exe chạy bình thường) thì con dùng chung console đó -> không cần."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.GetConsoleWindow():
+            return
+    except Exception:  # noqa: BLE001
+        return
+    import subprocess
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    window_flags = no_window | getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+    orig_init = subprocess.Popen.__init__
+    if getattr(orig_init, "_secjit_hidden", False):
+        return
+
+    def _init(self, *a, **kw):
+        flags = kw.get("creationflags", 0) or 0
+        if not flags & window_flags:
+            kw["creationflags"] = flags | no_window
+        orig_init(self, *a, **kw)
+    _init._secjit_hidden = True
+    subprocess.Popen.__init__ = _init
 
 
 def _utf8_stdio() -> None:
@@ -306,6 +334,7 @@ def run_gui(argv: list[str], open_browser=None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8_stdio()
+    _hide_child_consoles()
     os.environ.setdefault("SECJIT_APP_VERSION", APP_VERSION)   # orchestrator ghi vào run_meta.app_version
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] in (["--version"], ["-V"]):

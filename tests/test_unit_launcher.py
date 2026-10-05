@@ -167,5 +167,5 @@ def test_headless_runs_and_waits(tmp_path, scratch_db, monkeypatch, capsys):
 @pytest.mark.skipif(sys.platform != "win32", reason="spec/ps1 chỉ build trên Windows")
 def test_spec_and_ps1_exist():
     assert (ROOT / "secjit.spec").exists() and (ROOT / "build_exe.ps1").exists()
-    assert "secjit-scan-gui" in (ROOT / "secjit.spec").read_text(encoding="utf-8")
+    assert 'name="secjit-scan-gui"' not in (ROOT / "secjit.spec").read_text(encoding="utf-8")
     assert not (ROOT / "packaging" / "__init__.py").exists(), "packaging/ không được là gói (trùng PyPI packaging)"

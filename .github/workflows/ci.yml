@@ -58,6 +58,5 @@ jobs:
           name: secjit-scan-windows
           path: |
             dist/secjit-scan.exe
-            dist/secjit-scan-gui.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error

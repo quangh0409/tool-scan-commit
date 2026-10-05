@@ -28,7 +28,7 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller thất bại (exit $LASTEXITCODE)"
 
 # 4. Kích thước + SHA256
 $sums = @()
-foreach ($name in "secjit-scan.exe", "secjit-scan-gui.exe") {
+foreach ($name in "secjit-scan.exe") {
     $f = Join-Path $PSScriptRoot "dist\$name"
     if (-not (Test-Path $f)) { Write-Warning "Thiếu $f"; continue }
     $mb = [math]::Round((Get-Item $f).Length / 1MB, 1)

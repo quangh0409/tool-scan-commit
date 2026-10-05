@@ -131,7 +131,7 @@
 | `registry/locks.py` | `<db>.lock` (cùng định dạng với storage) + single-instance GUI (mutex/lock-file) | `db_lock`, `acquire_db_lock`, `release_db_lock`, `lock_status`, `single_instance`, `DbLocked` | api_common, launcher |
 | `registry/speed.py` | `speed.json` (cheap s/commit, build cold/warm, fsb, sonar, buggy_ratio) đo từ DB/progress, EMA | `load`, `save`, `update_from_db`, `update_from_progress`, `estimate` | estimate, api_runs, results_report |
 | `preflight/__init__.py`, `checks.py`, `fixes.py`, `__main__.py` | 13 kiểm tra (`check_<id>`), 3 mức `ok|fix|warn|bad`, 6 auto-fix (`start_docker`, `pick_port`, `pull_images`, `git_longpaths`, `max_map_count`, `lower_codeql_ram`); `python -m preflight --json` | `run(fix)`, `fix(fix_id)`, `run_check`, `apply` | api_real, launcher `--preflight` |
-| `packaging/launcher.py` | Entry exe: `--version`, `--preflight --json`, `--profile F` (headless), `--cli …`, `-m module`, GUI (fallback trình duyệt, `gui.json` single-instance) | `main`, `run_headless`, `run_gui`, `get_version` | `secjit-scan.exe`, `secjit-scan-gui.exe` |
+| `packaging/launcher.py` | Entry exe: `--version`, `--preflight --json`, `--profile F` (headless), `--cli …`, `-m module`, GUI (fallback trình duyệt, `gui.json` single-instance) | `main`, `run_headless`, `run_gui`, `get_version` | `secjit-scan.exe` |
 | `packaging/version.py` | Phiên bản: `SECJIT_APP_VERSION` → `_version_build.txt` → `git describe` → `dev` | `get_version`, `write_build_file` | launcher, build_exe.ps1, run_meta.app_version |
 
 ## 4. `scripts/` và `tests/`

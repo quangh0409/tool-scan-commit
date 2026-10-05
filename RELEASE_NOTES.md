@@ -52,7 +52,7 @@
 
 ### Đóng gói (A3)
 - `./build_exe.ps1 -Clean` → `dist/secjit-scan.exe` (console: `--version`, `--preflight --json`, `--profile F`, `--cli …`,
-  `-m <module>`, `--dev`) và `dist/secjit-scan-gui.exe` (noconsole, `--port`); `scripts/release.ps1` gom exe + SHA256SUMS
+  `-m <module>`, `--dev`) (nhấp đúp = GUI + console log server; đã bỏ `secjit-scan-gui.exe` vì bản noconsole làm bật nhiều cửa sổ cmd); `scripts/release.ps1` gom exe + SHA256SUMS
   + README + docs (kể cả file này). Fallback trình duyệt nếu WebView2/pywebview lỗi. `pick_dir` có nhập tay (không tkinter).
 
 ### Docs

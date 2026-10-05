@@ -57,7 +57,7 @@ def test_start_builds_argv_env_and_files(profile_file, tmp_path, monkeypatch):
     assert fp.kw["stdin"] is subprocess.DEVNULL and fp.kw["close_fds"] is True
     assert fp.kw["stderr"] is subprocess.STDOUT
     if os.name == "nt":
-        assert fp.kw["creationflags"] == (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+        assert fp.kw["creationflags"] == (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
         assert "start_new_session" not in fp.kw
     else:
         assert fp.kw["start_new_session"] is True

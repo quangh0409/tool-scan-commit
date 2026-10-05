@@ -67,7 +67,7 @@ python3 -m orchestrator.cli estimate --profile P.json --json     # ước tính 
 dist/secjit-scan.exe --profile P.json                 # headless, = pipeline --profile
 dist/secjit-scan.exe --cli stats --db D.sqlite --json # mọi subcommand qua --cli
 dist/secjit-scan.exe --preflight --json | --version | -m orchestrator.cli compare --a A --b B
-dist/secjit-scan-gui.exe --port 8765                  # GUI noconsole (không stdout -> port cố định)
+dist/secjit-scan.exe                                   # nhấp đúp: GUI + console = log server
 ```
 **Nghiệm thu tái lập:** `verify --db <db> --export <export>` cho từng run, rồi `compare --a <exportA> --b <exportB> --format md`
 (README §2.2, METHODOLOGY §6).

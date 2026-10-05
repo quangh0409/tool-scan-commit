@@ -64,8 +64,26 @@ def load_speed(path: str | Path | None = None) -> tuple[dict, str]:
     return sp, ("measured" if measured and sp.get("samples", 0) > 0 else "default")
 
 
+def count_commits_fast(p: dict) -> int:
+    """Đếm NHANH (2 lệnh git, không đọc diff từng commit, không fetch): commit trong phạm vi trừ merge.
+
+    Lỗi thật 2026-10-05: `count_commits` đầy đủ chạy `get_commit_info` cho MỌI commit (3 lệnh git/commit)
+    + `git fetch` mỗi lần -> toàn lịch sử train-ticket 46 s, repo lớn > 60 s -> GUI báo "Backend không trả lời".
+    Sai số so với lọc thô đầy đủ: chưa trừ commit chỉ đụng file nhị phân / commit khổng lồ (khi FLAG_LIMIT=1)
+    -> ước tính hơi cao (an toàn cho ước lượng thời gian/đĩa).
+    """
+    sc = p["scope"]
+    mx = sc.get("max") if sc.get("mode") == "count" else 0
+    repo_dir = enm.clone_or_update(p["repo"], fetch=False)
+    rev = enm.resolve_rev(repo_dir, p.get("branch") or None)
+    ids = enm.list_commits(repo_dir, mx, rev, since=sc.get("since"), until=sc.get("until"),
+                           from_sha=sc.get("from_sha"), to_sha=sc.get("to_sha"))
+    merges = set(enm._git(repo_dir, "log", "--merges", "--pretty=%H", rev).split()) if ids else set()
+    return sum(1 for c in ids if c not in merges)
+
+
 def count_commits(p: dict) -> int:
-    """Số commit sau lọc thô theo scope profile (clone nếu cần)."""
+    """Số commit sau lọc thô ĐẦY ĐỦ theo scope profile (clone nếu cần). Chậm: dùng cho CLI `--exact`."""
     sc = p["scope"]
     mx = sc.get("max") if sc.get("mode") == "count" else 0
     n = 0
@@ -82,8 +100,10 @@ def estimate(p: dict, n_commits: int | None = None, speed: dict | None = None,
     if speed is None:
         speed, speed_source = load_speed()
     speed_source = speed_source or "default"
+    approx = False
     if n_commits is None:
-        n_commits = count_commits(p)
+        n_commits = count_commits_fast(p)
+        approx = True
 
     ratio = speed.get("buggy_ratio", DEFAULT_BUGGY_RATIO)
     buggy = int(round(n_commits * ratio))
@@ -114,6 +134,8 @@ def estimate(p: dict, n_commits: int | None = None, speed: dict | None = None,
         "expensive_minutes_warm": int(round(warm_min)),
         "disk_gb": round(disk, 1),
         "speed_source": speed_source,
+        # approx=True: đếm nhanh (trừ merge, CHƯA trừ commit nhị phân/khổng lồ) -> số thật có thể thấp hơn chút
+        "approx": approx,
         "detail": {"n_expensive": n_expensive, "expensive_tools": exp_tools, "buggy_ratio": ratio,
                    "workers": {"scan": w_scan, "expensive": w_exp}, "speed": speed},
     }

@@ -75,6 +75,29 @@ def test_launcher_does_not_block_itself_with_real_mutex(monkeypatch):
         seen["argv"] = argv
         return 0
     monkeypatch.setattr(gm, "main", fake_gui_main)
-    monkeypatch.setattr(sys, "argv", ["secjit-scan-gui.exe"])
+    monkeypatch.setattr(sys, "argv", ["secjit-scan.exe"])
     assert launcher.run_gui([]) == 0
     assert "--allow-multi" in seen["argv"]
+
+
+def test_estimate_fast_count_excludes_merges_and_is_fast(orch_env, tmp_path, monkeypatch):
+    """Ước lượng không còn đọc diff từng commit (46 s -> <1 s trên train-ticket): đếm git log trừ merge."""
+    import subprocess as sp
+    repo = tmp_path / "work" / "o__r"
+    repo.mkdir(parents=True)
+    g = lambda *a: sp.check_output(["git", "-C", str(repo), *a], text=True)  # noqa: E731
+    g("init", "-q", "-b", "main"); g("config", "user.email", "t@t"); g("config", "user.name", "t")
+    for i in range(5):
+        (repo / f"f{i}.txt").write_text(str(i), encoding="utf-8"); g("add", "."); g("commit", "-qm", f"c{i}")
+    g("checkout", "-qb", "side"); (repo / "s.txt").write_text("s", encoding="utf-8"); g("add", "."); g("commit", "-qm", "side")
+    g("checkout", "-q", "main"); g("merge", "-q", "--no-ff", "side", "-m", "merge")
+    g("remote", "add", "origin", "https://github.com/o/r")
+    from orchestrator import estimate, enumerate_commits as enm
+    called = []
+    monkeypatch.setattr(enm, "get_commit_info", lambda *a, **k: called.append(1))
+    p = {"repo": "https://github.com/o/r", "branch": "main",
+         "scope": {"mode": "all", "max": None}, "workers": {"scan": 1, "expensive": 1},
+         "expensive_tools": ["findsecbugs", "sonar"], "include_clean": True}
+    res = estimate.estimate(p, speed=dict(estimate.DEFAULT_SPEED), speed_source="default")
+    assert res["commits_after_filter"] == 6 and res["approx"] is True   # 5 + side, trừ 1 merge
+    assert called == []                                                   # không đọc diff từng commit
