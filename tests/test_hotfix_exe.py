@@ -44,3 +44,10 @@ def test_git_sha_fallback_to_app_version(monkeypatch):
     assert base.orchestrator_git_sha() == "733576d"
     monkeypatch.setenv("SECJIT_APP_VERSION", "dev")
     assert base.orchestrator_git_sha() is None
+
+
+def test_killed_container_is_infra_error():
+    from orchestrator.tools import base
+    assert base.classify_failure(137, "") == "infra_error"
+    assert base.classify_failure(143, "") == "infra_error"
+    assert base.classify_failure(1, "[ERROR] Failed to execute goal ... compilation failure") is None

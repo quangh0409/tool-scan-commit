@@ -411,6 +411,10 @@ export function skeleton(n = 3, { lines = false } = {}) {
 /** badgeLabel(label, evidence): evidence = {consensus, validation} hoặc chuỗi validation. */
 export function badgeLabel(label, evidence) {
   const lab = (label || (evidence && evidence.consensus) || 'candidate').toLowerCase();
+  if (lab === 'verified-clean' || lab === 'cheap-clean') {  // nhãn âm: wording CONTRACTS/RULE_GAN_NHAN §6.1
+    const txt = lab === 'verified-clean' ? t('badge.verified_clean') : t('badge.cheap_clean');
+    return h('span', { class: `badge ${lab}`, title: txt }, txt);
+  }
   const val = typeof evidence === 'string' ? evidence : (evidence && evidence.validation) || 'unreviewed';
   let suffix;
   if (val === 'TP') suffix = '✓ TP';

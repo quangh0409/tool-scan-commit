@@ -21,7 +21,6 @@
   "pager.prev": "Trang trước",
   "pager.next": "Trang sau",
   "dialog.type_to_confirm": "Gõ đúng chuỗi {text} để xác nhận",
-
   "nav.home": "Trang chủ",
   "nav.new": "Scan mới",
   "nav.settings": "Cài đặt",
@@ -33,13 +32,11 @@
   "route.results": "Kết quả",
   "route.review": "Kiểm tay GOLD",
   "route.settings": "Cài đặt",
-
   "docker.running": "Docker đang chạy",
   "docker.down": "Docker tắt",
   "docker.fix": "Docker cần sửa",
   "docker.unknown": "Docker …",
   "docker.recheck": "Nhấn để kiểm tra lại môi trường",
-
   "err.timeout": "Hết thời gian chờ phản hồi",
   "err.timeout_hint": "Backend không trả lời. Kiểm tra server còn chạy không rồi Thử lại.",
   "err.network": "Không kết nối được backend",
@@ -47,7 +44,6 @@
   "err.unknown": "Lỗi không xác định",
   "err.no_route": "Không có màn hình cho đường dẫn “{path}”",
   "err.screen_missing": "Màn “{screen}” chưa có (file screens/{screen}.js chưa được tạo)",
-
   "level.ok": "OK",
   "level.fix": "Tự sửa được",
   "level.warn": "Cảnh báo",
@@ -65,7 +61,6 @@
   "badge.title.TP": "Người kiểm xác nhận đúng (TP)",
   "badge.title.FP": "Người kiểm xác nhận sai (FP)",
   "badge.title.unclear": "Người kiểm chưa kết luận",
-
   "v.schema": "schema phải = 1",
   "v.repo_empty": "repo trống",
   "v.mode": "scope.mode phải thuộc time/count/sha/all",
@@ -85,14 +80,12 @@
   "v.workers_min": "workers.{k} phải ≥ 1",
   "v.db_empty": "paths.db trống — chọn thư mục kết quả ở bước 4",
   "v.experiment": "params_v1 khác cấu hình v1 nhưng chưa bật chế độ thí nghiệm kèm lý do (≥ 10 ký tự)",
-
   "wiz.steps": "Các bước",
   "wiz.step1": "Repo",
   "wiz.step2": "Phạm vi",
   "wiz.step3": "Tool",
   "wiz.step4": "Lưu",
   "wiz.step5": "Xem lại",
-
   "pf.title": "Máy của bạn đã sẵn sàng chưa?",
   "pf.lead": "Tool cần Docker Desktop để chạy các công cụ quét. Mục màu cam tool tự sửa được, mục đỏ cần bạn làm theo hướng dẫn, mục vàng không chặn.",
   "pf.docker_ram": "RAM Docker",
@@ -128,7 +121,6 @@
   "pf.fix.git_longpaths": "Bật longpaths",
   "pf.fix.pull_images": "Tải / build image",
   "pf.fix.generic": "Sửa",
-
   "home.new_scan": "Scan mới",
   "home.new_scan_hint": "Nhập link GitHub, chọn nhánh và tool — 5 bước.",
   "home.storage": "Dung lượng",
@@ -161,7 +153,6 @@
   "home.rerun_fresh_note": "Bạn sẽ đi lại 5 bước wizard từ đầu.",
   "home.prefilled": "Đã nạp profile của run {id}. DB/export được đặt tên theo hôm nay để không ghi đè.",
   "home.no_profile_fallback": "Run này không lưu profile.json — chỉ nạp được repo/nhánh, hãy đi lại các bước.",
-
   "w1.profile_loaded": "Đã nạp profile “{name}”",
   "w1.title": "Repo nào cần quét?",
   "w1.lead": "Dán link GitHub. Tool đọc danh sách nhánh và pom.xml mà không cần clone.",
@@ -206,7 +197,6 @@
   "w1.not_java_body": "Tầng đắt (FindSecBugs, Sonar, CodeQL) cần build Maven nên sẽ không chạy được; commit sạch sẽ không thể thành verified-clean. Nên tắt tầng đắt để tránh nhãn âm giả.",
   "w1.disable_expensive": "Tắt tầng đắt",
   "w1.disabled_expensive": "Đã tắt tầng đắt và bỏ commit sạch khỏi hàng đợi đắt.",
-
   "w2.title": "Quét những commit nào?",
   "w2.lead": "Chọn một cách. Con số ước tính cập nhật ngay bên dưới để bạn không chọn quá tay.",
   "w2.no_repo": "Chưa có repo. Quay lại bước 1 để nhập link.",
@@ -245,7 +235,6 @@
   "w2.speed_measured": "Từ tốc độ đo trên máy này ({s} s / commit tầng rẻ). Tầng đắt tính ở bước sau.",
   "w2.speed_default": "Dùng tốc độ mặc định (chưa có số đo trên máy này). Lần chạy đầu sẽ hiệu chỉnh.",
   "w2.hist": "Mật độ commit theo tháng (đậm = trong khoảng đã chọn)",
-
   "w3.title": "Dùng tool nào, bao nhiêu luồng?",
   "w3.lead": "Tầng rẻ quét trên diff, không cần build. Tầng đắt build Maven từng commit rồi mới phân tích nên tốn thời gian hơn nhiều.",
   "w3.cheap_tier": "Tầng rẻ · trên diff",
@@ -306,7 +295,6 @@
   "w3.exp_off": "Tắt, về v1",
   "w3.exp_on_done": "Đã bật chế độ thí nghiệm — tham số có thể sửa.",
   "w3.exp_off_done": "Đã về cấu hình v1.",
-
   "w4.title": "Lưu kết quả ở đâu?",
   "w4.lead": "Mỗi repo và nhánh có một bộ dữ liệu riêng, tool tự đặt tên để không trộn lẫn.",
   "w4.out_dir": "Thư mục kết quả",
@@ -348,7 +336,6 @@
   "w4.overwrite_body": "{name} sẽ bị đổi thành .bak rồi tạo mới. Mọi nhãn và kiểm tay trong đó không còn trong kết quả.",
   "w4.overwrite_note": "Nên chọn “Đổi tên” nếu không chắc.",
   "w4.overwrite_set": "Đã chọn ghi đè — xác nhận lần nữa khi Chạy.",
-
   "w5.title": "Xem lại và chạy",
   "w5.lead": "Kiểm tra lại cấu hình. Nên “Chạy thử 3 commit” trước để bắt lỗi môi trường rồi mới cam kết vài giờ.",
   "w5.prefilled": "Cấu hình được nạp từ run {id} (Chạy lại cùng profile).",
@@ -387,5 +374,7 @@
   "w5.run": "Chạy",
   "w5.smoke_started": "Đã bắt đầu chạy thử ({id}) vào DB scratch",
   "w5.started": "Đã bắt đầu run {id}",
-  "w5.overwrite_confirm": "Xác nhận lần cuối: ghi đè {db}?"
+  "w5.overwrite_confirm": "Xác nhận lần cuối: ghi đè {db}?",
+  "badge.verified_clean": "verified-clean · 2 tool đắt không báo (không phải chứng minh sạch)",
+  "badge.cheap_clean": "cheap-clean · chỉ tool rẻ không báo"
 }

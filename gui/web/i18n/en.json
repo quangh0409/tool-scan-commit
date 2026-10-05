@@ -374,5 +374,7 @@
   "w5.run": "Run",
   "w5.smoke_started": "",
   "w5.started": "",
-  "w5.overwrite_confirm": ""
+  "w5.overwrite_confirm": "",
+  "badge.verified_clean": "verified-clean · 2 expensive tools silent (not proof of absence)",
+  "badge.cheap_clean": "cheap-clean · only cheap tools silent"
 }

@@ -42,7 +42,9 @@ INFRA_PATTERNS = (
     "docker: command not found",
     "executable file not found",   # 127 từ shell khi thiếu `docker`
 )
-INFRA_RCS = (125, 127)
+# 125/127: docker không chạy được lệnh; 137/143: container bị giết (SIGKILL/SIGTERM — `docker rm -f`
+# khi dừng tay, hoặc OOM do thiếu RAM Docker). Đều là hạ tầng, KHÔNG phải lỗi dữ liệu (2026-10-05).
+INFRA_RCS = (125, 127, 137, 143)
 _INFRA_RE = re.compile("|".join(re.escape(p) for p in INFRA_PATTERNS), re.IGNORECASE)
 
 
