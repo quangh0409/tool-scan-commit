@@ -83,7 +83,8 @@ p { margin: 0 0 8px; }
 .nav .nav-sep { height: 1px; background: rgba(255,255,255,.1); margin: 8px 4px; }
 .nav .nav-foot { margin-top: auto; font-size: 12px; opacity: .6; padding: 8px 12px; }
 body[data-chrome="wizard"] .nav, body[data-chrome="bare"] .nav { display: none; }
-.main { flex: 1; min-width: 0; padding: 28px 32px 48px; overflow: auto; }
+/* .app-main (không dùng tên .main: màn A5 có `.s-split > .main` riêng) */
+.app-main { flex: 1; min-width: 0; padding: 28px 32px 48px; overflow: auto; }
 .page { max-width: 1040px; margin: 0 auto; }
 .page-narrow { max-width: 860px; margin: 0 auto; }
 .grid-2 { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
@@ -152,8 +153,8 @@ body[data-chrome="wizard"] .nav, body[data-chrome="bare"] .nav { display: none; 
 .notice.bad { background: var(--bad-bg); border-color: #F2B5AF; color: var(--bad); }
 .notice .grow { flex: 1; }
 .banner { border-radius: 0; margin: -28px -32px 24px; padding: 12px 32px; }
-.errorbox { padding: 18px; border-radius: var(--radius); background: var(--bad-bg); border: 1px solid #F2B5AF; color: var(--bad); display: flex; gap: 14px; align-items: flex-start; }
-.errorbox .grow { flex: 1; }
+.errorbox { padding: 18px; border-radius: var(--radius); background: var(--bad-bg); border: 1px solid #F2B5AF; color: var(--bad); display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; min-width: 0; }
+.errorbox .grow { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
 .errorbox .hint { color: #7A2A22; font-size: 13px; margin-top: 4px; }
 .empty { text-align: center; padding: 48px 24px; color: var(--text-2); }
 .empty .ico { font-size: 36px; margin-bottom: 8px; }
@@ -254,6 +255,12 @@ pre.code { margin: 0; padding: 12px 14px; background: #10202F; color: #DCE6F0; b
 .toast.bad { background: var(--bad); }
 .toast button { background: transparent; border: 0; color: inherit; font: inherit; min-width: 36px; min-height: 36px; cursor: pointer; }
 .dlg-back { position: fixed; inset: 0; background: rgba(20, 34, 51, .45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+dialog.dlg-native { border: 0; padding: 0; background: transparent; max-width: 560px; width: calc(100% - 32px); }
+dialog.dlg-native::backdrop { background: rgba(20, 34, 51, .45); }
+dialog.dlg-native .dlg { max-width: none; }
+.tbl tr.clickable { cursor: pointer; }
+.tbl tr.clickable:focus-visible td { outline: 2px solid #7FC4FF; outline-offset: -2px; }
+.tbl tr.sel td { background: var(--accent-soft); }
 .dlg { background: #fff; border-radius: var(--radius); width: 100%; max-width: 520px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
 .dlg .card-b { max-height: 60vh; overflow: auto; }
 .dlg .card-f { justify-content: flex-end; }
@@ -270,4 +277,4 @@ pre.code { margin: 0; padding: 12px 14px; background: #10202F; color: #DCE6F0; b
 .copy-wrap { position: relative; }
 .copy-wrap pre.code { padding-right: 120px; }
 .copy-wrap .btn { position: absolute; top: 8px; right: 8px; }
-@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } .nav { width: 180px; } .main { padding: 20px; } }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } .nav { width: 180px; } .app-main { padding: 20px; } }

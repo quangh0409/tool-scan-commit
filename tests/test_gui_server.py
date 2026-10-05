@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
 import urllib.error
@@ -186,7 +187,8 @@ def test_profiles_crud(server):
 
 def test_sse_replays_lines_and_ends(server):
     url = f"http://127.0.0.1:{server.port}/api/run/r-20261005-A/progress?t={server.token}"
-    with urllib.request.urlopen(url, timeout=10) as r:
+    req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})   # như EventSource
+    with urllib.request.urlopen(req, timeout=10) as r:
         assert r.headers["Content-Type"].startswith("text/event-stream")
         text = r.read().decode("utf-8")        # mock follow=False -> gửi `event: end` rồi đóng
     datas = [ln[6:] for ln in text.split("\n") if ln.startswith("data: ") and ln != "data: {}"]
@@ -194,6 +196,169 @@ def test_sse_replays_lines_and_ends(server):
     first = json.loads(datas[0])
     assert first["phase"] == "scan" and first["event"] == "start" and first["total"] == 27
     assert "event: end" in text
+
+
+def test_progress_json_fallback_for_fetch(server):
+    """fetch() thường (dashboard A5 lần đầu) -> JSON {lines:[...]} thay vì stream."""
+    st, body, hdr = call(server, "/api/run/r-20261005-A/progress")
+    assert st == 200 and hdr["Content-Type"].startswith("application/json")
+    assert len(body["lines"]) == 8 and body["lines"][0]["phase"] == "scan" and body["follow"] is False
+
+
+def test_a5_extra_routes_mock(server):
+    st, body, hdr = call(server, "/api/results/r-20261005-A/raw?path=313886e9/semgrep.json", raw=True)
+    assert st == 200 and hdr["Content-Type"].startswith("text/plain") and b"raw" in body
+    st, body, _ = call(server, "/api/results/r-20261005-A/raw?path=missing.json")
+    assert st == 404
+    st, body, _ = call(server, "/api/open", method="POST", body={"path": "D:\\x"})
+    assert st == 200 and body["ok"]
+    st, body, _ = call(server, "/api/results/r-20261005-A/features", method="POST", body={})
+    assert st == 200
+    st, body, _ = call(server, "/api/results/r-20261005-A/relabel", method="POST", body={})
+    assert st == 200
+
+
+# ---------------------------------------------------------------- api_real (A3 thật, runner giả)
+
+@pytest.fixture
+def real_env(monkeypatch, tmp_path):
+    # registry.home() đọc env mỗi lần gọi -> chỉ cần set env, KHÔNG pop module (làm hỏng monkeypatch của test khác)
+    monkeypatch.setenv("SECJIT_HOME", str(tmp_path / "home"))
+    return tmp_path
+
+
+def test_real_delegate_501_when_a5_module_missing(real_env):
+    from gui.api_real import RealApi
+    from gui.server import Request
+    api = RealApi()
+    with pytest.raises(Exception) as ei:
+        api.results_overview(Request("GET", "/api/results/x/overview", {"id": "x"}, {}, None))
+    assert getattr(ei.value, "status", None) == 501 and "gui.api_results.results_overview" in ei.value.hint
+
+
+def test_real_run_start_smoke_and_registry(real_env, monkeypatch, scratch_db):
+    """run/start: smoke -> scope count 3 + DB scratch trong SECJIT_HOME; registry có bản ghi running; stop tạo stop-file."""
+    import runner
+    from gui.api_real import RealApi
+    from gui.server import Request
+    started = {}
+
+    def fake_start(profile_path, run_id, work_dir, python_exe=None, extra_env=None):
+        started.update(profile_path=str(profile_path), run_id=run_id, work=str(work_dir), extra_env=extra_env)
+        rdir = runner.run_dir(work_dir, run_id)
+        rdir.mkdir(parents=True, exist_ok=True)
+        (rdir / "pid").write_text("99999999", encoding="utf-8")
+        return {"pid": 99999999, "log": str(rdir / "run.log"), "progress": str(rdir / "progress.jsonl"),
+                "stop": str(rdir / "stop"), "run_dir": str(rdir), "meta": "", "argv": []}
+    monkeypatch.setattr(runner, "start", fake_start)
+    monkeypatch.setattr(runner, "alive", lambda pid: False)
+
+    api = RealApi()
+    work = real_env / "work"
+    prof = dict(PROFILE, paths={"db": str(scratch_db), "export": str(real_env / "exp"), "work": str(work)})
+    res = api.run_start(Request("POST", "/api/run/start", {}, {}, {"profile": prof, "smoke": True, "formats": ["jsonl", "csv"]}))
+    assert res["run_id"].startswith("smoke-") and res["pid"] == 99999999
+    saved = json.loads(Path(started["profile_path"]).read_text(encoding="utf-8"))
+    assert saved["scope"]["max"] == 3 and saved["scope"]["mode"] == "count"
+    assert str(real_env / "home" / "scratch") in saved["paths"]["db"] and "_smoke_" in saved["paths"]["db"]
+    assert started["extra_env"]["ORCH_SONAR_PORT"] == "9100"
+    import registry
+    rec = registry.get(res["run_id"])
+    assert rec and rec["status"] == "running" and rec["smoke"] is True and rec["summary"]["formats"] == ["jsonl", "csv"]
+    # GET /api/run/{id}/profile đọc đúng file đã ghi
+    got = api.run_profile(Request("GET", "", {"id": res["run_id"]}, {}, None))
+    assert got["profile"]["scope"]["max"] == 3
+    # progress: file chưa có -> SseFile trỏ đúng đường dẫn
+    sse = api.run_progress(Request("GET", "", {"id": res["run_id"]}, {}, None))
+    assert str(sse.path).endswith(os.path.join(res["run_id"], "progress.jsonl"))
+    # stop (pid giả đã chết) -> stop-file + registry stopped
+    out = api.run_stop(Request("POST", "", {"id": res["run_id"]}, {}, {"force": False}))
+    assert out["ok"] and (work / res["run_id"] / "stop").exists()
+    assert registry.get(res["run_id"])["status"] == "stopped"
+
+
+def test_real_run_start_rejects_invalid_and_locked(real_env, monkeypatch, scratch_db):
+    from gui.api_real import RealApi
+    from gui.server import Request
+    api = RealApi()
+    bad = dict(PROFILE, scope={"mode": "count", "max": 0}, paths={"db": str(scratch_db), "export": "", "work": str(real_env)})
+    with pytest.raises(Exception) as ei:
+        api.run_start(Request("POST", "", {}, {}, {"profile": bad}))
+    assert ei.value.status == 400
+    # DB bị pid sống (chính pytest) giữ -> 409
+    import registry
+    registry.locks.acquire_db_lock(scratch_db, "other-run", pid=os.getpid())
+    ok = dict(PROFILE, paths={"db": str(scratch_db), "export": "", "work": str(real_env)})
+    with pytest.raises(Exception) as ei:
+        api.run_start(Request("POST", "", {}, {}, {"profile": ok}))
+    assert ei.value.status == 409 and ei.value.code == "db_locked"
+
+
+def test_real_preflight_fix_polls_until_done(real_env, monkeypatch):
+    import preflight
+    from gui.api_real import RealApi
+    from gui.server import Request
+    import time as _t
+
+    def slow_fix(fix_id, ctx=None, progress_cb=None):
+        for i in range(1, 4):
+            progress_cb({"fix_id": fix_id, "step": i, "total": 3, "msg": f"bước {i}"})
+            _t.sleep(0.3)
+        return {"ok": True, "detail": "xong", "port": 9100}
+    monkeypatch.setattr(preflight, "fix", slow_fix)
+    api = RealApi()
+    seen = []
+    for _ in range(20):
+        r = api.preflight_fix(Request("POST", "", {}, {}, {"fix_id": "pick_port"}))
+        seen.append(r)
+        if r["done"]:
+            break
+        _t.sleep(0.2)
+    assert seen[-1]["ok"] and seen[-1]["done"] and seen[-1]["progress"] == 100
+    assert any(not s["done"] for s in seen)
+    assert api._settings()["sonar_port"] == 9100     # pick_port ok -> lưu settings
+
+
+# ---------------------------------------------------------------- repo_probe
+
+def test_repo_probe_parse_and_pom():
+    from gui import repo_probe
+    out = ("ref: refs/heads/trunk\tHEAD\n"
+           "abc\tHEAD\n"
+           "abc\trefs/heads/trunk\n"
+           "def\trefs/heads/dev\n"
+           "123\trefs/tags/v1.0\n"
+           "456\trefs/tags/v1.0^{}\n")
+    d, b, tg = repo_probe.parse_ls_remote(out)
+    assert d == "trunk" and b == ["trunk", "dev"] and tg == ["v1.0"]
+    pom = ("<project><parent><artifactId>spring-boot-starter-parent</artifactId><version>2.3.12.RELEASE</version></parent>"
+           "<properties><java.version>1.8</java.version></properties>"
+           "<modules><module>a</module><module>b</module></modules>"
+           "<dependencies><dependency><artifactId>x</artifactId><version>1.0-SNAPSHOT</version></dependency></dependencies></project>")
+    info = repo_probe.parse_pom(pom)
+    assert info["jdk"] == 8 and info["modules"] == 2 and info["snapshot_risk"] is True and info["spring_boot"] == "2.3.12.RELEASE"
+
+
+def test_repo_probe_check_uses_git_env_and_pat(monkeypatch):
+    import subprocess as sp
+    from gui import repo_probe
+    calls = []
+
+    def fake_run(args, **kw):
+        calls.append((args, kw))
+        return sp.CompletedProcess(args, 0, "ref: refs/heads/master\tHEAD\nabc\trefs/heads/master\n", "")
+    monkeypatch.setattr(sp, "run", fake_run)
+    r = repo_probe.check("https://github.com/FudanSELab/train-ticket/tree/master", pat="ghp_secret", work_dir=None)
+    assert r["canon"] == "https://github.com/FudanSELab/train-ticket" and r["slug"] == "FudanSELab__train-ticket"
+    assert r["default_branch"] == "master" and r["java_maven"] is None and r["warnings"]
+    args, kw = calls[0]
+    assert kw["env"]["GIT_TERMINAL_PROMPT"] == "0" and "--symref" in args
+    assert "ghp_secret" not in " ".join(args) and any(a.startswith("http.extraheader=AUTHORIZATION: basic ") for a in args)
+    # 404 -> ApiError 404
+    monkeypatch.setattr(sp, "run", lambda args, **kw: sp.CompletedProcess(args, 128, "", "remote: Repository not found."))
+    with pytest.raises(Exception) as ei:
+        repo_probe.check("https://github.com/x/y")
+    assert ei.value.status == 404
 
 
 def test_static_index_and_assets(server):

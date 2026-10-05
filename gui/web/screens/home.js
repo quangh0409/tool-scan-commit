@@ -28,7 +28,7 @@ async function load(page, ctx) {
   left.append(card({ body: h('div', { class: 'stack' },
     btn('＋ ' + t('home.new_scan'), { kind: 'primary', href: '#/wizard/1', onClick: () => { wiz.reset(); } }),
     h('p', { class: 'muted small', style: { margin: 0 } }, t('home.new_scan_hint')),
-    btn('⚙ ' + t('nav.settings'), { href: '#/settings/general' })) }));
+    btn('⚙ ' + t('nav.settings'), { href: '#/settings/docker' })) }));
   const storageCard = card({ title: t('home.storage'), body: skeleton(3, { lines: true }) });
   left.append(storageCard);
 

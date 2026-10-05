@@ -30,7 +30,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=0, help="Cổng (mặc định: ngẫu nhiên)")
     ap.add_argument("--no-browser", action="store_true", help="Không tự mở trình duyệt/cửa sổ")
     ap.add_argument("--verbose", action="store_true", help="In log HTTP")
+    ap.add_argument("--allow-multi", action="store_true", help="Bỏ qua khoá single-instance (QA)")
     a = ap.parse_args(argv)
+
+    # Single-instance (CONTRACTS §7, TC-13): mutex `secjit-gui` qua registry.locks; mock/QA bỏ qua.
+    instance = None
+    if not a.mock and not a.allow_multi:
+        try:
+            from registry import locks as _locks  # A3
+            instance = _locks.single_instance("secjit-gui")
+            if not getattr(instance, "acquired", True):
+                print("SecJIT Scan đang mở ở cửa sổ khác. Đóng cửa sổ đó hoặc chạy với --allow-multi.",
+                      file=sys.stderr, flush=True)
+                return 2
+        except ImportError:
+            instance = None
 
     server = GuiServer(build_api(a.mock), port=a.port, verbose=a.verbose)
     server.serve_in_thread()
@@ -59,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
         pass
     finally:
         server.stop()
+        if instance is not None:
+            try:
+                instance.release()
+            except Exception:  # noqa: BLE001
+                pass
     return 0
 
 
