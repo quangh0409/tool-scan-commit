@@ -51,7 +51,8 @@ def _decode(row: dict) -> dict:
 
 
 def _w(path: Path, obj) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    # newline="\n": byte giống nhau trên Windows/Linux -> SHA256SUMS của run_manifest.json tái lập được
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2, default=str)
 
 

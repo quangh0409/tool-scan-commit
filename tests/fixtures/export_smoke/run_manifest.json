@@ -1,0 +1,315 @@
+{
+  "schema": 1,
+  "run_id": "smoke1",
+  "db": "D:\\Master's thesis\\tool-scan-commit\\data\\smoke.sqlite",
+  "export_dir": "D:\\Master's thesis\\tool-scan-commit\\data\\export_smoke",
+  "profile": null,
+  "run_meta": [
+    {
+      "id": 1,
+      "run_id": "smoke1",
+      "tier": "scan",
+      "started_at": "2026-10-05T07:39:28",
+      "finished_at": null,
+      "repo": "https://github.com/FudanSELab/train-ticket",
+      "branch": null,
+      "scope_json": {
+        "mode": "count",
+        "max": 3
+      },
+      "config_snapshot_json": {
+        "max_commits": 3,
+        "vote_threshold": 2,
+        "line_window": 3
+      },
+      "tools_json": [
+        {
+          "name": "gitleaks",
+          "version": "v8.30.1",
+          "digest": "zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+        },
+        {
+          "name": "trufflehog",
+          "version": "trufflehog 3.97.9",
+          "digest": "trufflesecurity/trufflehog@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db"
+        },
+        {
+          "name": "semgrep",
+          "version": "1.178.0",
+          "digest": "semgrep/semgrep@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b"
+        },
+        {
+          "name": "bearer",
+          "version": "bearer version 2.1.1, build 600e551c56e61c063e425190d49fe0a960103a48",
+          "digest": "bearer/bearer@sha256:054087ae504572bea7385f33c6a278571d03919fdc05f042c4de827b84ba2210"
+        },
+        {
+          "name": "horusec",
+          "version": "Version:           20.10.12",
+          "digest": "horuszup/horusec-cli@sha256:829fce13916bfd1d61103be1e927d98f1ffbdfc4e78192b1fc1c1f8a4054e347"
+        }
+      ],
+      "orchestrator_git_sha": null,
+      "app_version": "dev",
+      "experiment": 0,
+      "reason": null
+    },
+    {
+      "id": 2,
+      "run_id": "smoke1",
+      "tier": "analyze",
+      "started_at": "2026-10-05T07:42:16",
+      "finished_at": "2026-10-05 01:00:02",
+      "repo": "https://github.com/FudanSELab/train-ticket",
+      "branch": null,
+      "scope_json": {
+        "pending": 1,
+        "dry_run": false
+      },
+      "config_snapshot_json": {
+        "expensive_workers": 1,
+        "expensive_tools": [
+          "findsecbugs",
+          "sonar"
+        ],
+        "use_codeql": 0,
+        "intra_parallel": 0,
+        "maven_image": "maven:3.9-eclipse-temurin-8",
+        "jdk_autodetect": 1,
+        "maven_goals": "-B clean package -DskipTests",
+        "build_timeout": 1800,
+        "codeql_suite": "codeql/java-queries:codeql-suites/java-code-scanning.qls",
+        "codeql_ram_mb": 20000,
+        "sonar_port": 9100,
+        "stale_claim_sec": 7200,
+        "line_window": 3,
+        "gold_min_expensive": 2,
+        "gold_allow_1exp_1cheap": 1,
+        "silver_min_cheap": 2,
+        "noise_cwe": [
+          "CWE-117"
+        ],
+        "env": {
+          "ORCH_DATA_DIR": "D:\\Master's thesis\\tool-scan-commit\\data",
+          "ORCH_EXPENSIVE_WORKERS": "1",
+          "ORCH_EXPORT_DIR": "D:\\Master's thesis\\tool-scan-commit\\data\\export_smoke",
+          "ORCH_PROGRESS_FILE": "D:\\Master's thesis\\tool-scan-commit\\work\\smoke\\progress.jsonl",
+          "ORCH_RUN_ID": "smoke1",
+          "ORCH_SONAR_PORT": "9100",
+          "ORCH_SQLITE": "D:\\Master's thesis\\tool-scan-commit\\data\\smoke.sqlite",
+          "ORCH_STOP_FILE": "D:\\Master's thesis\\tool-scan-commit\\work\\smoke\\stop",
+          "ORCH_WORK_DIR": "D:\\Master's thesis\\tool-scan-commit\\work"
+        }
+      },
+      "tools_json": [
+        {
+          "name": "findsecbugs",
+          "image": "orch-findsecbugs:1.14.0",
+          "version": null,
+          "digest": "orch-findsecbugs@sha256:d58fd1cb26db701030e4fd80d0a09d4aa84bed8677890dc667e387de37367226"
+        },
+        {
+          "name": "sonar",
+          "image": "sonarqube:lts-community",
+          "version": null,
+          "digest": "sonarqube@sha256:f709975ab31d2d08f5a3ae2dc73a31ee011afc8cf28845082c17c55d45df9df5"
+        },
+        {
+          "name": "maven",
+          "image": "maven:3.9-eclipse-temurin-8",
+          "version": null,
+          "digest": "maven@sha256:0f402712b7a469189cfea5ec69cdcadcb32b22aaf1ea62777ab925c3d8470175"
+        }
+      ],
+      "orchestrator_git_sha": "75e1d13ead9cccfd13a2c8066fdbb59bce9d70dd",
+      "app_version": "dev",
+      "experiment": 0,
+      "reason": null
+    }
+  ],
+  "kappa": [
+    {
+      "run_id": "smoke1",
+      "scope": "category",
+      "grp": "code",
+      "value": -0.25,
+      "n": 25,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "category",
+      "grp": "info",
+      "value": -0.25,
+      "n": 15,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "category",
+      "grp": "other",
+      "value": -0.25,
+      "n": 73,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "cwe_group",
+      "grp": "CWE-346",
+      "value": -0.25,
+      "n": 45,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "cwe_group",
+      "grp": "CWE-915",
+      "value": -0.25,
+      "n": 15,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "cwe_group",
+      "grp": "CWE-942",
+      "value": -0.25,
+      "n": 11,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "cwe_group",
+      "grp": "csrf",
+      "value": -0.25,
+      "n": 22,
+      "computed_at": "2026-10-05 01:00:05"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "cwe_group",
+      "grp": "sensitive_exposure",
+      "value": -0.25,
+      "n": 15,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "bearer|findsecbugs",
+      "value": -0.2486,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "bearer|horusec",
+      "value": -0.0813,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "bearer|semgrep",
+      "value": -0.0813,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "bearer|sonar",
+      "value": -0.6028,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "findsecbugs|horusec",
+      "value": -0.1414,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "findsecbugs|semgrep",
+      "value": -0.1414,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "findsecbugs|sonar",
+      "value": -0.7385,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "horusec|semgrep",
+      "value": 1.0,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "horusec|sonar",
+      "value": -0.4304,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "pair",
+      "grp": "semgrep|sonar",
+      "value": -0.4304,
+      "n": 113,
+      "computed_at": "2026-10-05 01:00:06"
+    },
+    {
+      "run_id": "smoke1",
+      "scope": "total",
+      "grp": "",
+      "value": -0.244,
+      "n": 114,
+      "computed_at": "2026-10-05 01:00:05"
+    }
+  ],
+  "counts": {
+    "gold": 0,
+    "silver": 97,
+    "candidate": 17,
+    "verified_clean": 0,
+    "cheap_clean": 2,
+    "commits": 3,
+    "clusters": 114
+  },
+  "build_failed": [],
+  "infra_error": [],
+  "tool_timeout": [],
+  "tool_error": [],
+  "skipped": [],
+  "orchestrator_git_sha": "146b351990f431e313b2432849603eb923438ca3",
+  "app_version": "dev",
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.0",
+  "docker_version": "29.1.3",
+  "started": "2026-10-05T08:00:06",
+  "finished": "2026-10-05T08:00:07",
+  "params_v1": {
+    "line_window": 3,
+    "gold_min_expensive": 2,
+    "gold_allow_1exp_1cheap": 1,
+    "silver_min_cheap": 2,
+    "noise_cwe": [
+      "CWE-117"
+    ]
+  },
+  "experiment": null
+}
