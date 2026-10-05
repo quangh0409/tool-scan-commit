@@ -5,10 +5,13 @@
 // B3 POST /api/review/:id/close {sample_id} -> precision + CI, Cohen κ 2 rater, bất đồng -> adjudication (rater "adjudicated").
 import { h, clear, makeT, fmt, banner, tryApi, errText, qs, field, resultsHeader, findRun } from './_util.js';
 
+let tr = (k, fb) => (fb === undefined ? k : fb);
+
 let S = null;
 const SS_KEY = (id) => `secjit.review.${id}`;
 
 export async function render(root, ctx) {
+  tr = makeT(ctx);
   const C = ctx.components; const t = makeT(ctx);
   const id = ctx.params.id;
   let saved = {};
@@ -64,13 +67,13 @@ function stepSample() {
       if (!r.ok) { C.toast(errText(r.err), 'error'); draw(); return; }
       S.sample = r.data; S.sampleId = r.data.sample_id; persist(); draw();
     } })));
-  const parts = [C.card(form, { title: 'Bước 1 · Tạo mẫu' })];
+  const parts = [C.card(form, { title: tr('rv.title.buoc_1_tao_mau', 'Bước 1 · Tạo mẫu') })];
   if (S.sample) {
     const st = S.sample.strata;
     parts.push(C.card(h('div', { class: 's-stack' },
       h('div', { class: 's-row' }, h('strong', { class: 's-mono', text: S.sample.sample_id }), h('span', { class: 's-tag', text: `n_pos ${fmt.int(S.sample.n_pos)}` }), h('span', { class: 's-tag', text: `n_neg ${fmt.int(S.sample.n_neg)}` })),
-      st === undefined ? h('div', { class: 's-note warn', text: 'Backend chưa trả strata[].' }) : C.table({ columns: [{ key: 'stratum', label: 'Tầng (CWE-group|tier hoặc neg|mức)' }, { key: 'n', label: 'n', render: (r) => fmt.int(r.n) }], rows: st }),
-      h('div', { class: 's-row' }, C.btn({ label: 'Bắt đầu chấm mù →', kind: 'primary', onClick: () => { S.step = 2; draw(); } }))), { title: 'Mẫu đã tạo' }));
+      st === undefined ? h('div', { class: 's-note warn', text: tr('rv.note.backend_chua_tra_strata', 'Backend chưa trả strata[].') }) : C.table({ columns: [{ key: 'stratum', label: tr('rv.btn.tang_cwe_group_tier_hoac_neg', 'Tầng (CWE-group|tier hoặc neg|mức)') }, { key: 'n', label: 'n', render: (r) => fmt.int(r.n) }], rows: st }),
+      h('div', { class: 's-row' }, C.btn({ label: tr('rv.btn.bat_dau_cham_mu', 'Bắt đầu chấm mù →'), kind: 'primary', onClick: () => { S.step = 2; draw(); } }))), { title: tr('rv.title.mau_da_tao', 'Mẫu đã tạo') }));
   }
   return h('div', { class: 's-stack' }, parts);
 }
@@ -85,14 +88,14 @@ function stepRate() {
     field('Người chấm (rater)', raterIn, 'lưu trong phiên; mỗi rater chấm độc lập'),
     h('span', { class: 's-spacer' }),
     S.item && S.item.remaining !== undefined ? h('span', { class: 's-sub', text: `còn ${fmt.int(S.item.remaining)} mục` }) : null,
-    C.btn({ label: 'Đóng phiên →', small: true, onClick: () => { S.step = 3; draw(); closeSession(); } }),
-    C.btn({ label: 'Tạo mẫu khác', small: true, onClick: () => { S.step = 1; S.sample = null; S.sampleId = null; S.item = null; persist(); draw(); } }));
+    C.btn({ label: tr('rv.btn.dong_phien', 'Đóng phiên →'), small: true, onClick: () => { S.step = 3; draw(); closeSession(); } }),
+    C.btn({ label: tr('rv.btn.tao_mau_khac', 'Tạo mẫu khác'), small: true, onClick: () => { S.step = 1; S.sample = null; S.sampleId = null; S.item = null; persist(); draw(); } }));
   const parts = [C.card(head)];
-  if (!S.rater) { parts.push(C.empty('Nhập tên rater để bắt đầu.')); return h('div', { class: 's-stack' }, parts); }
-  if (S.itemLoading) { parts.push(C.card(C.skeleton(8), { title: 'Mục đang chấm' })); return h('div', { class: 's-stack' }, parts); }
+  if (!S.rater) { parts.push(C.empty(tr('rv.empty.nhap_ten_rater_de_bat_dau', 'Nhập tên rater để bắt đầu.'))); return h('div', { class: 's-stack' }, parts); }
+  if (S.itemLoading) { parts.push(C.card(C.skeleton(8), { title: tr('rv.title.muc_dang_cham', 'Mục đang chấm') })); return h('div', { class: 's-stack' }, parts); }
   if (S.itemErr) { parts.push(C.errorBox(S.itemErr, nextItem)); return h('div', { class: 's-stack' }, parts); }
   const it = S.item;
-  if (!it || !it.cluster_key) { parts.push(C.card(h('div', { class: 's-stack' }, h('p', { text: 'Rater này đã chấm hết mẫu.' }), h('div', { class: 's-row' }, C.btn({ label: 'Đóng phiên · xem precision', kind: 'primary', onClick: () => { S.step = 3; draw(); closeSession(); } }))), { title: 'Xong' })); return h('div', { class: 's-stack' }, parts); }
+  if (!it || !it.cluster_key) { parts.push(C.card(h('div', { class: 's-stack' }, h('p', { text: tr('rv.text.rater_nay_da_cham_het_mau', 'Rater này đã chấm hết mẫu.') }), h('div', { class: 's-row' }, C.btn({ label: tr('rv.btn.dong_phien_xem_precision', 'Đóng phiên · xem precision'), kind: 'primary', onClick: () => { S.step = 3; draw(); closeSession(); } }))), { title: tr('rv.title.xong', 'Xong') })); return h('div', { class: 's-stack' }, parts); }
 
   const flagged = new Set((it.diff_lines || []).filter((d) => d.kind === 'flag').map((d) => d.n));
   const code = h('div', { class: 's-review-code', role: 'region', 'aria-label': 'Mã nguồn' });
@@ -102,16 +105,16 @@ function stepRate() {
   noteIn.addEventListener('input', () => { S.note = noteIn.value; });
   S.noteEl = noteIn;
   const body = h('div', { class: 's-stack' },
-    h('div', { class: 's-row' }, h('strong', { text: 'Tuyên bố: ' }), h('span', { class: 's-tag', text: it.cwe_claim || '—' }), h('span', { class: 's-sub s-mono', text: `cụm ${String(it.cluster_key).slice(0, 8)}…` })),
+    h('div', { class: 's-row' }, h('strong', { text: tr('rv.text.tuyen_bo', 'Tuyên bố: ') }), h('span', { class: 's-tag', text: it.cwe_claim || '—' }), h('span', { class: 's-sub s-mono', text: `cụm ${String(it.cluster_key).slice(0, 8)}…` })),
     code,
     h('div', { class: 's-small', text: 'Dòng tô vàng = vị trí tool báo. Câu hỏi: tại dòng đó có thật lỗi thuộc CWE nêu trên không?' }),
-    it.messages_anon && it.messages_anon.length ? h('div', { class: 's-stack', style: { gap: '4px' } }, h('strong', { class: 's-small', text: 'Thông điệp (ẩn danh tool):' }), h('ul', { class: 's-list s-small' }, it.messages_anon.map((m) => h('li', { text: m })))) : null,
+    it.messages_anon && it.messages_anon.length ? h('div', { class: 's-stack', style: { gap: '4px' } }, h('strong', { class: 's-small', text: tr('rv.text.thong_diep_an_danh_tool', 'Thông điệp (ẩn danh tool):') }), h('ul', { class: 's-list s-small' }, it.messages_anon.map((m) => h('li', { text: m })))) : null,
     field('Ghi chú', noteIn),
     h('div', { class: 's-verdicts' },
-      C.btn({ label: 'Đúng (TP) · phím T', kind: 'primary', disabled: S.submitting, onClick: () => verdict('TP') }),
-      C.btn({ label: 'Sai (FP) · phím F', kind: 'danger', disabled: S.submitting, onClick: () => verdict('FP') }),
-      C.btn({ label: 'Không rõ · phím U', disabled: S.submitting, onClick: () => verdict('unclear') })));
-  parts.push(C.card(body, { title: 'Mục đang chấm (mù)' }));
+      C.btn({ label: tr('rv.btn.dung_tp_phim_t', 'Đúng (TP) · phím T'), kind: 'primary', disabled: S.submitting, onClick: () => verdict('TP') }),
+      C.btn({ label: tr('rv.btn.sai_fp_phim_f', 'Sai (FP) · phím F'), kind: 'danger', disabled: S.submitting, onClick: () => verdict('FP') }),
+      C.btn({ label: tr('rv.btn.khong_ro_phim_u', 'Không rõ · phím U'), disabled: S.submitting, onClick: () => verdict('unclear') })));
+  parts.push(C.card(body, { title: tr('rv.title.muc_dang_cham_mu', 'Mục đang chấm (mù)') }));
   return h('div', { class: 's-stack' }, parts);
 }
 
@@ -157,33 +160,33 @@ async function closeSession() {
 
 function stepClose() {
   const { C } = S;
-  if (S.closeErr) return h('div', { class: 's-stack' }, C.errorBox(S.closeErr, closeSession), C.btn({ label: '← Quay lại chấm', onClick: () => { S.step = 2; draw(); } }));
-  if (!S.closeRes) return C.card(C.skeleton(6), { title: 'Đang đóng phiên…' });
+  if (S.closeErr) return h('div', { class: 's-stack' }, C.errorBox(S.closeErr, closeSession), C.btn({ label: tr('rv.btn.quay_lai_cham', '← Quay lại chấm'), onClick: () => { S.step = 2; draw(); } }));
+  if (!S.closeRes) return C.card(C.skeleton(6), { title: tr('rv.title.dang_dong_phien', 'Đang đóng phiên…') });
   const d = S.closeRes; const p = d.precision || {};
   const prec = h('div', { class: 's-stack' },
     h('div', { class: 's-row' }, h('span', { class: 's-big s-mono', text: fmt.num(p.point) }), h('span', { class: 's-muted', text: `precision gold · CI 95 % Wilson [${fmt.num(p.ci_low)}, ${fmt.num(p.ci_high)}] · n=${fmt.int(p.n)}` })),
     h('div', { class: 's-row' }, h('span', { class: 's-tag st-ok', text: `TP ${fmt.int(p.tp)}` }), h('span', { class: 's-tag st-bad', text: `FP ${fmt.int(p.fp)}` }), h('span', { class: 's-tag', text: `không rõ ${fmt.int(p.unclear)}` })),
-    h('p', { class: 's-small s-muted', text: 'Con số này là precision của nhãn gold (đồng thuận máy) đo trên mẫu phân tầng; ghi vào luận văn kèm n và CI, không gộp với silver.' }));
-  const parts = [C.card(prec, { title: 'Bước 3 · Precision kiểm tay' })];
-  if (d.kappa_raters === undefined) parts.push(h('div', { class: 's-note warn', text: 'Backend chưa trả kappa_raters/disagreements.' }));
+    h('p', { class: 's-small s-muted', text: tr('rv.text.con_so_nay_la_precision_cua', 'Con số này là precision của nhãn gold (đồng thuận máy) đo trên mẫu phân tầng; ghi vào luận văn kèm n và CI, không gộp với silver.') }));
+  const parts = [C.card(prec, { title: tr('rv.title.buoc_3_precision_kiem_tay', 'Bước 3 · Precision kiểm tay') })];
+  if (d.kappa_raters === undefined) parts.push(h('div', { class: 's-note warn', text: tr('rv.note.backend_chua_tra_kappa_rater', 'Backend chưa trả kappa_raters/disagreements.') }));
   else if (d.kappa_raters) {
     const k = d.kappa_raters;
-    parts.push(C.card(h('div', { class: 's-row' }, h('span', { class: 's-big s-mono', text: fmt.num(k.value) }), h('span', { class: 's-muted', text: `Cohen κ giữa ${(k.raters || []).join(' và ')} · n=${fmt.int(k.n)}` })), { title: 'Đồng thuận giữa 2 rater' }));
-  } else parts.push(banner('info', 'Chỉ có 1 rater', 'Thêm rater thứ hai (cùng sample_id) để tính Cohen κ và bảng bất đồng.'));
+    parts.push(C.card(h('div', { class: 's-row' }, h('span', { class: 's-big s-mono', text: fmt.num(k.value) }), h('span', { class: 's-muted', text: `Cohen κ giữa ${(k.raters || []).join(' và ')} · n=${fmt.int(k.n)}` })), { title: tr('rv.title.dong_thuan_giua_2_rater', 'Đồng thuận giữa 2 rater') }));
+  } else parts.push(banner('info', tr('rv.banner.chi_co_1_rater', 'Chỉ có 1 rater'), tr('rv.banner_body.them_rater_thu_hai_cung_samp', 'Thêm rater thứ hai (cùng sample_id) để tính Cohen κ và bảng bất đồng.')));
   const dis = d.disagreements || [];
   if (dis.length) {
     const raters = Object.keys(dis[0].verdicts || {});
     const rows = C.table({
       columns: [
-        { key: 'cluster_key', label: 'cụm', render: (r) => h('span', { class: 's-mono', text: String(r.cluster_key).slice(0, 12) + '…' }) },
+        { key: 'cluster_key', label: tr('rv.btn.cum', 'cụm'), render: (r) => h('span', { class: 's-mono', text: String(r.cluster_key).slice(0, 12) + '…' }) },
         ...raters.map((rt) => ({ key: rt, label: rt, render: (r) => h('span', { class: `s-tag ${{ TP: 'st-ok', FP: 'st-bad' }[r.verdicts[rt]] || ''}`, text: r.verdicts[rt] || '—' }) })),
-        { key: 'adj', label: 'Phán quyết cuối (adjudicated)', render: (r) => adjRow(r) },
+        { key: 'adj', label: tr('rv.btn.phan_quyet_cuoi_adjudicated', 'Phán quyết cuối (adjudicated)'), render: (r) => adjRow(r) },
       ],
       rows: dis,
     });
-    parts.push(C.card(h('div', { class: 's-stack' }, h('p', { class: 's-small s-muted', text: 'Hai rater cùng xem lại, thống nhất một phán quyết; ghi với rater = "adjudicated". Precision cuối tính trên phán quyết này.' }), rows), { title: `Bất đồng (${dis.length})` }));
+    parts.push(C.card(h('div', { class: 's-stack' }, h('p', { class: 's-small s-muted', text: tr('rv.text.hai_rater_cung_xem_lai_thong', 'Hai rater cùng xem lại, thống nhất một phán quyết; ghi với rater = "adjudicated". Precision cuối tính trên phán quyết này.') }), rows), { title: `Bất đồng (${dis.length})` }));
   }
-  parts.push(h('div', { class: 's-row' }, C.btn({ label: '← Quay lại chấm', onClick: () => { S.step = 2; draw(); nextItem(); } }), C.btn({ label: 'Tính lại sau adjudication', kind: 'primary', onClick: closeSession })));
+  parts.push(h('div', { class: 's-row' }, C.btn({ label: tr('rv.btn.quay_lai_cham', '← Quay lại chấm'), onClick: () => { S.step = 2; draw(); nextItem(); } }), C.btn({ label: tr('rv.btn.tinh_lai_sau_adjudication', 'Tính lại sau adjudication'), kind: 'primary', onClick: closeSession })));
   return h('div', { class: 's-stack' }, parts);
 }
 
@@ -191,11 +194,11 @@ function adjRow(r) {
   const { C, ctx, id } = S;
   const sel = h('select', { class: 's-select', 'aria-label': 'Phán quyết cuối' }, h('option', { value: '', text: '— chọn —' }), h('option', { value: 'TP', text: 'TP' }), h('option', { value: 'FP', text: 'FP' }), h('option', { value: 'unclear', text: 'không rõ' }));
   if (r.adjudicated) sel.value = r.adjudicated;
-  const b = C.btn({ label: 'Ghi', small: true, onClick: async () => {
-    if (!sel.value) { C.toast('Chọn phán quyết trước.', 'warn'); return; }
+  const b = C.btn({ label: tr('rv.btn.ghi', 'Ghi'), small: true, onClick: async () => {
+    if (!sel.value) { C.toast(tr('rv.toast.chon_phan_quyet_truoc', 'Chọn phán quyết trước.'), 'warn'); return; }
     const x = await tryApi(ctx, `/api/review/${encodeURIComponent(id)}/verdict`, { method: 'POST', body: { sample_id: S.sampleId, rater: 'adjudicated', cluster_key: r.cluster_key, verdict: sel.value, note: 'adjudication' } });
     if (!x.ok) { C.toast(errText(x.err), 'error'); return; }
-    r.adjudicated = sel.value; C.toast('Đã ghi phán quyết cuối.', 'ok');
+    r.adjudicated = sel.value; C.toast(tr('rv.toast.da_ghi_phan_quyet_cuoi', 'Đã ghi phán quyết cuối.'), 'ok');
   } });
   return h('div', { class: 's-row' }, sel, b);
 }

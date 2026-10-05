@@ -1,7 +1,7 @@
 {
   "total": 103,
   "page": 1,
-  "size": 6,
+  "size": 8,
   "rows": [
     {
       "cluster_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
@@ -132,6 +132,50 @@
         "validation": "unreviewed"
       },
       "in_diff": 1
+    },
+    {
+      "cluster_key": "0718293a4b5c6d7e8f90a1b2c3d4e5f6",
+      "commit": "350f6200",
+      "file_path": "ts-auth-service/src/main/java/auth/config/SecurityConfig.java",
+      "s_line": 65,
+      "cwe_group": "csrf",
+      "cwe": [
+        "CWE-352"
+      ],
+      "tools": [
+        "findsecbugs",
+        "sonar"
+      ],
+      "n_agree": 2,
+      "tier": "expensive",
+      "label": "gold",
+      "evidence": {
+        "consensus": "gold",
+        "validation": "FP"
+      },
+      "in_diff": 1
+    },
+    {
+      "cluster_key": "18293a4b5c6d7e8f90a1b2c3d4e5f607",
+      "commit": "a81c0f22",
+      "file_path": "ts-common/src/main/java/edu/fudan/common/util/StringUtils.java",
+      "s_line": 41,
+      "cwe_group": "crypto",
+      "cwe": [
+        "CWE-327"
+      ],
+      "tools": [
+        "semgrep",
+        "bearer"
+      ],
+      "n_agree": 2,
+      "tier": "cheap",
+      "label": "silver",
+      "evidence": {
+        "consensus": "silver",
+        "validation": "unclear"
+      },
+      "in_diff": 0
     }
   ]
 }

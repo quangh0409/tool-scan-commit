@@ -2,10 +2,13 @@
 // Nút "Tính lại Kamei" -> POST /api/results/:id/features (501 -> toast); "Gán nhãn lại" chỉ khi experiment.
 import { h, clear, makeT, fmt, statusTag, partialNote, banner, tryApi, errStatus, errText, qs, resultsHeader, findRun } from './_util.js';
 
+let tr = (k, fb) => (fb === undefined ? k : fb);
+
 const SIZE = 25;
 let S = null;
 
 export async function render(root, ctx) {
+  tr = makeT(ctx);
   const C = ctx.components; const t = makeT(ctx);
   const id = ctx.params.id;
   S = { dead: false, ctx, C, t, id, root, page: 1, data: null, run: null, experiment: null, loading: true, err: null, missing: new Set() };
@@ -39,10 +42,10 @@ function draw() {
   const actions = h('div', { class: 's-row' },
     h('span', { class: 's-sub', text: 'Mỗi dòng = 1 commit đã chọn; status theo CONTRACTS §1; negative_level chỉ có với commit clean.' }),
     h('span', { class: 's-spacer' }),
-    C.btn({ label: 'Tính lại Kamei', small: true, onClick: recomputeKamei }));
-  if (S.experiment && S.experiment.enabled) actions.append(C.btn({ label: 'Gán nhãn lại (thí nghiệm)', small: true, kind: 'danger', onClick: relabel }));
+    C.btn({ label: tr('cm.btn.tinh_lai_kamei', 'Tính lại Kamei'), small: true, onClick: recomputeKamei }));
+  if (S.experiment && S.experiment.enabled) actions.append(C.btn({ label: tr('cm.btn.gan_nhan_lai_thi_nghiem', 'Gán nhãn lại (thí nghiệm)'), small: true, kind: 'danger', onClick: relabel }));
   root.append(actions);
-  if (S.experiment && S.experiment.enabled) root.append(banner('warn', 'Run thí nghiệm', `params_v1 khác mặc định — lý do: ${S.experiment.reason || '—'}. Không gộp vào gold_set_all.`));
+  if (S.experiment && S.experiment.enabled) root.append(banner('warn', tr('cm.banner.run_thi_nghiem', 'Run thí nghiệm'), `params_v1 khác mặc định — lý do: ${S.experiment.reason || '—'}. Không gộp vào gold_set_all.`));
   const pn = partialNote([...S.missing]); if (pn) root.append(pn);
 
   if (S.loading) { root.append(C.card(C.skeleton(8))); return; }
@@ -51,14 +54,14 @@ function draw() {
   if (!rows.length) { root.append(C.empty(t('cm.empty', 'Chưa có commit nào được chọn cho run này.'))); return; }
   root.append(C.card(C.table({
     columns: [
-      { key: 'date', label: 'ngày', render: (r) => h('span', { class: 's-mono', style: { whiteSpace: 'nowrap' }, text: r.date || '—' }) },
-      { key: 'commit', label: 'commit', render: (r) => h('span', { class: 's-mono', text: fmt.sha(r.commit) }) },
-      { key: 'role', label: 'vai', render: (r) => h('span', { class: `s-tag ${r.role === 'buggy' ? 'st-warn' : 'st-muted'}`, text: r.role || '—' }) },
-      { key: 'status', label: 'status', render: (r) => r.status ? statusTag(r.status) : null },
-      { key: 'n_expensive_ok', label: 'tool đắt ok', render: (r) => r.n_expensive_ok === undefined ? null : h('span', { class: 's-mono', text: String(r.n_expensive_ok) }) },
-      { key: 'negative_level', label: 'mức âm', render: (r) => r.negative_level ? C.badgeLabel(r.negative_level) : (r.role === 'clean' ? h('span', { class: 's-muted', text: 'chưa xác định' }) : h('span', { class: 's-muted', text: '—' })) },
-      { key: 'kamei', label: 'Kamei', render: (r) => kamei(r.kamei) },
-      { key: 'build_error', label: 'lỗi build', render: (r) => r.build_error ? h('span', { class: 's-mono', style: { display: 'inline-block', maxWidth: '150px', whiteSpace: 'normal', wordBreak: 'break-word' }, title: r.build_error, text: r.build_error }) : null },
+      { key: 'date', label: tr('cm.btn.ngay', 'ngày'), render: (r) => h('span', { class: 's-mono', style: { whiteSpace: 'nowrap' }, text: r.date || '—' }) },
+      { key: 'commit', label: tr('cm.btn.commit', 'commit'), render: (r) => h('span', { class: 's-mono', text: fmt.sha(r.commit) }) },
+      { key: 'role', label: tr('cm.btn.vai', 'vai'), render: (r) => h('span', { class: `s-tag ${r.role === 'buggy' ? 'st-warn' : 'st-muted'}`, text: r.role || '—' }) },
+      { key: 'status', label: tr('cm.btn.status', 'status'), render: (r) => r.status ? statusTag(r.status) : null },
+      { key: 'n_expensive_ok', label: tr('cm.btn.tool_dat_ok', 'tool đắt ok'), render: (r) => r.n_expensive_ok === undefined ? null : h('span', { class: 's-mono', text: String(r.n_expensive_ok) }) },
+      { key: 'negative_level', label: tr('cm.btn.muc_am', 'mức âm'), render: (r) => r.negative_level ? C.badgeLabel(r.negative_level) : (r.role === 'clean' ? h('span', { class: 's-muted', text: 'chưa xác định' }) : h('span', { class: 's-muted', text: '—' })) },
+      { key: 'kamei', label: tr('cm.btn.kamei', 'Kamei'), render: (r) => kamei(r.kamei) },
+      { key: 'build_error', label: tr('cm.btn.loi_build', 'lỗi build'), render: (r) => r.build_error ? h('span', { class: 's-mono', style: { display: 'inline-block', maxWidth: '150px', whiteSpace: 'normal', wordBreak: 'break-word' }, title: r.build_error, text: r.build_error }) : null },
     ],
     rows, page: S.page, size: SIZE, total: d.total, onPage: (p) => { S.page = p; load(); },
   })));
@@ -76,19 +79,19 @@ async function recomputeKamei() {
   const r = await tryApi(ctx, `/api/results/${encodeURIComponent(id)}/features`, { method: 'POST', body: {} });
   if (!S || S.dead) return;
   if (!r.ok) { C.toast(errStatus(r.err) === 501 || errStatus(r.err) === 404 ? 'Chưa hỗ trợ tính lại Kamei qua GUI — dùng CLI `features`.' : errText(r.err), 'warn'); return; }
-  C.toast('Đã tính lại Kamei.', 'ok'); load();
+  C.toast(tr('cm.toast.da_tinh_lai_kamei', 'Đã tính lại Kamei.'), 'ok'); load();
 }
 
 function relabel() {
   const { C, ctx, id } = S;
   C.dialog({
-    title: 'Gán nhãn lại (chế độ thí nghiệm)',
+    title: tr('cm.title.gan_nhan_lai_che_do_thi_nghi', 'Gán nhãn lại (chế độ thí nghiệm)'),
     body: 'Chạy relabel với params_v1 của run thí nghiệm này. Không ảnh hưởng gold_set_all; export sẽ có hậu tố _exp.',
-    confirmText: 'Gán nhãn lại', typedConfirm: 'RELABEL', kind: 'danger',
+    confirmText: tr('cm.btn.gan_nhan_lai', 'Gán nhãn lại'), typedConfirm: 'RELABEL', kind: 'danger',
     onConfirm: async () => {
       const r = await tryApi(ctx, `/api/results/${encodeURIComponent(id)}/relabel`, { method: 'POST', body: {} });
-      if (!r.ok) { if (errStatus(r.err) === 501 || errStatus(r.err) === 404) { C.toast('Chưa hỗ trợ relabel qua GUI — dùng CLI `relabel`.', 'warn'); return; } throw r.err; }
-      C.toast('Đã gán nhãn lại.', 'ok'); load();
+      if (!r.ok) { if (errStatus(r.err) === 501 || errStatus(r.err) === 404) { C.toast(tr('cm.toast.chua_ho_tro_relabel_qua_gui', 'Chưa hỗ trợ relabel qua GUI — dùng CLI `relabel`.'), 'warn'); return; } throw r.err; }
+      C.toast(tr('cm.toast.da_gan_nhan_lai', 'Đã gán nhãn lại.'), 'ok'); load();
     },
   });
 }
