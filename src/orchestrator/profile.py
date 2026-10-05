@@ -135,6 +135,13 @@ def to_env(p: dict) -> dict[str, str]:
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
     }
+    # CONTRACTS §12 (A4 sửa thay A2): filters{clean_per_buggy, require_in_diff} từ Wizard 2 -> env.
+    # config.py hiện đọc ORCH_SUSPECT_REQUIRE_IN_DIFF; ORCH_CLEAN_PER_BUGGY chờ A2 nối vào select_commits.
+    flt = p.get("filters") or {}
+    if flt.get("clean_per_buggy") not in (None, ""):
+        env["ORCH_CLEAN_PER_BUGGY"] = str(int(flt["clean_per_buggy"]))
+    if "require_in_diff" in flt and flt["require_in_diff"] is not None:
+        env["ORCH_SUSPECT_REQUIRE_IN_DIFF"] = "1" if flt["require_in_diff"] else "0"
     exp = p.get("experiment")
     if exp and exp.get("enabled"):
         env["ORCH_EXPERIMENT"] = "1"

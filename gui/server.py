@@ -283,8 +283,11 @@ class GuiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         path = Path(sse.path)
         lines, offset = _tail_lines(path, SSE_REPLAY_LINES)
-        for ln in lines:
-            self.wfile.write(f"data: {ln}\n\n".encode("utf-8"))
+        # §12: ?replay=0 -> không phát lại (client đã fetch JSON trước), chỉ tail dòng mới
+        replay = (getattr(self, "_last_req", None) and self._last_req.query.get("replay", "1")) != "0"
+        if replay:
+            for ln in lines:
+                self.wfile.write(f"data: {ln}\n\n".encode("utf-8"))
         self.wfile.flush()
         if not sse.follow:
             self.wfile.write(b"event: end\ndata: {}\n\n")

@@ -334,6 +334,28 @@ def test_real_preflight_fix_polls_until_done(real_env, monkeypatch):
     assert api._settings()["sonar_port"] == 9100     # pick_port ok -> lưu settings
 
 
+def test_profile_filters_to_env():
+    """§12: profile.filters -> ORCH_CLEAN_PER_BUGGY / ORCH_SUSPECT_REQUIRE_IN_DIFF; không có filters -> không đặt."""
+    from orchestrator import profile as prof
+    p = dict(PROFILE)
+    assert "ORCH_CLEAN_PER_BUGGY" not in prof.to_env(p) and "ORCH_SUSPECT_REQUIRE_IN_DIFF" not in prof.to_env(p)
+    p = dict(PROFILE, filters={"clean_per_buggy": 2, "require_in_diff": False})
+    env = prof.to_env(p)
+    assert env["ORCH_CLEAN_PER_BUGGY"] == "2" and env["ORCH_SUSPECT_REQUIRE_IN_DIFF"] == "0"
+    p = dict(PROFILE, filters={"clean_per_buggy": None, "require_in_diff": True})
+    env = prof.to_env(p)
+    assert "ORCH_CLEAN_PER_BUGGY" not in env and env["ORCH_SUSPECT_REQUIRE_IN_DIFF"] == "1"
+    assert prof.validate(p) == []          # khoá lạ không làm profile mất hợp lệ
+
+
+def test_sse_replay_0_skips_replay(server):
+    url = f"http://127.0.0.1:{server.port}/api/run/r-20261005-A/progress?t={server.token}&replay=0"
+    req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        text = r.read().decode("utf-8")
+    assert "event: end" in text and not [ln for ln in text.split("\n") if ln.startswith("data: {\"ts\"")]
+
+
 # ---------------------------------------------------------------- repo_probe
 
 def test_repo_probe_parse_and_pom():
