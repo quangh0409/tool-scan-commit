@@ -295,7 +295,10 @@ def run_gui(argv: list[str], open_browser=None) -> int:
         return open_existing_instance(open_browser)
     _patch_server_for_gui_info(gui_server)
     try:
-        return int(gui_main(argv) or 0)
+        # Launcher ĐÃ giữ mutex `secjit-gui`; gui.__main__ xin lại cùng mutex trong cùng tiến trình
+        # -> CreateMutexW trả ERROR_ALREADY_EXISTS -> tự chặn chính mình (lỗi thật 2026-10-05:
+        # nhấp đúp secjit-scan-gui.exe không mở được gì). Báo gui.__main__ bỏ qua bước xin khoá.
+        return int(gui_main(argv + ["--allow-multi"]) or 0)
     finally:
         clear_gui_info(only_pid=os.getpid())
         lock.release()

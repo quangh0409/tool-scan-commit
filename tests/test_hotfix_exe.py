@@ -51,3 +51,30 @@ def test_killed_container_is_infra_error():
     assert base.classify_failure(137, "") == "infra_error"
     assert base.classify_failure(143, "") == "infra_error"
     assert base.classify_failure(1, "[ERROR] Failed to execute goal ... compilation failure") is None
+
+
+def test_launcher_does_not_block_itself_with_real_mutex(monkeypatch):
+    """Lỗi thật: launcher giữ mutex rồi gui.__main__ xin lại -> exit 2, GUI không mở. Dùng mutex THẬT."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "secjit_launcher_t", Path(__file__).resolve().parents[1] / "packaging" / "launcher.py")
+    launcher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+    import gui.__main__ as gm
+    seen = {}
+
+    def fake_gui_main(argv):
+        # mô phỏng đúng đoạn khoá của gui.__main__ với registry.locks thật
+        from registry import locks
+        if "--allow-multi" not in argv:
+            inst = locks.single_instance("secjit-gui")
+            if not getattr(inst, "acquired", True):
+                return 2
+        seen["argv"] = argv
+        return 0
+    monkeypatch.setattr(gm, "main", fake_gui_main)
+    monkeypatch.setattr(sys, "argv", ["secjit-scan-gui.exe"])
+    assert launcher.run_gui([]) == 0
+    assert "--allow-multi" in seen["argv"]
