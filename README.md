@@ -10,6 +10,9 @@ duyệt từng commit → chạy nhiều tool SAST (Docker) → chuẩn hoá v�
 > - `TOOL_OUTLINE.md` — toàn cảnh pipeline cho người mới (input/output từng bước, quy tắc nhãn, giới hạn).
 > - `SESSION_CONTEXT.md` — tiến độ hiện tại / việc đang dở (phiên mới nhất ở TRÊN CÙNG).
 > - `TOOL_IDEA_CONTEXT.md` — quyết định kiến trúc.
+>
+> **Người dùng cuối (không cần Python):** `HUONG_DAN_GUI.md` — cài Docker/WSL2, chạy `secjit-scan-gui.exe`,
+> Preflight → Wizard 5 bước → Dashboard → Kết quả → Kiểm tay mù → Dọn dẹp, lệnh CLI tương đương, sự cố thường gặp (ảnh ở `docs/img/`).
 
 ---
 
