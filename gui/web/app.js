@@ -579,7 +579,7 @@ export async function refreshPreflight({ force = false, light = false } = {}) {
     } catch (e) { return pf; }
   }
   if (!force && pf && Date.now() - (pf.at || 0) < 60000) return pf;
-  try { const d = await api('/api/preflight'); preflightCache.set(d); return d; } catch (e) { return pf; }
+  try { const d = await api('/api/preflight', { timeout: 180000 }); preflightCache.set(d); return d; } catch (e) { return pf; }
 }
 
 // ====================================================================================

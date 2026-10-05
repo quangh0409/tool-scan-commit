@@ -23,7 +23,7 @@ async function load(page, ctx) {
     card({ list: true, body: skeleton(8) }),
     h('div', { class: 'row end' }, btn(t('pf.fix_all'), { disabled: true }), btn(t('pf.recheck'), { disabled: true }), btn(t('continue'), { kind: 'primary', disabled: true })));
   try {
-    data = await api('/api/preflight');
+    data = await api('/api/preflight', { timeout: 180000 });  // Docker bận: ~10 lệnh docker nối tiếp
   } catch (e) {
     if (!alive) return;
     clear(page);

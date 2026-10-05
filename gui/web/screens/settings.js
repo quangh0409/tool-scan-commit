@@ -35,7 +35,7 @@ function setBody(...nodes) { if (!S || S.dead) return; clear(S.body); S.body.app
 async function tabDocker() {
   const { C, ctx } = S;
   setBody(C.skeleton(8));
-  const [pf, st] = await Promise.all([tryApi(ctx, '/api/preflight'), tryApi(ctx, '/api/settings')]);
+  const [pf, st] = await Promise.all([tryApi(ctx, '/api/preflight', { timeout: 180000 }), tryApi(ctx, '/api/settings')]);
   if (!S || S.dead) return;
   if (!pf.ok) { setBody(C.errorBox(pf.err, tabDocker)); return; }
   const d = pf.data || {}; const items = d.items || [];
