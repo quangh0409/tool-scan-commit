@@ -3,10 +3,13 @@
 // Quy tắc: KHÔNG hiện nhãn gold/silver khi status=running; chỉ đếm raw.
 import { h, clear, makeT, fmt, repoName, statusTag, partialNote, banner, kv, segBar, tryApi, errStatus, errText } from './_util.js';
 
+let tr = (k, fb) => (fb === undefined ? k : fb);
+
 const POLL_MS = 2000;
 let S = null; // state của màn hiện tại
 
 export async function render(root, ctx) {
+  tr = makeT(ctx);
   const C = ctx.components;
   const t = makeT(ctx);
   S = { root, ctx, C, t, id: ctx.params.id, run: null, lines: [], overview: null, logFilter: 'all', stopping: false, cleaned: null, timer: null, closer: null, dead: false, partialFields: new Set(), onHash: null, onUnload: null };
@@ -147,10 +150,10 @@ function draw() {
 
   // banners
   if (isScratch()) root.append(banner('ok', t('dash.scratch', 'Chạy thử trên DB scratch'), 'Kết quả không ghi vào kết quả thật; dùng để kiểm tra Docker/build trước run chính.'));
-  if (st === 'interrupted') root.append(banner('warn', t('dash.interrupted', 'Run bị ngắt — tiến trình nền đã chết'), 'DB còn commit ở trạng thái building/analyzing. "Dọn & Tiếp tục" sẽ reset-claims rồi chạy lại từ pha đang dở.', [C.btn({ label: 'Dọn & Tiếp tục', kind: 'primary', small: true, onClick: () => resume() })]));
-  if (st === 'infra_stop') root.append(banner('bad', 'Docker/đĩa có vấn đề, run đã tự dừng', `${m.stop.msg || '3 infra_error liên tiếp'} · các commit lỗi hạ tầng đã trả về pending, không tính là dữ liệu.`, [C.btn({ label: 'Dọn & Tiếp tục', kind: 'primary', small: true, onClick: () => resume() })]));
+  if (st === 'interrupted') root.append(banner('warn', t('dash.interrupted', 'Run bị ngắt — tiến trình nền đã chết'), 'DB còn commit ở trạng thái building/analyzing. "Dọn & Tiếp tục" sẽ reset-claims rồi chạy lại từ pha đang dở.', [C.btn({ label: tr('dash.btn.don_tiep_tuc', 'Dọn & Tiếp tục'), kind: 'primary', small: true, onClick: () => resume() })]));
+  if (st === 'infra_stop') root.append(banner('bad', tr('dash.banner.docker_dia_co_van_de_run_da', 'Docker/đĩa có vấn đề, run đã tự dừng'), `${m.stop.msg || '3 infra_error liên tiếp'} · các commit lỗi hạ tầng đã trả về pending, không tính là dữ liệu.`, [C.btn({ label: tr('dash.btn.don_tiep_tuc', 'Dọn & Tiếp tục'), kind: 'primary', small: true, onClick: () => resume() })]));
   if (S.stopping) root.append(banner('info', t('dash.stopping', 'Đang dừng an toàn'), 'Đang chờ commit hiện tại xong (không nhận commit mới). Có thể mất tới một chu kỳ build.'));
-  if (S.cleaned) root.append(banner('info', 'Đã dừng cưỡng bức · đã dọn', null, [h('ul', { class: 's-list s-mono' }, S.cleaned.length ? S.cleaned.map((c) => h('li', { text: c })) : h('li', { text: 'không có gì cần dọn' }))]));
+  if (S.cleaned) root.append(banner('info', tr('dash.banner.da_dung_cuong_buc_da_don', 'Đã dừng cưỡng bức · đã dọn'), null, [h('ul', { class: 's-list s-mono' }, S.cleaned.length ? S.cleaned.map((c) => h('li', { text: c })) : h('li', { text: 'không có gì cần dọn' }))]));
   const pn = partialNote([...S.partialFields]); if (pn) root.append(pn);
   if (S.lines.length === 0) root.append(C.empty(t('dash.no_progress', 'Chưa có dòng tiến độ nào — run chưa ghi progress.jsonl (có thể đang clone/khởi động).')));
 
@@ -159,21 +162,21 @@ function draw() {
   // ① scan
   const scanPct = m.scan.total ? Math.min(100, (m.scan.done / m.scan.total) * 100) : 0;
   phases.append(h('div', { class: 's-phase' },
-    h('div', { class: 's-phase-head' }, h('strong', { text: '① Tầng rẻ · tool source-only trên diff' }), h('span', { class: 's-mono', text: m.scan.total !== null ? `${fmt.int(m.scan.done)} / ${fmt.int(m.scan.total)}${m.scan.finished ? ' · xong' : ''}` : (m.phases.has('scan') ? `${fmt.int(m.scan.done)} / —` : 'chưa bắt đầu') })),
+    h('div', { class: 's-phase-head' }, h('strong', { text: tr('dash.text.tang_re_tool_source_only_tre', '① Tầng rẻ · tool source-only trên diff') }), h('span', { class: 's-mono', text: m.scan.total !== null ? `${fmt.int(m.scan.done)} / ${fmt.int(m.scan.total)}${m.scan.finished ? ' · xong' : ''}` : (m.phases.has('scan') ? `${fmt.int(m.scan.done)} / —` : 'chưa bắt đầu') })),
     h('div', { class: 's-bar', role: 'progressbar', 'aria-valuenow': Math.round(scanPct), 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Tầng rẻ' }, h('span', { class: m.scan.finished ? 'seg-ok' : 'seg-accent', style: { width: `${scanPct}%` } }))));
   // ② select
   phases.append(h('div', { class: 's-phase' },
-    h('div', { class: 's-phase-head' }, h('strong', { text: '② Chọn commit cho tầng đắt' }), h('span', { class: 's-mono', text: m.select.msg ? `${m.select.msg} → hàng đợi tầng đắt` : (m.select.done ? 'xong' : 'chờ tầng rẻ') })),
+    h('div', { class: 's-phase-head' }, h('strong', { text: tr('dash.text.chon_commit_cho_tang_dat', '② Chọn commit cho tầng đắt') }), h('span', { class: 's-mono', text: m.select.msg ? `${m.select.msg} → hàng đợi tầng đắt` : (m.select.done ? 'xong' : 'chờ tầng rẻ') })),
     h('div', { class: 's-bar', 'aria-label': 'Chọn commit' }, h('span', { class: 'seg-ok', style: { width: m.select.done ? '100%' : '0%' } }))));
   // ③ analyze — phân màu theo status
   const by = m.analyze.by; const tot = m.analyze.total;
   const segs = [
-    { label: 'ok', value: by.ok || 0, cls: 'accent' }, { label: 'build_failed', value: by.build_failed || 0, cls: 'bad' },
-    { label: 'skipped', value: by.skipped || 0, cls: 'skipped' }, { label: 'infra_error', value: by.infra_error || 0, cls: 'infra' },
-    { label: 'tool_timeout/error', value: (by.tool_timeout || 0) + (by.tool_error || 0), cls: 'warn' },
+    { label: 'ok', value: by.ok || 0, cls: 'accent' }, { label: tr('dash.btn.build_failed', 'build_failed'), value: by.build_failed || 0, cls: 'bad' },
+    { label: tr('dash.btn.skipped', 'skipped'), value: by.skipped || 0, cls: 'skipped' }, { label: tr('dash.btn.infra_error', 'infra_error'), value: by.infra_error || 0, cls: 'infra' },
+    { label: tr('dash.btn.tool_timeout_error', 'tool_timeout/error'), value: (by.tool_timeout || 0) + (by.tool_error || 0), cls: 'warn' },
   ];
   const an = h('div', { class: 's-phase' },
-    h('div', { class: 's-phase-head' }, h('strong', { text: '③ Tầng đắt · build Maven → FindSecBugs → Sonar' }),
+    h('div', { class: 's-phase-head' }, h('strong', { text: tr('dash.text.tang_dat_build_maven_findsec', '③ Tầng đắt · build Maven → FindSecBugs → Sonar') }),
       h('span', { class: 's-mono', text: m.analyze.started ? `${fmt.int(m.analyze.done)} / ${tot !== null ? fmt.int(tot) : '—'}` : 'chưa bắt đầu' })));
   an.append(segBar(segs, tot || m.analyze.done || 1, { height: 12, legend: m.analyze.started }));
   if (m.analyze.started) {
@@ -187,13 +190,13 @@ function draw() {
   const grid = h('div', { class: 's-grid-2' });
   const raw = S.overview && S.overview.raw_by_tool;
   if (raw && typeof raw === 'object' && Object.keys(raw).length) {
-    grid.append(C.card(Object.entries(raw).map(([k, v]) => kv(k, h('span', { class: 's-mono', text: fmt.int(v) }))), { title: 'Finding thô theo tool' }));
+    grid.append(C.card(Object.entries(raw).map(([k, v]) => kv(k, h('span', { class: 's-mono', text: fmt.int(v) }))), { title: tr('dash.title.finding_tho_theo_tool', 'Finding thô theo tool') }));
   }
   const labelsCard = C.card([], { title: running ? 'Nhãn' : 'Nhãn (sau relabel)' });
   if (running || st === 'interrupted' || st === 'infra_stop') {
     labelsCard.append(h('div', { class: 's-note', text: t('dash.labels_hidden', 'Nhãn hiện sau khi relabel. Khi run đang chạy chỉ đếm finding thô — không hiện gold/silver tạm để tránh neo kỳ vọng và tinh chỉnh theo kết quả.') }));
   } else if (!run.summary || run.summary.gold === null || run.summary.gold === undefined) {
-    labelsCard.append(h('div', { class: 's-note', text: 'Chưa có nhãn — run dừng trước pha relabel/kappa. Chạy "analyze → relabel → kappa → export" (resume) để có nhãn.' }));
+    labelsCard.append(h('div', { class: 's-note', text: tr('dash.note.chua_co_nhan_run_dung_truoc', 'Chưa có nhãn — run dừng trước pha relabel/kappa. Chạy "analyze → relabel → kappa → export" (resume) để có nhãn.') }));
   } else {
     const s = run.summary || {};
     labelsCard.append(h('div', { class: 's-row' }, C.badgeLabel('gold'), h('b', { class: 's-mono', text: fmt.int(s.gold) }), C.badgeLabel('silver'), h('b', { class: 's-mono', text: fmt.int(s.silver) }), C.badgeLabel('candidate'), h('b', { class: 's-mono', text: fmt.int(s.candidate) })));
@@ -221,7 +224,7 @@ function draw() {
     const cls = l.event === 'stop' || l.event === 'error' || ['build_failed', 'infra_error'].includes(l.status) ? 'err' : (['skipped', 'tool_timeout', 'tool_error'].includes(l.status) ? 'warn' : (l.status === 'ok' || l.event === 'done' ? 'ok' : ''));
     logBox.append(h('div', { class: cls }, h('span', { class: 'dim', text: `${fmt.hhmmss(l.ts)} ` }), `[${l.phase}${l.worker ? ' ' + l.worker : ''}] `, l.sha ? `${fmt.sha(l.sha)} ` : '', l.event === 'item' ? '' : `${l.event} `, l.status ? `-> ${l.status} ` : '', l.done !== undefined && l.event !== 'item' ? `${l.done}/${l.total ?? '—'} ` : '', l.msg ? h('span', { class: 'dim', text: ` ${l.msg}` }) : ''));
   }
-  root.append(C.card([h('div', { class: 's-row' }, h('strong', { text: 'Log' }), sel, h('span', { class: 's-spacer' }), h('span', { class: 's-sub', text: `${S.lines.length} sự kiện · progress.jsonl` })), logBox]));
+  root.append(C.card([h('div', { class: 's-row' }, h('strong', { text: tr('dash.text.log', 'Log') }), sel, h('span', { class: 's-spacer' }), h('span', { class: 's-sub', text: `${S.lines.length} sự kiện · progress.jsonl` })), logBox]));
   logBox.scrollTop = logBox.scrollHeight;
 }
 
@@ -232,15 +235,15 @@ async function stopSafe() {
   const r = await tryApi(ctx, `/api/run/${encodeURIComponent(S.id)}/stop`, { method: 'POST', body: { force: false } });
   if (!S || S.dead) return;
   if (!r.ok) { S.stopping = false; C.toast(errText(r.err), 'error'); draw(); return; }
-  C.toast('Đã tạo stop-file — run sẽ dừng sau commit hiện tại.', 'ok');
+  C.toast(tr('dash.toast.da_tao_stop_file_run_se_dung', 'Đã tạo stop-file — run sẽ dừng sau commit hiện tại.'), 'ok');
 }
 
 function stopForce() {
   const { ctx, C } = S;
   C.dialog({
-    title: 'Dừng cưỡng bức',
-    body: h('div', { class: 's-stack' }, h('p', { text: 'Kill tiến trình + dọn container/network theo label orch.run và reset-claims. Commit đang build sẽ về pending (không mất dữ liệu đã ghi).' })),
-    confirmText: 'Dừng cưỡng bức', typedConfirm: 'DỪNG', kind: 'danger',
+    title: tr('dash.title.dung_cuong_buc', 'Dừng cưỡng bức'),
+    body: h('div', { class: 's-stack' }, h('p', { text: tr('dash.text.kill_tien_trinh_don_containe', 'Kill tiến trình + dọn container/network theo label orch.run và reset-claims. Commit đang build sẽ về pending (không mất dữ liệu đã ghi).') })),
+    confirmText: tr('dash.btn.dung_cuong_buc', 'Dừng cưỡng bức'), typedConfirm: 'DỪNG', kind: 'danger',
     onConfirm: async () => {
       const r = await tryApi(ctx, `/api/run/${encodeURIComponent(S.id)}/stop`, { method: 'POST', body: { force: true } });
       if (!r.ok) throw r.err;
@@ -265,9 +268,9 @@ function changeWorkers() {
   const { C } = S;
   const inp = h('input', { type: 'number', min: 1, max: 8, value: 1, class: 's-input', id: 'dash-workers', 'aria-label': 'Số luồng tầng đắt' });
   C.dialog({
-    title: 'Đổi số luồng tầng đắt',
-    body: h('div', { class: 's-stack' }, h('p', { text: 'Sẽ dừng an toàn (chờ commit hiện tại xong) rồi resume với số luồng mới. Mỗi luồng cần ~2–3 GB RAM Docker.' }), h('label', { for: 'dash-workers', text: 'Số luồng' }), inp),
-    confirmText: 'Dừng & chạy lại',
+    title: tr('dash.title.doi_so_luong_tang_dat', 'Đổi số luồng tầng đắt'),
+    body: h('div', { class: 's-stack' }, h('p', { text: tr('dash.text.se_dung_an_toan_cho_commit_h', 'Sẽ dừng an toàn (chờ commit hiện tại xong) rồi resume với số luồng mới. Mỗi luồng cần ~2–3 GB RAM Docker.') }), h('label', { for: 'dash-workers', text: 'Số luồng' }), inp),
+    confirmText: tr('dash.btn.dung_chay_lai', 'Dừng & chạy lại'),
     onConfirm: async () => {
       const n = Number(inp.value) || 1;
       const s = await tryApi(S.ctx, `/api/run/${encodeURIComponent(S.id)}/stop`, { method: 'POST', body: { force: false } });
@@ -295,14 +298,14 @@ function guardLeave() {
     if (!snapshot.run || snapshot.run.status !== 'running' || snapshot.stopping) return;
     const stateQ = location.hash.includes('state=') ? '?' + location.hash.split('?')[1] : '';
     const dlg = snapshot.C.dialog({
-      title: 'Run vẫn đang chạy nền',
+      title: tr('dash.title.run_van_dang_chay_nen', 'Run vẫn đang chạy nền'),
       body: 'Tiến trình quét là tiến trình tách rời — đóng màn này không dừng nó. Bạn muốn làm gì?',
-      confirmText: 'Chạy nền', cancelText: 'Huỷ (quay lại)',
+      confirmText: tr('dash.btn.chay_nen', 'Chạy nền'), cancelText: tr('dash.btn.huy_quay_lai', 'Huỷ (quay lại)'),
       onConfirm: () => {},
     });
     dlg.addEventListener('close', () => { if (dlg.returnValue === 'cancel') snapshot.ctx.navigate(back + stateQ); });
     const actions = dlg.querySelector('.actions') || dlg.querySelector('.sh-dialog-inner');
-    if (actions) actions.prepend(snapshot.C.btn({ label: 'Dừng an toàn', kind: 'danger', onClick: async () => { await tryApi(snapshot.ctx, `/api/run/${encodeURIComponent(snapshot.id)}/stop`, { method: 'POST', body: { force: false } }); snapshot.C.toast('Đã yêu cầu dừng an toàn.', 'ok'); dlg.close('ok'); } }));
+    if (actions) actions.prepend(snapshot.C.btn({ label: tr('dash.btn.dung_an_toan', 'Dừng an toàn'), kind: 'danger', onClick: async () => { await tryApi(snapshot.ctx, `/api/run/${encodeURIComponent(snapshot.id)}/stop`, { method: 'POST', body: { force: false } }); snapshot.C.toast(tr('dash.toast.da_yeu_cau_dung_an_toan', 'Đã yêu cầu dừng an toàn.'), 'ok'); dlg.close('ok'); } }));
   };
   window.addEventListener('hashchange', S.onHash, { once: true });
   S.onUnload = (e) => { if (snapshot.run && snapshot.run.status === 'running') { e.preventDefault(); e.returnValue = ''; } };

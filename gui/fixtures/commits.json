@@ -68,6 +68,40 @@
         "exp": 15
       },
       "build_error": null
+    },
+    {
+      "commit": "0e8a77c1",
+      "date": "2019-03-22",
+      "role": "buggy",
+      "status": "pending",
+      "n_expensive_ok": 0,
+      "negative_level": null,
+      "kamei": {
+        "ns": 2,
+        "nd": 3,
+        "nf": 5,
+        "la": 88,
+        "ld": 12,
+        "exp": 16
+      },
+      "build_error": "infra_error: rc 125 Cannot connect to the Docker daemon (về pending, không tính dữ liệu)"
+    },
+    {
+      "commit": "350f6200",
+      "date": "2019-03-25",
+      "role": "buggy",
+      "status": "build_failed",
+      "n_expensive_ok": 0,
+      "negative_level": null,
+      "kamei": {
+        "ns": 1,
+        "nd": 1,
+        "nf": 2,
+        "la": 30,
+        "ld": 4,
+        "exp": 17
+      },
+      "build_error": "tool_timeout: maven quá 1800s (build_status=timeout)"
     }
   ]
 }
