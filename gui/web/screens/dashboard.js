@@ -215,10 +215,16 @@ function draw() {
   const labelsCard = h('div', { class: 's-stack' });
   if (running || st === 'interrupted' || st === 'infra_stop') {
     labelsCard.append(h('div', { class: 's-note', text: t('dash.labels_hidden', 'Nhãn hiện sau khi relabel. Khi run đang chạy chỉ đếm finding thô — không hiện gold/silver tạm để tránh neo kỳ vọng và tinh chỉnh theo kết quả.') }));
-  } else if (!run.summary || run.summary.gold === null || run.summary.gold === undefined) {
+  } else if ((!run.summary || run.summary.gold === null || run.summary.gold === undefined) && !(S.overview && S.overview.labels)) {
     labelsCard.append(h('div', { class: 's-note', text: tr('dash.note.chua_co_nhan_run_dung_truoc', 'Chưa có nhãn — run dừng trước pha relabel/kappa. Chạy "analyze → relabel → kappa → export" (resume) để có nhãn.') }));
   } else {
-    const s = run.summary || {};
+    const ov = S.overview || {};
+    const rs = run.summary || {};
+    const s = {                                   // DASH-4: ưu tiên overview (stats từ DB) khi registry thiếu/null
+      gold: rs.gold ?? (ov.labels || {}).gold, silver: rs.silver ?? (ov.labels || {}).silver, candidate: rs.candidate ?? (ov.labels || {}).candidate,
+      verified_clean: rs.verified_clean ?? (ov.labels || {}).verified_clean, cheap_clean: rs.cheap_clean ?? (ov.labels || {}).cheap_clean,
+      kappa: (rs.kappa !== null && rs.kappa !== undefined) ? rs.kappa : (ov.kappa ? ov.kappa.total : null),
+    };
     labelsCard.append(h('div', { class: 's-row' }, C.badgeLabel('gold'), h('b', { class: 's-mono', text: fmt.int(s.gold) }), C.badgeLabel('silver'), h('b', { class: 's-mono', text: fmt.int(s.silver) }), C.badgeLabel('candidate'), h('b', { class: 's-mono', text: fmt.int(s.candidate) })));
     labelsCard.append(kv('verified-clean · 2 tool đắt không báo — không phải chứng minh sạch', h('span', { class: 's-mono', text: fmt.int(s.verified_clean) })));
     labelsCard.append(kv('cheap-clean · chỉ tool rẻ', h('span', { class: 's-mono', text: fmt.int(s.cheap_clean) })));

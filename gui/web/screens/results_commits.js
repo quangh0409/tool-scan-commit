@@ -61,9 +61,9 @@ function draw() {
       { key: 'role', label: tr('cm.btn.vai', 'vai'), render: (r) => h('span', { class: `s-tag ${r.role === 'buggy' ? 'st-warn' : 'st-muted'}`, text: r.role || '—' }) },
       { key: 'status', label: tr('cm.btn.status', 'status'), render: (r) => r.status ? statusTag(r.status) : null },
       { key: 'n_expensive_ok', label: tr('cm.btn.tool_dat_ok', 'tool đắt ok'), render: (r) => r.n_expensive_ok === undefined ? null : h('span', { class: 's-mono', text: String(r.n_expensive_ok) }) },
-      { key: 'negative_level', label: tr('cm.btn.muc_am', 'mức âm'), render: (r) => r.negative_level ? C.badgeLabel(r.negative_level) : (r.role === 'clean' ? h('span', { class: 's-muted', text: 'chưa xác định' }) : h('span', { class: 's-muted', text: '—' })) },
+      { key: 'negative_level', label: tr('cm.btn.muc_am', 'mức âm'), render: (r) => r.negative_level ? C.badgeLabel(r.negative_level) : (r.role === 'clean' ? h('span', { class: 's-tag st-warn', title: 'Tầng rẻ không báo nhưng tầng đắt tìm thấy finding in_diff=1 → commit là DƯƠNG, không phải negative', text: 'dương (tầng đắt)' }) : h('span', { class: 's-muted', text: '—' })) },
       { key: 'kamei', label: tr('cm.btn.kamei', 'Kamei'), render: (r) => kamei(r.kamei) },
-      { key: 'build_error', label: tr('cm.btn.loi_build', 'lỗi build'), render: (r) => r.build_error ? h('span', { class: 's-mono s-cell-wrap', title: r.build_error, text: r.build_error.length > 90 ? r.build_error.slice(0, 90) + '…' : r.build_error }) : null },
+      { key: 'build_error', label: tr('cm.btn.loi_build', 'lỗi build'), render: (r) => buildErrorCell(r) },
       { key: 'scan_tool_errors', label: tr('cm.btn.tool_re_loi', 'tool rẻ lỗi'), render: (r) => (r.scan_tool_errors && r.scan_tool_errors.length)
         ? h('div', { class: 's-stack', style: { gap: '4px' } }, toolErrorsTag(r.scan_tool_errors),
           C.btn({ label: tr('cm.btn.quet_lai', 'Quét lại'), small: true, title: 'TC-15: chạy lại tool rẻ bị lỗi trên commit này, giữ raw tool khác, relabel', onClick: () => rescanCommits(ctx, C, id, [r.commit], { onDone: () => load() }) }))
@@ -71,6 +71,24 @@ function draw() {
     ],
     rows, page: S.page, size: SIZE, total: d.total, onPage: (p) => { S.page = p; load(); },
   }), { extraClass: 's-table-card s-commits' }));
+}
+
+const ERR_CUT = 120;
+/** CM-1: chuỗi lỗi build (vd `mvn rc=1 (mods=[…])`) có thể dài hàng trăm ký tự -> cắt 120 + tooltip + "xem đủ". */
+function buildErrorCell(r) {
+  const full = r.build_error;
+  if (!full) return null;
+  const { C } = S;
+  const short = full.length > ERR_CUT ? full.slice(0, ERR_CUT) + '…' : full;
+  const cell = h('div', { class: 's-cell-wrap' }, h('span', { class: 's-mono', title: full, text: short }));
+  if (full.length > ERR_CUT) {
+    cell.append(h('div', {}, C.btn({ label: tr('cm.btn.xem_du', 'xem đủ'), small: true, onClick: () => C.dialog({
+      title: `Lỗi build · ${fmt.sha(r.commit)}`,
+      body: h('pre', { class: 's-mono', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '60vh', overflow: 'auto', margin: 0 }, text: full }),
+      confirmText: 'Đóng', onConfirm: () => {},
+    }) })));
+  }
+  return cell;
 }
 
 function kamei(k) {
