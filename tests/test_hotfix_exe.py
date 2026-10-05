@@ -101,3 +101,24 @@ def test_estimate_fast_count_excludes_merges_and_is_fast(orch_env, tmp_path, mon
     res = estimate.estimate(p, speed=dict(estimate.DEFAULT_SPEED), speed_source="default")
     assert res["commits_after_filter"] == 6 and res["approx"] is True   # 5 + side, trừ 1 merge
     assert called == []                                                   # không đọc diff từng commit
+
+
+def test_server_silences_client_disconnect(capsys):
+    """Client đóng kết nối giữa chừng không được in traceback ra console (WinError 10053)."""
+    from gui.server import GuiServer
+    from gui.api_mock import MockApi
+    s = GuiServer(MockApi(), port=0)
+    try:
+        for exc in (ConnectionAbortedError(10053, "aborted"), ConnectionResetError(), BrokenPipeError()):
+            try:
+                raise exc
+            except OSError:
+                s.handle_error(None, ("127.0.0.1", 1))
+        assert "Traceback" not in capsys.readouterr().err
+        try:
+            raise ValueError("lỗi thật")
+        except ValueError:
+            s.handle_error(None, ("127.0.0.1", 1))
+        assert "ValueError" in capsys.readouterr().err   # lỗi thật vẫn được in
+    finally:
+        s.server_close()

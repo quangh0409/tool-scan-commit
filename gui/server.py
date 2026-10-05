@@ -16,6 +16,7 @@ import mimetypes
 import re
 import secrets
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -353,6 +354,16 @@ class GuiHandler(BaseHTTPRequestHandler):
 class GuiServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
+
+    # Trình duyệt/WebView đóng kết nối giữa chừng (đổi màn, đóng SSE, keep-alive hết hạn) -> socketserver in
+    # cả traceback "ConnectionAbortedError [WinError 10053]" ra console dù vô hại (user báo 2026-10-05).
+    _CLIENT_GONE = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError)
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, self._CLIENT_GONE):
+            return                       # client tự ngắt: im lặng
+        super().handle_error(request, client_address)
 
     def __init__(self, api, port: int = 0, token: str | None = None, host: str = "127.0.0.1",
                  verbose: bool = False):
