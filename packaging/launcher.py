@@ -280,6 +280,9 @@ def run_gui(argv: list[str], open_browser=None) -> int:
         print(__doc__, file=sys.stderr)
         return EXIT_ARGS
     import registry
+    # --allow-multi / --mock (QA): không giữ mutex, không ghi gui.json (gui.__main__ cũng bỏ khoá ở 2 cờ này)
+    if "--allow-multi" in argv or "--mock" in argv:
+        return int(gui_main(argv) or 0)
     lock = registry.locks.single_instance("secjit-gui")
     if not lock.acquired:
         return open_existing_instance(open_browser)
