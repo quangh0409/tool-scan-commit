@@ -56,9 +56,24 @@ def default_stop_file(queue_path: Path) -> Path:
 
 
 def _write_state(path: Path, state: dict) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    """Ghi atomic (tmp + os.replace). Windows: os.replace có thể bị PermissionError/WinError 32 thoáng qua khi
+    antivirus/indexer giữ handle file vừa ghi -> thử lại vài lần, cuối cùng ghi thẳng (không làm hỏng batch)."""
+    data = json.dumps(state, ensure_ascii=False, indent=2)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    for attempt in range(5):
+        try:
+            tmp.write_text(data, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except OSError:
+            time.sleep(0.05 * (attempt + 1))
+    try:
+        path.write_text(data, encoding="utf-8")
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def _default_runner(argv: list[str], env: dict, log_path: Path) -> int:
