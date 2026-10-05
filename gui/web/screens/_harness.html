@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness A5 — màn 6–10</title>
+<link rel="stylesheet" href="./screens.css">
+<style>
+  /* Khung tối thiểu của harness (A4 có khung thật trong app.css). Không font mạng. */
+  html, body { margin: 0; background: #E9ECF0; font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1C2430; font-size: 14px; }
+  #top { height: 56px; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: #142233; color: #fff; }
+  #top strong { font-size: 15px; }
+  #top .hint { color: #B8CCE0; font-size: 12.5px; }
+  #top label { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #D6E4F2; }
+  #top select { min-height: 36px; border-radius: 6px; border: 1px solid #3B4F66; background: #1B2A3B; color: #fff; padding: 0 8px; font: 13px inherit; }
+  #frame { display: flex; min-height: calc(100vh - 56px); }
+  #nav { width: 200px; background: #1B2A3B; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+  #nav a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 8px; color: #D6E4F2; text-decoration: none; font-weight: 500; }
+  #nav a.on { background: #26384D; color: #fff; }
+  #nav a:focus-visible { outline: 3px solid #7FC4FF; }
+  main { flex: 1; min-width: 0; padding: 22px 28px; }
+</style>
+</head>
+<body>
+  <header id="top">
+    <strong>SecJIT Scan · harness A5</strong>
+    <span class="hint">fixture `gui/fixtures/` · không có backend</span>
+    <label>Trạng thái <select id="state-pick" aria-label="Trạng thái mô phỏng"></select></label>
+  </header>
+  <div id="frame">
+    <nav id="nav" aria-label="Màn"></nav>
+    <main><div id="screen" class="s-screen"></div></main>
+  </div>
+  <script type="module" src="./_harness.js"></script>
+</body>
+</html>
