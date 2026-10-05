@@ -44,6 +44,18 @@ def _variants(tmp_path) -> list[tuple[str, dict]]:
     return out
 
 
+@pytest.fixture(autouse=True)
+def clean_config():
+    """Khôi phục os.environ + config.reload() SAU test để không làm bẩn config toàn cục cho test khác."""
+    import os
+    from orchestrator import config
+    snap = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snap)
+    config.reload()
+
+
 @pytest.fixture
 def variants(tmp_path):
     return _variants(tmp_path)

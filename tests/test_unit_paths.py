@@ -171,12 +171,17 @@ def test_to_shell_powershell_real_roundtrip(tmp_path):
     assert out[0] == p["paths"]["db"] and out[1] == p["paths"]["export"]
 
 
-def test_env_values_survive_os_environ_roundtrip(tmp_path, monkeypatch):
+def test_env_values_survive_os_environ_roundtrip(tmp_path):
     """Đường dẫn unicode/`'` đi qua os.environ -> config.reload() không vỡ (ORCH_SQLITE là Path)."""
     from orchestrator import config, profile
     p = _weird_profile(tmp_path)
-    for k, v in profile.to_env(p).items():
-        monkeypatch.setenv(k, v)
-    config.reload()
-    assert str(config.SQLITE_PATH) == p["paths"]["db"]
-    assert os.fspath(config.EXPORT_DIR) == p["paths"]["export"]
+    snap = dict(os.environ)
+    try:
+        os.environ.update(profile.to_env(p))
+        config.reload()
+        assert str(config.SQLITE_PATH) == p["paths"]["db"]
+        assert os.fspath(config.EXPORT_DIR) == p["paths"]["export"]
+    finally:
+        os.environ.clear()
+        os.environ.update(snap)
+        config.reload()          # không để config bẩn cho test khác
