@@ -178,6 +178,7 @@ def limits_for(db: Path | None, man: dict) -> tuple[list[str], str]:
     if db is not None:
         try:
             ov = stats.overview(db, run_id=man.get("run_id"))
+            limits_for.anchor_gap = (ov.get("cross_tool") or {}).get("anchor_gap")   # A2: in ở mục 7
             return list(ov.get("limits") or []), "stats.overview(DB A)"
         except Exception as e:  # noqa: BLE001
             src = f"manifest (stats.overview lỗi: {e})"
@@ -240,7 +241,7 @@ def build(a: Path, b: Path, db_a: str | None = None, db_b: str | None = None) ->
         "compare": cmp, "diff_rows": diff_rows(cmp, ma, mb),
         "verify": {"a": va, "b": vb},
         "kappa": kappa_table(ma, mb),
-        "limits": lim, "limits_source": lim_src,
+        "limits": lim, "limits_source": lim_src, "anchor_gap": getattr(limits_for, "anchor_gap", None),
         "conclusion": {"ok": ok, "reasons": reasons, "warnings": warn, "scope_max": n_max},
     }
 
@@ -385,6 +386,12 @@ def to_markdown(rep: dict) -> str:
     # 7
     L += ["## 7. Giới hạn (từ `stats.limits`, nguồn: " + rep["limits_source"] + ")", ""]
     L += [f"- {s}" for s in rep["limits"]] or ["- (không có)"]
+    ag = rep.get("anchor_gap") or {}
+    if ag.get("pairs_same_file_group"):            # A2: khoảng cách điểm neo FSB↔Sonar đo thật (METHODOLOGY §8)
+        L += ["", f"Khoảng cách điểm neo FSB↔Sonar (cùng file, nhóm CWE; {ag['pairs_same_file_group']} cặp): "
+                  f"min {ag['min']} · trung vị {ag['median']} · p90 {ag['p90']} dòng.",
+              "| Nhóm CWE | n cặp | min | trung vị | max |", "|---|--:|--:|--:|--:|"]
+        L += [f"| {g['group']} | {g['n']} | {g['min']} | {g['median']} | {g['max']} |" for g in ag.get("by_group") or []]
     L.append("")
     return "\n".join(L)
 

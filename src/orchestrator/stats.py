@@ -188,6 +188,51 @@ def _precision(conn, tabs: set[str]) -> dict | None:
             "ci_low": lo, "ci_high": hi}
 
 
+def _pct(sorted_vals: list[int], q: float) -> int | None:
+    if not sorted_vals:
+        return None
+    k = max(0, min(len(sorted_vals) - 1, int(round(q * (len(sorted_vals) - 1)))))
+    return sorted_vals[k]
+
+
+def anchor_gap(conn, tabs: set[str], tool_a: str = "findsecbugs", tool_b: str = "sonar") -> dict:
+    """Khoảng cách dòng giữa raw finding FSB và Sonar cùng (commit, file, cwe_group) GẦN NHẤT — đo từ raw_findings
+    (METHODOLOGY §8: khác điểm neo). Mỗi finding của tool_a ghép với finding tool_b gần nhất cùng nhóm/file.
+    -> {pairs_same_file_group, min, median, p90, by_group[{group, n, min, median}]}; 0 cặp -> pairs=0, số = None."""
+    from .consensus.cwe_groups import primary_group
+    out = {"pairs_same_file_group": 0, "min": None, "median": None, "p90": None, "by_group": []}
+    if "raw_findings" not in tabs:
+        return out
+    by_key: dict[tuple, dict[str, list[int]]] = {}
+    for cid, tool, fp, s_line, cwe in conn.execute(
+            "SELECT commit_id, tool, file_path, s_line, cwe FROM raw_findings WHERE tier='expensive' AND tool IN (?,?)",
+            [tool_a, tool_b]):
+        try:
+            cwes = json.loads(cwe) if cwe else []
+        except ValueError:
+            cwes = []
+        grp, _cat = primary_group(cwes if isinstance(cwes, list) else [str(cwes)])
+        by_key.setdefault((cid, fp, grp), {tool_a: [], tool_b: []})[tool].append(int(s_line or 0))
+    gaps_all: list[int] = []
+    gaps_grp: dict[str, list[int]] = {}
+    for (_cid, _fp, grp), d in by_key.items():
+        if not d[tool_a] or not d[tool_b]:
+            continue
+        b_sorted = sorted(set(d[tool_b]))
+        for a in set(d[tool_a]):
+            g = min(abs(a - b) for b in b_sorted)
+            gaps_all.append(g)
+            gaps_grp.setdefault(grp, []).append(g)
+    if not gaps_all:
+        return out
+    gaps_all.sort()
+    out.update(pairs_same_file_group=len(gaps_all), min=gaps_all[0], median=_pct(gaps_all, 0.5), p90=_pct(gaps_all, 0.9))
+    out["by_group"] = sorted(({"group": g, "n": len(v), "min": min(v), "median": _pct(sorted(v), 0.5),
+                               "max": max(v)} for g, v in gaps_grp.items()),
+                             key=lambda r: (-r["n"], r["group"]))
+    return out
+
+
 def build_limits(ov: dict) -> list[str]:
     """Sinh ≥5 câu 'giới hạn' từ số liệu (bắt buộc đi kèm mọi bảng — nhãn bạc ≠ chân lý)."""
     f, lab, kap, prec = ov["funnel"], ov["labels"], ov["kappa"], ov["precision"]
@@ -219,12 +264,16 @@ def build_limits(ov: dict) -> list[str]:
     if lab["gold"] == 0:
         out.append("Chưa có cụm gold (không cụm nào ≥2 tool đắt / 1 đắt + 1 rẻ đồng thuận).")
     ct = ov.get("cross_tool") or {}
-    if {"findsecbugs", "sonar"} <= set(ct.get("expensive_tools_seen") or []) and ct.get("fsb_sonar_clusters", 0) == 0:
-        out.append("FindSecBugs và SonarQube cùng chạy nhưng 0 cụm liên-tool: hai tool neo cùng một lỗi vào mức cú pháp "
-                   "khác nhau (FSB tại khai báo method/field, Sonar tại statement; trên smoke train-ticket cặp cùng nhóm CWE "
-                   "gần nhất lệch 18–43 dòng) nên W∈{3,5,7} đều không gộp được — gold trên app Spring bị ước lượng thiếu "
-                   "có hệ thống và κ âm FSB–Sonar phần lớn phản ánh khác điểm neo, không phải bất đồng về lỗi "
-                   "(METHODOLOGY §8).")
+    ag = ct.get("anchor_gap") or {}
+    if ({"findsecbugs", "sonar"} <= set(ct.get("expensive_tools_seen") or []) and ct.get("fsb_sonar_clusters", 0) == 0
+            and ag.get("pairs_same_file_group")):
+        grp_txt = "; ".join(f"{g['group']} {g['min']}–{g['max']}" for g in (ag.get("by_group") or [])[:3])
+        out.append(f"FindSecBugs và SonarQube cùng chạy nhưng 0 cụm liên-tool: hai tool neo cùng một lỗi vào mức cú pháp "
+                   f"khác nhau (FSB tại khai báo method/field, Sonar tại statement). Đo trên DB này: "
+                   f"{ag['pairs_same_file_group']} cặp cùng (file, nhóm CWE), khoảng cách dòng gần nhất min {ag['min']} · "
+                   f"trung vị {ag['median']} · p90 {ag['p90']}" + (f" ({grp_txt})" if grp_txt else "") +
+                   " — vượt mọi W∈{3,5,7} nên không gộp được; gold trên app Spring bị ước lượng thiếu có hệ thống và "
+                   "κ âm FSB–Sonar phần lớn phản ánh khác điểm neo, không phải bất đồng về lỗi (METHODOLOGY §8).")
     if ov.get("experiment"):
         out.append("Run ở CHẾ ĐỘ THÍ NGHIỆM (params khác v1) — không so trực tiếp với run v1.")
     if sel and f["commits"] and f["after_filter"] < f["commits"]:
@@ -263,7 +312,8 @@ def overview(db: str | Path, run_id: str | None = None) -> dict:
         fsb_sonar = _n(conn, "SELECT COUNT(*) FROM findings WHERE COALESCE(n_tools_agree,1) >= 2 "
                              "AND agreeing_tools LIKE '%findsecbugs%' AND agreeing_tools LIKE '%sonar%'")
         cross = {"expensive_tools_seen": sorted(seen), "fsb_sonar_clusters": fsb_sonar,
-                 "multi_tool_clusters": _n(conn, "SELECT COUNT(*) FROM findings WHERE COALESCE(n_tools_agree,1) >= 2")}
+                 "multi_tool_clusters": _n(conn, "SELECT COUNT(*) FROM findings WHERE COALESCE(n_tools_agree,1) >= 2"),
+                 "anchor_gap": anchor_gap(conn, tabs)}
         exp = None
         params = config.params_v1()
         if "run_meta" in tabs:
