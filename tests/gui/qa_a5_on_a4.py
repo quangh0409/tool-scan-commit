@@ -159,13 +159,17 @@ def run(out: Path) -> int:
             # nút tiếp tục: nhãn 'Tiếp' hoặc 'Tiếp tục'
             cont_disabled = q.page.evaluate("(() => { const b = [...document.querySelectorAll('.btn.primary')].find(x => x.textContent.includes('Tiếp tục')); return b ? b.disabled : null; })()")
             if cont_disabled:
-                ok = q.click("button:has-text('Bỏ qua kiểm tra')")
+                ok = q.click("[data-test='skip']")
             else:
                 ok = q.click("button:has-text('Tiếp tục')")
             q.page.wait_for_timeout(500)
-            q.shot("flow-02a-preflight-continue-dialog", f"Preflight: nút Tiếp tục disabled={cont_disabled} (Git=chặn, không tự sửa) → bấm 'Bỏ qua kiểm tra' → dialog xác nhận")
+            q.shot("flow-02a-preflight-continue-dialog", f"Preflight: nút Tiếp tục disabled={cont_disabled} (Git=chặn, không tự sửa) → data-test=skip → dialog typed-confirm 'BO QUA'")
             if q.page.query_selector(".dlg"):
-                q.click(".dlg button:has-text('Tiếp tục dù')")
+                if q.page.query_selector("#dlg-typed"):
+                    q.fill("#dlg-typed", "BO QUA")
+                    q.click(".dlg .btn.danger, .dlg .btn.primary")
+                else:
+                    q.click(".dlg button:has-text('Tiếp tục dù')")
                 q.page.wait_for_timeout(600)
             q.shot("flow-02-preflight-continue", f"Preflight → Tiếp tục (click ok={ok}); mong đợi #/home; hash={q.page.evaluate('location.hash')}")
             # 2.2 Home -> Scan mới
@@ -253,10 +257,10 @@ def run(out: Path) -> int:
             q.shot("flow-42-w4-same-dir", "W4 OUT = WORK → mong đợi lỗi chặn")
             q.fill("#w4-out", "D:\\secjit\\results"); q.fill("#w4-work", "D:\\secjit\\results\\work"); q.page.wait_for_timeout(300)
             q.shot("flow-43-w4-work-in-out", "W4 WORK nằm trong OUT → lỗi")
-            q.fill("#w4-work", "D:\\secjit\\work"); q.fill("#w4-db", "dataset_exists.sqlite"); q.page.wait_for_timeout(1200)
-            q.shot("flow-44-w4-db-exists", "W4 DB tên chứa 'exists' → mock db_exists → Resume/Đổi tên/Ghi đè")
+            q.fill("#w4-work", "D:\\secjit\\work"); q.fill("#w4-db", "dataset_FudanSELab__train-ticket_master_20261005.sqlite"); q.page.wait_for_timeout(1200)
+            q.shot("flow-44-w4-db-exists", "W4 tên DB trùng run trong runs.json → mock db_exists → Resume/Đổi tên/Ghi đè")
             q.click("button:has-text('Đổi tên')"); q.page.wait_for_timeout(600)
-            q.shot("flow-45-w4-rename", "W4 Đổi tên → _2")
+            q.shot("flow-45-w4-rename", "W4 Đổi tên → _2 (mong đợi: hết cảnh báo đã tồn tại)")
             # 2.7 W5: CLI, lưu profile, chạy thử
             q.new_page()
             q.goto("wizard/5")
@@ -264,15 +268,15 @@ def run(out: Path) -> int:
             q.shot("flow-50-w5-powershell", "W5 CLI PowerShell")
             q.click("button[role=tab]:has-text('bash')"); q.page.wait_for_timeout(600)
             q.shot("flow-51-w5-bash", "W5 CLI bash")
-            q.click("button:has-text('Lưu profile')"); q.page.wait_for_timeout(400)
+            q.click("[data-test='save'], button:has-text('Lưu profile')"); q.page.wait_for_timeout(400)
             q.shot("flow-52-w5-save-dialog", "W5 dialog Lưu profile")
             q.click(".dlg button:has-text('Lưu')"); q.page.wait_for_timeout(600)
             q.shot("flow-53-w5-saved", "W5 sau Lưu → toast đường dẫn")
-            q.click("button:has-text('Chạy thử')"); q.page.wait_for_timeout(2500)
+            q.click("[data-test='smoke'], button:has-text('Chạy thử')"); q.page.wait_for_timeout(2500)
             q.shot("flow-54-w5-smoke", f"W5 Chạy thử → mong đợi #/run/<id>?smoke=1; hash={q.page.evaluate('location.hash')}")
             # Chạy thật (mock) -> dashboard run mới
             q.new_page(); q.goto("wizard/5"); q.page.wait_for_timeout(600)
-            q.click("button:has-text('Chạy')"); q.page.wait_for_timeout(2500)
+            q.click("[data-test='run'], .wiz-foot .btn.primary"); q.page.wait_for_timeout(2500)
             q.shot("flow-55-w5-run", f"W5 Chạy (mock) → #/run/<id>; dashboard run mới không có progress; hash={q.page.evaluate('location.hash')}")
             # ================= 3. màn A5 trong khung A4 =================
             for route in ("run/r-20261005-A", "run/r-20261005-int", "run/r-20261004-scratch", "results/r-20261005-A", "results/r-20261005-A/findings",
