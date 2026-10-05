@@ -10,7 +10,9 @@ không phải con số tuyệt đối.
 """
 from __future__ import annotations
 
+import datetime
 from collections import defaultdict
+from itertools import combinations
 
 from .consensus.cwe_groups import primary_group
 from .consensus.matcher import cluster_findings
@@ -39,8 +41,11 @@ def fleiss(items: list[tuple[int, int]]) -> tuple[float | None, int]:
     return (p_bar - p_e) / (1 - p_e), n_item
 
 
-def collect(store) -> tuple[list, dict, dict]:
-    """-> (items tổng, items theo nhóm-CWE, items theo category)."""
+def collect(store, pairs: dict | None = None) -> tuple[list, dict, dict]:
+    """-> (items tổng, items theo nhóm-CWE, items theo category).
+
+    pairs (tuỳ chọn, dict rỗng truyền vào): được điền items theo CẶP tool 'a|b' (2 rater:
+    cả hai đủ năng lực & đã chạy trên commit; n_yes = số tool trong cặp báo cụm)."""
     ran = defaultdict(set)
     for cid, tool in store.conn.execute("SELECT commit_id, tool FROM raw_output"):
         ran[cid].add(tool)
@@ -59,12 +64,61 @@ def collect(store) -> tuple[list, dict, dict]:
             elig = eligible_tools(cat) & toolran
             if len(elig) < 2:               # cần ≥2 rater mới tính được agreement
                 continue
-            n_yes = len({f.tool for f in cluster} & elig)
-            item = (n_yes, len(elig))
+            said = {f.tool for f in cluster} & elig
+            item = (len(said), len(elig))
             allit.append(item)
             by_group[grp].append(item)
             by_cat[cat].append(item)
+            if pairs is not None:
+                for a, b in combinations(sorted(elig), 2):
+                    pairs.setdefault(f"{a}|{b}", []).append((len({a, b} & said), 2))
     return allit, by_group, by_cat
+
+
+def compute_all(store, min_group_n: int = 5) -> dict:
+    """κ tổng + theo category + theo nhóm-CWE (n>=min_group_n) + theo cặp tool.
+    Cấu trúc khớp CONTRACTS §9 overview.kappa: {total, by_category[], by_group[], pairs[], n}."""
+    pairs: dict = {}
+    allit, by_group, by_cat = collect(store, pairs)
+    k, n = fleiss(allit)
+
+    def _rows(d, min_n=2):
+        out = []
+        for grp, items in d.items():
+            kg, ng = fleiss(items)
+            if ng >= min_n:
+                out.append({"group": grp, "value": None if kg is None else round(kg, 4), "n": ng})
+        return sorted(out, key=lambda r: (-r["n"], r["group"]))
+
+    return {"total": None if k is None else round(k, 4), "n": n,
+            "by_category": _rows(by_cat),
+            "by_group": _rows(by_group, min_group_n),
+            "pairs": _rows(pairs)}
+
+
+def save_all(store, result: dict, run_id: str) -> int:
+    """Ghi κ vào bảng `kappa` qua store.save_kappa(run_id, scope, grp, value, n) (A1).
+    Store chưa có hàm đó -> ghi thẳng nếu bảng tồn tại; không có bảng -> 0 (chỉ print)."""
+    rows = [("total", "", result.get("total"), result.get("n", 0))]
+    for scope, key in (("category", "by_category"), ("cwe_group", "by_group"), ("pair", "pairs")):
+        rows += [(scope, r["group"], r["value"], r["n"]) for r in result.get(key, [])]
+    save = getattr(store, "save_kappa", None)
+    if save is not None:
+        for scope, grp, value, n in rows:
+            save(run_id, scope, grp, value, n)
+        return len(rows)
+    conn = getattr(store, "conn", None)
+    if conn is None:
+        return 0
+    have = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='kappa'").fetchone()
+    if not have:
+        return 0
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    conn.execute("DELETE FROM kappa WHERE run_id=?", [run_id])
+    conn.executemany("INSERT INTO kappa (run_id,scope,grp,value,n,computed_at) VALUES (?,?,?,?,?,?)",
+                     [(run_id, sc, g, v, n, now) for sc, g, v, n in rows])
+    conn.commit()
+    return len(rows)
 
 
 def _label(k: float | None) -> str:

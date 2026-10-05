@@ -86,9 +86,70 @@ def resolve_rev(repo_dir: Path, branch: str | None) -> str:
     return branch  # để git tự báo lỗi nếu nhánh sai
 
 
+class ScopeError(ValueError):
+    """Phạm vi commit sai (SHA không tồn tại/mơ hồ, since > until...). CLI -> exit 1."""
+
+
+def verify_sha(repo_dir: Path, sha: str, what: str = "sha") -> str:
+    """`git rev-parse --verify <sha>^{commit}` -> full SHA; sai -> ScopeError rõ nghĩa."""
+    sha = (sha or "").strip()
+    if not sha:
+        raise ScopeError(f"{what} trống")
+    try:
+        full = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}").strip()
+    except subprocess.CalledProcessError:
+        full = ""
+    if not full:
+        raise ScopeError(f"{what}={sha!r} không tồn tại / không phải commit / mơ hồ trong repo "
+                         f"(kiểm `git rev-parse --verify {sha}` tại {repo_dir})")
+    return full
+
+
+def scope_dict(max_count=None, since=None, until=None, from_sha=None, to_sha=None) -> dict:
+    """Mô tả phạm vi commit chuẩn (ghi vào run_meta.scope_json). mode theo CONTRACTS §2."""
+    if from_sha or to_sha:
+        mode = "sha"
+    elif since or until:
+        mode = "time"
+    elif max_count and max_count > 0:
+        mode = "count"
+    else:
+        mode = "all"
+    return {"mode": mode, "since": since, "until": until,
+            "max": int(max_count or 0), "from_sha": from_sha, "to_sha": to_sha,
+            "date_field": "committer"}
+
+
 def list_commits(repo_dir: Path, max_count: int | None = None,
-                 rev: str = "HEAD") -> list[str]:
-    args = ["log", "--pretty=%H", rev]
+                 rev: str = "HEAD", *, since: str | None = None, until: str | None = None,
+                 from_sha: str | None = None, to_sha: str | None = None) -> list[str]:
+    """SHA mới->cũ trong phạm vi.
+
+    - since/until: committer-date (`git log --since/--until`, ISO `YYYY-MM-DD`).
+    - from_sha/to_sha: `from..to` (loại from, gồm to); thiếu to -> rev; thiếu from -> tới gốc.
+      Cả hai verify bằng `git rev-parse --verify` -> ScopeError nếu sai.
+    - max_count <= 0 / None => KHÔNG giới hạn.
+    """
+    if since and until and str(since) > str(until):
+        raise ScopeError(f"since={since} > until={until}")
+    args = ["log", "--pretty=%H"]
+    if since:
+        args.append(f"--since={since}")
+    if until:
+        args.append(f"--until={until}")
+    if from_sha or to_sha:
+        head = verify_sha(repo_dir, to_sha, "to_sha") if to_sha else rev
+        if from_sha:
+            base = verify_sha(repo_dir, from_sha, "from_sha")
+            if to_sha and not _git(repo_dir, "rev-list", "-n1", f"{base}..{head}").strip()                     and base != head:
+                # from không phải tổ tiên của to -> range rỗng/ngược chiều: báo rõ thay vì 0 commit im lặng
+                raise ScopeError(f"from_sha={from_sha} không phải tổ tiên của to_sha={to_sha} "
+                                 "(ngược chiều hoặc nhánh khác)")
+            args.append(f"{base}..{head}")
+        else:
+            args.append(head)
+    else:
+        args.append(rev)
     if max_count and max_count > 0:      # <=0 hoặc None => KHÔNG giới hạn (mọi commit)
         args += [f"-n{max_count}"]
     return _git(repo_dir, *args).split()
@@ -219,11 +280,15 @@ def coarse_filter(ci: CommitInfo) -> tuple[bool, str]:
 
 
 def enumerate_repo(repo_url: str, max_count: int | None = None,
-                   branch: str | None = None):
-    """Yield (CommitInfo, keep, reason) — mới->cũ. branch=None -> nhánh mặc định; max<=0 -> mọi commit."""
+                   branch: str | None = None, *, since: str | None = None,
+                   until: str | None = None, from_sha: str | None = None,
+                   to_sha: str | None = None):
+    """Yield (CommitInfo, keep, reason) — mới->cũ. branch=None -> nhánh mặc định; max<=0 -> mọi commit.
+    since/until/from_sha/to_sha: xem list_commits."""
     repo_dir = clone_or_update(repo_url)
     rev = resolve_rev(repo_dir, branch)
-    for cid in list_commits(repo_dir, max_count, rev):
+    for cid in list_commits(repo_dir, max_count, rev, since=since, until=until,
+                            from_sha=from_sha, to_sha=to_sha):
         ci = get_commit_info(repo_dir, cid)
         keep, reason = coarse_filter(ci)
         yield ci, keep, reason
