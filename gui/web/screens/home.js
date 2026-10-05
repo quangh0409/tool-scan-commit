@@ -119,10 +119,9 @@ function runRow(r, cardEl, ctx) {
   }
   if (st === 'done') actions.append(btn(t('home.open_results'), { kind: 'primary', small: true, href: `#/results/${encodeURIComponent(r.run_id)}/overview` }));
   if (st === 'failed') actions.append(btn(t('home.view_log'), { small: true, href: `#/run/${encodeURIComponent(r.run_id)}` }));
-  if (st !== 'running') {
-    actions.append(btn(t('home.rerun_same'), { small: true, onClick: (ev, el) => rerunSame(r, el) }));
-    actions.append(btn(t('home.rerun_fresh'), { small: true, kind: 'ghost', onClick: () => rerunFresh(r) }));
-  }
+  // "Chạy lại cùng profile" chỉ nạp profile (chỉ đọc) -> cho phép cả khi run đang chạy (đường Run B song song A)
+  actions.append(btn(t('home.rerun_same'), { small: true, onClick: (ev, el) => rerunSame(r, el) }));
+  if (st !== 'running') actions.append(btn(t('home.rerun_fresh'), { small: true, kind: 'ghost', onClick: () => rerunFresh(r) }));
   row.append(h('div', {}, title, meta), right, actions);
   return row;
 }
@@ -138,9 +137,14 @@ async function rerunSame(r, el) {
     // DB/export mới theo ngày hôm nay — không ghi đè run cũ
     const outDir = (settings && settings.out_dir) || dirOf(p.paths && p.paths.db) || '';
     const paths = wiz.defaultPaths(p.repo, p.branch, outDir, (settings && settings.work_dir) || (p.paths && p.paths.work));
-    p.paths = { db: paths.db, export: paths.export, work: paths.work };
+    // Run B: hậu tố _B (so sánh A/B) — tăng _C, _D… nếu đã trùng tên run cũ; W4 còn kiểm db_exists qua backend
+    let suffix = 'B';
+    const oldDb = ((p.paths && p.paths.db) || '').toLowerCase();
+    while (paths.db.replace(/\.sqlite$/i, `_${suffix}.sqlite`).toLowerCase() === oldDb && suffix < 'Z') suffix = String.fromCharCode(suffix.charCodeAt(0) + 1);
+    p.paths = { db: paths.db.replace(/\.sqlite$/i, `_${suffix}.sqlite`), export: `${paths.export}_${suffix}`, work: paths.work };
     wiz.set(p);
-    wiz.setMeta({ prefilled_from: r.run_id, out_dir: outDir, work_dir: paths.work, settings });
+    wiz.setMeta({ prefilled_from: r.run_id, out_dir: outDir, work_dir: paths.work, settings, names_edited: true,
+      db_name: p.paths.db.split(/[\\/]/).pop(), export_name: p.paths.export.split(/[\\/]/).pop(), repo_check: null });
     toast(t('home.prefilled', { id: r.run_id }), 'ok');
     navigate('wizard/5');
   } catch (e) {
