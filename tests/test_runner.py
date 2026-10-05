@@ -51,6 +51,7 @@ def test_start_builds_argv_env_and_files(profile_file, tmp_path, monkeypatch):
     assert env["ORCH_SQLITE"] == str(profile_file.parent / "scratch.sqlite")
     assert env["ORCH_SONAR_PORT"] == "9100" and env["ORCH_USE_CODEQL"] == "0"
     assert env["PYTHONUTF8"] == "1" and env["PYTHONIOENCODING"] == "utf-8" and env["X_TEST"] == "1"
+    assert env["PYTHONUNBUFFERED"] == "1"      # run.log phải cập nhật sống (Dashboard tab Log); exe xử lý thêm ở launcher
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(rp.src_dir()) and "C:\\khac" in env["PYTHONPATH"]
     assert (rp.src_dir() / "orchestrator" / "cli.py").exists()
     assert fp.kw["stdin"] is subprocess.DEVNULL and fp.kw["close_fds"] is True

@@ -61,9 +61,16 @@ EXIT_OK, EXIT_ARGS, EXIT_RUNTIME, EXIT_STOPPED = 0, 1, 2, 3
 
 
 def _utf8_stdio() -> None:
+    """UTF-8 + line-buffered cho stdout/stderr.
+
+    Exe PyInstaller khởi tạo interpreter ở chế độ isolated → BỎ QUA PYTHONUTF8/PYTHONUNBUFFERED trong env; khi
+    runner.start trỏ stdout của `secjit-scan.exe -m orchestrator.cli pipeline` vào run.log thì file bị block-buffer
+    (Run B 2026-10-05: run.log dừng ở 673 byte trong khi progress.jsonl vẫn ghi). line_buffering=True + write_through
+    để Dashboard tab Log cập nhật sống. Chạy từ nguồn: build_env đặt PYTHONUNBUFFERED=1 nên đã đủ.
+    """
     for s in (sys.stdout, sys.stderr):
         try:
-            s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+            s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True, write_through=True)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 — noconsole exe: stdout có thể là None
             pass
 
