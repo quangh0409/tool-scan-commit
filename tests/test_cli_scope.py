@@ -639,3 +639,99 @@ def test_clone_or_update_prefers_slug_then_legacy_with_matching_origin(orch_env,
     slug = work / "o__r"
     _git(tmp_path, "clone", "-q", str(r), str(slug))
     assert enm.clone_or_update(url, fetch=False) == slug
+
+
+# ----------------------------------------------------------------------------- infra_error ở tầng rẻ (A1 yêu cầu)
+def test_scan_stops_after_consecutive_infra_errors(orch_env, monkeypatch, tmp_path):
+    from orchestrator import progress
+    cli = _patch_scan(monkeypatch, tmp_path, 10)
+    monkeypatch.setenv("ORCH_INFRA_STOP_AFTER", "3")
+    cli.config.reload()
+    monkeypatch.setenv("ORCH_SCAN_WORKERS", "1")
+    cli.config.reload()
+    calls = []
+
+    def _infra(ci, clone, tools, tool_names, args, store):
+        calls.append(ci.commit_id)
+        return f"[{ci.commit_id[:8]}] INFRA_ERROR (semgrep)", 0, 0, 0, 1
+
+    monkeypatch.setattr(cli, "_scan_one_commit", _infra)
+    rc = cli.main(["scan", "https://github.com/o/r", "--no-meta", "--max", "0"])
+    assert rc == 3 and len(calls) == 3                                  # dừng sau đúng 3 infra_error liên tiếp
+    ev = progress.read(os.environ["ORCH_PROGRESS_FILE"])
+    assert ev[-1]["event"] == "stop" and ev[-1]["status"] == "infra_error"
+    assert all(e["status"] == "infra_error" for e in ev if e["event"] == "item")
+
+
+def test_scan_infra_error_resets_counter_on_ok(orch_env, monkeypatch, tmp_path):
+    cli = _patch_scan(monkeypatch, tmp_path, 6)
+    monkeypatch.setenv("ORCH_SCAN_WORKERS", "1")
+    cli.config.reload()
+    seq = iter([1, 1, 0, 1, 1, 0])                                       # không bao giờ 3 liên tiếp
+
+    def _mixed(ci, clone, tools, tool_names, args, store):
+        inf = next(seq)
+        if not inf:
+            store.mark_scan_done(ci.commit_id)
+        return f"[{ci.commit_id[:8]}] x", 0 if inf else 1, 0, 0, inf
+
+    monkeypatch.setattr(cli, "_scan_one_commit", _mixed)
+    assert cli.main(["scan", "https://github.com/o/r", "--no-meta", "--max", "0"]) == 0
+
+
+def test_scan_one_commit_detects_infra_error_record(orch_env, scratch_db, tmp_path):
+    """Tool ghi raw_out ("error", JSON kind=infra_error) -> commit KHÔNG scan_done, trả n_infra=1."""
+    import argparse
+    from orchestrator import cli
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    from orchestrator.tools.base import error_record
+    from orchestrator.enumerate_commits import CommitInfo
+
+    class _InfraTool:
+        name = "semgrep"
+
+        def scan(self, clone, cid, repo, changed, raw_out=None):
+            raw_out.insert(0, ("error", error_record("semgrep", "infra_error", "Cannot connect to the Docker daemon")))
+            return []
+
+    class _OkTool(_InfraTool):
+        name = "bearer"
+
+        def scan(self, clone, cid, repo, changed, raw_out=None):
+            raw_out.append(("json", "[]"))
+            return []
+
+    ci = CommitInfo(commit_id="f" * 40, parent_commit=None, author_date="2024-01-01", message="m", is_merge=False,
+                    changed_files=["A.java"])
+    store = SQLiteStore(scratch_db)
+    ns = argparse.Namespace(repo="https://github.com/o/r")
+    cli.config.CHEAP_INTRA_PARALLEL = 0
+    res = cli._scan_one_commit(ci, tmp_path, [_InfraTool(), _OkTool()], ["semgrep", "bearer"], ns, store)
+    assert res[4] == 1 and "INFRA_ERROR" in res[0] and res[1] == 0
+    assert ci.commit_id not in store.scan_done_ids()
+    # tool ok không lỗi -> scan_done, n_infra=0
+    res2 = cli._scan_one_commit(ci, tmp_path, [_OkTool()], ["bearer"], ns, store)
+    assert res2[4] == 0 and ci.commit_id in store.scan_done_ids()
+    store.close()
+
+
+def test_kappa_ignores_raw_output_error_rows(orch_env, scratch_db):
+    """raw_output fmt='error' (tool không chạy được) KHÔNG được tính là rater 'không báo'."""
+    import sqlite3
+    from orchestrator import kappa as kp
+    from orchestrator.storage.sqlite_store import SQLiteStore
+    store = SQLiteStore(scratch_db)
+    before = kp.compute_all(store)
+    store.close()
+    conn = sqlite3.connect(scratch_db)
+    cids = [r[0] for r in conn.execute("SELECT DISTINCT commit_id FROM raw_findings")]
+    for cid in cids:                                            # thêm 'codeql' + 'semgrep' lỗi trên mọi commit
+        for tool in ("codeql", "sonar"):
+            conn.execute("INSERT INTO raw_output (commit_id,tool,tier,fmt,content,created_at) VALUES (?,?,?,?,?,'')",
+                         [cid, tool, "expensive", "error", '{"tool":"%s","kind":"tool_timeout","msg":"x"}' % tool])
+    conn.commit(); conn.close()
+    store = SQLiteStore(scratch_db)
+    after = kp.compute_all(store)
+    store.close()
+    assert after == before                                      # không đổi mẫu số / không thêm cặp codeql|…
+    assert not any("codeql" in p["group"] or "sonar" in p["group"] for p in after["pairs"])

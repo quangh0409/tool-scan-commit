@@ -226,6 +226,8 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     store.reset_cheap_scan(ci.commit_id)          # re-scan idempotent: xoá row lửng nếu từng bị kill
     changed = [f for f in ci.code_files if (clone / f).exists()]
 
+    infra: list[str] = []            # tool gặp infra_error (Docker tắt / đĩa đầy) trên commit này
+
     def _safe(t):
         raw = []
         try:
@@ -235,6 +237,8 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
             fs = []
         if raw:
             store.insert_raw_output(ci.commit_id, t.name, raw[0][0], raw[0][1])
+            if raw[0][0] == "error" and _error_kind(raw[0][1]) == "infra_error":
+                infra.append(t.name)
         return fs
 
     all_findings = []
@@ -246,6 +250,10 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
         for t in tools:
             all_findings += _safe(t)
 
+    if infra:
+        # Hạ tầng hỏng: kết quả commit này KHÔNG phải dữ liệu -> bỏ raw bán phần, KHÔNG đánh scan_done (resume quét lại)
+        store.reset_cheap_scan(ci.commit_id)
+        return (f"[{ci.commit_id[:8]}] INFRA_ERROR ({','.join(infra)}) — bỏ kết quả, sẽ quét lại", 0, 0, 0, len(infra))
     all_findings = [f for f in all_findings if not enm.is_excluded_path(f.file_path)]
     # LƯU RAW từng-tool -> RELABEL (gộp cụm + vote tier-aware + enrich). Nhãn dẫn xuất từ raw.
     store.insert_raw(all_findings)
@@ -261,7 +269,15 @@ def _scan_one_commit(ci, clone: Path, tools, tool_names, args, store):
     clean = sum(1 for f in changed if f not in files_with_finding)
     store.mark_scan_done(ci.commit_id)            # mốc resume — ghi CUỐI CÙNG
     status = f"[{ci.commit_id[:8]}] {len(changed)} file đổi | {len(all_findings)} findings -> {len(rows)} cụm"
-    return status, 1, len(rows), clean
+    return status, 1, len(rows), clean, 0
+
+
+def _error_kind(payload) -> str | None:
+    """raw_output fmt='error' có content JSON {tool, kind, msg} (tools/base.error_record)."""
+    try:
+        return (json.loads(payload) or {}).get("kind")
+    except (TypeError, ValueError):
+        return None
 
 
 def cmd_scan(args):
@@ -320,14 +336,18 @@ def cmd_scan(args):
         clone = pool.acquire()
         try:
             pool.checkout(clone, ci.commit_id)
-            st, ns, nw, nc = _scan_one_commit(ci, clone, tools, tool_names, args, store)
-            return ci.commit_id, "ok", st, ns, nw, nc
+            res = _scan_one_commit(ci, clone, tools, tool_names, args, store)
+            st, ns, nw, nc = res[:4]
+            n_infra = res[4] if len(res) > 4 else 0
+            return ci.commit_id, ("infra_error" if n_infra else "ok"), st, ns, nw, nc
         except Exception as e:  # noqa: BLE001 — 1 commit lỗi không dừng cả run
             return ci.commit_id, "tool_error", f"[{ci.commit_id[:8]}] LỖI: {e}", 0, 0, 0
         finally:
             pool.release(clone)
 
     stopped = False
+    stop_reason = "stop_file"
+    consecutive_infra = 0            # như tầng đắt: >= ORCH_INFRA_STOP_AFTER infra_error LIÊN TIẾP -> dừng run
     done = 0
     it = iter(todo)
     try:
@@ -353,6 +373,14 @@ def cmd_scan(args):
                     print(st, flush=True)
                     progress.emit(phase="scan", event="item", done=done, total=len(todo), sha=sha,
                                   status=status, msg=st.split("] ", 1)[-1][:120])
+                    if status == "infra_error":
+                        consecutive_infra += 1
+                    elif status == "ok":
+                        consecutive_infra = 0
+                    if not stopped and consecutive_infra >= max(1, config.INFRA_STOP_AFTER):
+                        stopped, stop_reason = True, "infra_error"
+                        print(f"INFRA_ERROR {consecutive_infra} lần liên tiếp (Docker tắt/đĩa đầy?) -> dừng run, "
+                              "không nhận commit mới", flush=True)
                 # Stop-file: kiểm GIỮA commit — không claim commit mới, chờ commit đang chạy xong.
                 if not stopped and progress.should_stop():
                     stopped = True
@@ -368,8 +396,9 @@ def cmd_scan(args):
     print(f"DB: {store.count()} findings, {store.count_clean()} clean files")
     store.close()
     if stopped:
-        progress.emit(phase="scan", event="stop", done=done, total=len(todo), status="stopped",
-                      msg="dừng theo stop-file")
+        progress.emit(phase="scan", event="stop", done=done, total=len(todo),
+                      status=("infra_error" if stop_reason == "infra_error" else "stopped"),
+                      msg=("dừng: infra_error liên tiếp" if stop_reason == "infra_error" else "dừng theo stop-file"))
         return EXIT_STOP
     progress.emit(phase="scan", event="done", done=done, total=len(todo))
     return EXIT_OK
