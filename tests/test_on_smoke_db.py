@@ -49,7 +49,7 @@ def smoke_run(orch_env, smoke_db, smoke_export, monkeypatch, tmp_path):
     return {"run_id": RUN, "db": smoke_db, "export": smoke_export}
 
 
-# ----------------------------------------------------------------------------- verify_run 17/17
+# ----------------------------------------------------------------------------- verify_run 18/18 (17 A1 + run_meta_timestamps A2)
 def test_verify_run_passes_on_real_smoke(orch_env, smoke_db, smoke_export):
     sys.path.insert(0, str(ROOT / "scripts"))
     try:
@@ -59,7 +59,7 @@ def test_verify_run_passes_on_real_smoke(orch_env, smoke_db, smoke_export):
     res = vr.run(smoke_db, smoke_export)
     assert res["pass"] is True, [c for c in res["checks"] if c["status"] == "FAIL"]
     st = {c["id"]: c["status"] for c in res["checks"]}
-    assert len(st) == 17 and set(st.values()) == {"PASS"}
+    assert len(st) == 18 and set(st.values()) == {"PASS"}
     assert "digest" in {c["id"]: c for c in res["checks"]}["run_meta_analyze"]["detail"]
 
 
@@ -83,9 +83,6 @@ def test_stats_overview_numbers(orch_env, smoke_db):
     assert any("κ" in s for s in ov["limits"]) and any("gold" in s for s in ov["limits"])
 
 
-@pytest.mark.xfail(strict=True, reason="LỆCH A2 stats.py:63-99 (_funnel/_negatives): universe = scanned_files chỉ có "
-                   "commit buggy (clean commit 0 file-code không có row) -> cheap_clean=0, clean=0; export/negative_level/"
-                   "manifest dùng raw_output∪findings∪raw_findings -> cheap_clean=2 (verify_run PASS). Sửa stats rồi bỏ xfail.")
 def test_stats_cheap_clean_matches_export(orch_env, smoke_db):
     stats = _m("orchestrator.stats")
     ov = stats.overview(smoke_db, run_id=RUN)
