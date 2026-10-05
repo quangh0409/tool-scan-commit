@@ -99,7 +99,12 @@ export function adaptSecJIT(S) {
     empty(msg) { return S.empty(msg); },
     errorBox(err, onRetry) { return S.errorBox(normErr(err), onRetry); },
     skeleton(n = 4) { return S.skeleton(n, { lines: true }); },
-    badgeLabel(label, evidence) { return S.badgeLabel(label, evidence); },
+    badgeLabel(label, evidence) {
+      // Nhãn ÂM: wording bắt buộc (CONTRACTS §10) — badgeLabel của app.js chỉ biết gold/silver/candidate
+      if (label === 'verified-clean') return h('span', { class: 'badge verified-clean', title: 'verified-clean · 2 tool đắt không báo — không phải chứng minh sạch', text: 'verified-clean · 2 tool đắt không báo' });
+      if (label === 'cheap-clean') return h('span', { class: 'badge cheap-clean', title: 'cheap-clean · chỉ tool rẻ không báo, chưa qua tầng đắt', text: 'cheap-clean · chỉ tool rẻ' });
+      return S.badgeLabel(label, evidence);
+    },
   };
 }
 
