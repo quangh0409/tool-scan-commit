@@ -1,0 +1,10 @@
+﻿secjit-scan 1542d54
+build: 2026-10-05T22:46:57  git: 1542d54e4a9010270859ccf38bef72e6c9da9774  branch: dev
+python: Python 3.14.0  pyinstaller: 6.22.3
+
+Chạy:
+  secjit-scan.exe                     nhấp đúp: mở giao diện (WebView2; không có → trình duyệt) + cửa sổ console = log server
+  secjit-scan.exe --preflight --json  kiểm môi trường (Docker Desktop, image, port, RAM)
+  secjit-scan.exe --profile P.json    chạy pipeline headless
+  secjit-scan.exe --cli --help        mọi lệnh orchestrator
+Kiểm toàn vẹn: Get-FileHash -Algorithm SHA256 *.exe  so với SHA256SUMS.txt
